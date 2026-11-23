@@ -1,6 +1,18 @@
 # Building and publishing
 
-Oscuru is a native Swift app. CI builds and tests it on GitHub's Mac runners on every push. To get it on a phone, it is built and signed on Expo's build service (EAS Build) and sent to TestFlight.
+Oscuru is a native Swift app. CI builds and tests it on GitHub's Mac runners on every push.
+
+## How builds reach TestFlight today
+
+`scripts/testflight.sh` signs, archives and uploads the app, and `scripts/asc.py` handles App Store Connect: it finds the bundle ID, app record and provisioning profile, picks the next build number, and keeps an internal TestFlight group "Me" that gets every build. Oscuru has no signing secrets of its own yet, so for now these scripts run from a temporary workflow in the putia-app repository, `.github/workflows/oscuru-testflight.yml` on the `claude/youthful-gates-jldvp7` branch, which uses that team's Apple credentials (the owner approved this on 2026-11-23). To ship a build, write the full Oscuru commit hash to `.github/oscuru-build-request` in putia-app and push.
+
+The team's API key does not have the Admin role, so it cannot register identifiers or create profiles. These were made by hand once: the App ID `com.rudilosso.oscuru`, the profile "Oscuru App Store", and the App Store Connect app (Apple ID 6838299074). If the distribution certificate is renewed, create a new profile for it by hand as well.
+
+To make Oscuru independent of putia-app, add the same secrets to this repository (`APPLE_DISTRIBUTION_P12_BASE64`, `APPLE_DISTRIBUTION_P12_PASSWORD`, `ASC_PRIVATE_KEY_BASE64`, `ASC_KEY_ID`, `ASC_ISSUER_ID`) and the variable `TEAM_ID`, run `scripts/testflight.sh` from a workflow here, and delete the one in putia-app.
+
+## The Expo route (not used yet)
+
+Expo's build service (EAS Build) is set up as an alternative:
 
 ## What runs where
 
