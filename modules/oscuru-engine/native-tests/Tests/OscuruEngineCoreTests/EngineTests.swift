@@ -246,8 +246,7 @@ final class EngineTests: XCTestCase {
   func testToneTableIsAppliedPerChannel() throws {
     let url = try makePNG("grey.png", width: 16, height: 16, paint: grey(0.25))
     _ = try engine.open(id: "a", url: url)
-    // Red inverted, green untouched, blue forced to zero. Core Image looks entries up without
-    // interpolating between them, so the app sends a fine table (TONE_TABLE_SIZE in color.ts).
+    // Red inverted, green untouched, blue forced to zero, in Display P3.
     let size = 1024
     var table: [Float] = []
     for index in 0..<size {
@@ -259,8 +258,10 @@ final class EngineTests: XCTestCase {
     recipe.toneTable = floats(table)
     let (_, pixels) = try render("a", recipe)
     let pixel = pixels.at(8, 8)
-    XCTAssertEqual(pixel.r, 191, accuracy: 2)
-    XCTAssertEqual(pixel.g, 64, accuracy: 2)
+    // The grey is (0.25, 0.25, 0.25) in P3 too, so the table gives P3 (0.75, 0.25, 0).
+    // Read back as sRGB that is a more saturated (0.81, 0.20, 0): the tables work in P3, not sRGB.
+    XCTAssertEqual(pixel.r, 207, accuracy: 4)
+    XCTAssertEqual(pixel.g, 50, accuracy: 4)
     XCTAssertLessThan(pixel.b, 12)
   }
 
@@ -419,7 +420,8 @@ final class EngineTests: XCTestCase {
 
   /// An uncompressed DNG of a flat mid-grey scene: a Bayer mosaic, or already demosaiced
   /// ("linear", as Apple ProRAW is). `extended` adds the optional tags real cameras write.
-  private func makeDNG(_ name: String, width: Int = 64, height: Int = 48, linear: Bool = false, extended: Bool = false, level: UInt16 = 11796) throws -> URL {
+  /// Apple's decoder ignores very small files (64 × 48 comes back empty), hence the size.
+  private func makeDNG(_ name: String, width: Int = 320, height: Int = 240, linear: Bool = false, extended: Bool = false, level: UInt16 = 11796) throws -> URL {
     var extra = Data()
     var entries: [(tag: UInt16, type: UInt16, count: UInt32, value: Data)] = []
     func bytes<T: FixedWidthInteger>(_ value: T) -> Data {
@@ -533,32 +535,15 @@ final class EngineTests: XCTestCase {
     return url
   }
 
-  /// Prints what Apple's RAW decoder makes of each synthetic DNG variant, and returns the first it can develop.
-  private func developableDNG() throws -> URL? {
-    var chosen: URL?
-    for (width, height) in [(64, 48), (320, 240)] {
-      for linear in [false, true] {
-        for extended in [false, true] {
-          let name = "dng-\(width)-\(linear ? "linear" : "bayer")-\(extended ? "extended" : "minimal").dng"
-          let url = try makeDNG(name, width: width, height: height, linear: linear, extended: extended)
-          let source = CGImageSourceCreateWithURL(url as CFURL, nil)
-          let type = source.flatMap { CGImageSourceGetType($0) as String? } ?? "none"
-          let status = source.map { CGImageSourceGetStatus($0).rawValue } ?? -99
-          let filter = CIRAWFilter(imageURL: url)
-          let extent = filter?.outputImage?.extent
-          print("DNG \(name): type \(type) status \(status) filter \(filter != nil) nativeSize \(String(describing: filter?.nativeSize)) extent \(String(describing: extent)) temperature \(String(describing: filter?.neutralTemperature))")
-          if chosen == nil, let extent = extent, extent.width >= 1, extent.height >= 1, !extent.isInfinite {
-            chosen = url
-          }
-        }
-      }
-    }
-    return chosen
+  func testBayerRAWGoesThroughTheRAWDecoder() throws {
+    try checkRAW(try makeDNG("bayer.dng", linear: false))
   }
 
-  func testRAWFilesGoThroughTheRAWDecoder() throws {
-    let url = try XCTUnwrap(try developableDNG(), "Apple's RAW decoder developed none of the synthetic DNGs")
-    print("Using \(url.lastPathComponent)")
+  func testLinearRAWLikeProRAWGoesThroughTheRAWDecoder() throws {
+    try checkRAW(try makeDNG("linear.dng", linear: true, extended: true))
+  }
+
+  private func checkRAW(_ url: URL) throws {
     let metadata = try engine.open(id: "raw", url: url)
     XCTAssertEqual(metadata["isRaw"] as? Bool, true)
     XCTAssertEqual(metadata["model"] as? String, "Test Camera")

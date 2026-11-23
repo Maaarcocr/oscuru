@@ -13,7 +13,7 @@
 
 import { COLOR_RANGES, isIdentityCurve, type ColorGrading, type CurvePoint, type EditingState } from './state';
 
-/** Core Image looks tone-table entries up without interpolating, so the table has to be fine. */
+/** Fine enough that a lookup needs no interpolation between entries. */
 export const TONE_TABLE_SIZE = 1024;
 export const CUBE_SIZE = 33;
 
