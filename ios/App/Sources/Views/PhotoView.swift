@@ -125,7 +125,7 @@ private struct ThreadView: View {
     private func open(_ turn: Turn) {
         guard let state = turn.result else { return }
         composing = false
-        viewing = Viewed(state: state, before: editor.resultBefore(turn), isCurrent: turn.id == editor.currentTurnID)
+        viewing = Viewed(state: state, before: editor.resultBefore(turn), isCurrent: state == editor.state)
     }
 
     private func share(_ state: EditingState, _ format: ExportFormat) {
@@ -339,7 +339,7 @@ private struct TurnView: View {
     @ViewBuilder
     private var card: some View {
         if let state = turn.result {
-            let isCurrent = turn.id == editor.currentTurnID
+            let isCurrent = state == editor.state
             PhotoCard(editor: editor, state: state)
                 .onTapGesture { open(turn) }
                 .contextMenu {

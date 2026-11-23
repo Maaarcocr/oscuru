@@ -132,9 +132,6 @@ final class PhotoEditor {
     var isWorking: Bool { task != nil }
     var original: EditingState { EditingState(defaults: info.defaults) }
 
-    /// The turn whose photo is the current one.
-    var currentTurnID: String? { turns.last { $0.result != nil }?.id }
-
     /// The photo before this turn: the result of the latest earlier turn that had one.
     func resultBefore(_ turn: Turn) -> EditingState? {
         guard let index = turns.firstIndex(where: { $0.id == turn.id }) else { return nil }
@@ -281,7 +278,9 @@ final class PhotoEditor {
                 let turn = try await Agent.run(client: client, model: model, port: port, conversation: conversation, instruction: text) { event in
                     await self.handle(event, run: run)
                 }
-                self.conversation = turn.conversation
+                // Only the latest pictures are kept: the next instruction would drop the rest anyway,
+                // and the saved thread stays small.
+                self.conversation = Agent.compactEarlierImages(turn.conversation)
                 if turn.stop == .cancelled { status = .stopped }
             } catch let error as ModelError {
                 status = .failed(L10n.message(for: error))
