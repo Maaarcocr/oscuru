@@ -74,7 +74,7 @@ export function buildRenderInput(state: EditingState, defaults?: Partial<PhotoDe
       sharpening: unlessDefault(detail.sharpening, base.detail.sharpening),
       noiseReduction: unlessDefault(detail.noiseReduction, base.detail.noiseReduction),
       colorNoiseReduction: unlessDefault(detail.colorNoiseReduction, base.detail.colorNoiseReduction),
-      vignette: -global.vignette / 100,
+      vignette: global.vignette === 0 ? 0 : -global.vignette / 100,
       rotation: crop.rotation,
       flipHorizontal: crop.flipHorizontal,
       flipVertical: crop.flipVertical,

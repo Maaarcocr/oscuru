@@ -13,7 +13,8 @@
 
 import { COLOR_RANGES, isIdentityCurve, type ColorGrading, type CurvePoint, type EditingState } from './state';
 
-export const TONE_TABLE_SIZE = 256;
+/** Core Image looks tone-table entries up without interpolating, so the table has to be fine. */
+export const TONE_TABLE_SIZE = 1024;
 export const CUBE_SIZE = 33;
 
 /** Display P3 luma weights. */
@@ -362,9 +363,9 @@ export function buildColorCube(state: EditingState, size: number = CUBE_SIZE): F
 /** Runs one Display P3 colour through the tone and colour stages exactly (no table lookups). */
 export function applyPointOps(state: EditingState, input: [number, number, number]): [number, number, number] {
   const rgb: [number, number, number] = [clamp01(input[0]), clamp01(input[1]), clamp01(input[2])];
-  const table = buildToneTables(state, 1024);
+  const table = buildToneTables(state, 4096);
   if (table) {
-    for (let channel = 0; channel < 3; channel++) rgb[channel] = sampleTable(table, 1024, channel, rgb[channel]);
+    for (let channel = 0; channel < 3; channel++) rgb[channel] = sampleTable(table, 4096, channel, rgb[channel]);
   }
   if (!colorIsIdentity(state)) colorStage(state).apply(rgb);
   return rgb;

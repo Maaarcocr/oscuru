@@ -77,7 +77,7 @@ public final class PhotoSession {
         previewImage = nil
       }
     }
-    guard size.width >= 1, size.height >= 1 else {
+    guard size.width >= 1, size.height >= 1, size.width.isFinite, size.height.isFinite else {
       throw EngineError.cannotOpen("the image is empty")
     }
     metadata = PhotoSession.describe(
