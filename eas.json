@@ -1,0 +1,41 @@
+{
+  "cli": {
+    "version": ">= 16.0.0",
+    "appVersionSource": "remote"
+  },
+  "build": {
+    "development": {
+      "developmentClient": true,
+      "distribution": "internal",
+      "channel": "development",
+      "environment": "development"
+    },
+    "simulator": {
+      "distribution": "internal",
+      "channel": "preview",
+      "environment": "preview",
+      "ios": {
+        "simulator": true
+      }
+    },
+    "production": {
+      "distribution": "store",
+      "channel": "production",
+      "environment": "production",
+      "autoIncrement": true
+    },
+    "production-local-credentials": {
+      "extends": "production",
+      "credentialsSource": "local"
+    }
+  },
+  "submit": {
+    "production": {
+      "ios": {
+        "ascApiKeyPath": "$ASC_API_KEY_PATH",
+        "ascApiKeyId": "$ASC_API_KEY_ID",
+        "ascApiKeyIssuerId": "$ASC_API_KEY_ISSUER_ID"
+      }
+    }
+  }
+}

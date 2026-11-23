@@ -246,9 +246,10 @@ export class EditorSession {
     return true;
   }
 
-  /** Whether the assistant's edits for this instruction are still part of the current photo. */
-  hasRun(runId: string): boolean {
-    return this.history.slice(0, this.position + 1).some((entry) => entry.runId === runId);
+  /** Whether reverting this instruction would change the photo: its edits were applied and are still in effect. */
+  canRevertRun(runId: string): boolean {
+    const first = this.history.findIndex((entry, index) => index <= this.position && entry.runId === runId);
+    return first > 0 && !statesEqual(this.history[first - 1].state, this.state);
   }
 
   setFullFrame(fullFrame: boolean): void {

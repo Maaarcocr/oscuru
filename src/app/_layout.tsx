@@ -6,6 +6,7 @@ import { SafeAreaProvider } from 'react-native-safe-area-context';
 
 import { loadAccount } from '@/platform/account';
 import { loadLibrary } from '@/platform/library';
+import { runSelfTestIfAsked } from '@/platform/selfTest';
 import { colors } from '@/ui/theme';
 
 const theme = {
@@ -17,6 +18,7 @@ export default function RootLayout() {
   useEffect(() => {
     loadLibrary();
     void loadAccount();
+    void runSelfTestIfAsked();
   }, []);
   return (
     <GestureHandlerRootView style={{ flex: 1, backgroundColor: colors.background }}>

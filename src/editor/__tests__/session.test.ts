@@ -214,12 +214,15 @@ describe('editor session', () => {
     let revision = session.getSnapshot().revision;
     revision = (await session.runScript(script('photo.current.adjust({ contrast: 20 }); photo.current.commit();', revision), { runId: 'run-1' })).revision;
     await session.runScript(script('photo.current.adjust({ saturation: 15 }); photo.current.commit();', revision), { runId: 'run-1' });
-    expect(session.hasRun('run-1')).toBe(true);
+    expect(session.canRevertRun('run-1')).toBe(true);
     expect(session.revertRun('run-1')).toBe(true);
+    expect(session.canRevertRun('run-1')).toBe(false);
     expect(session.getSnapshot().state.global).toMatchObject({ exposureEV: 0.5, contrast: 0, saturation: 0 });
     session.undo();
     expect(session.getSnapshot().state.global).toMatchObject({ contrast: 20, saturation: 15 });
+    expect(session.canRevertRun('run-1')).toBe(true);
     expect(session.revertRun('unknown')).toBe(false);
+    expect(session.canRevertRun('unknown')).toBe(false);
   });
 
   it('measures the cropped photo even while the crop tool shows the whole frame', async () => {

@@ -116,7 +116,8 @@ export function AssistantPanel({ session, snapshot, assistant }: PanelProps & { 
         {state.items.map((item) => {
           const footer = lastOfRun.get(item.runId) === item.id && state.activeRun !== item.runId;
           const cost = state.costs[item.runId];
-          const canRevert = footer && session.hasRun(item.runId) && snapshot.revision > 0;
+          // Reading the snapshot's revision keeps this current as the photo changes.
+          const canRevert = footer && snapshot.revision > 0 && session.canRevertRun(item.runId);
           return (
             <View key={item.id}>
               {item.kind === 'user' ? (
