@@ -473,15 +473,16 @@ private struct StepsSummary: View {
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .background(Color(white: 0.1), in: RoundedRectangle(cornerRadius: 16, style: .continuous))
                 .id(id)
-                .onAppear {
-                    Task {
-                        // Bring the steps onto the screen once they are laid out, and again once
-                        // they have settled; the second time does nothing if they are already there.
-                        for delay in [60, 400] {
-                            try? await Task.sleep(for: .milliseconds(delay))
-                            reveal(id)
-                        }
-                    }
+            }
+        }
+        .onChange(of: expanded) { _, isExpanded in
+            guard isExpanded else { return }
+            Task {
+                // Bring the steps onto the screen once they are laid out, and again once they have
+                // settled; the second time does nothing if they are already there.
+                for delay in [60, 400] {
+                    try? await Task.sleep(for: .milliseconds(delay))
+                    reveal(id)
                 }
             }
         }
