@@ -27,6 +27,8 @@ struct LibraryView: View {
     @State private var problem: String?
     @State private var showingSettings = false
     @State private var showingCamera = false
+    /// A photo to open once the camera has finished closing, so the two transitions don't overlap.
+    @State private var openAfterCamera: String?
     @State private var path: [String] = []
     @Namespace private var transition
 
@@ -99,10 +101,15 @@ struct LibraryView: View {
                 }
             }
             .sheet(isPresented: $showingSettings) { SettingsView() }
-            .fullScreenCover(isPresented: $showingCamera) {
-                CameraView(library: model.library, simulated: UITesting.isActive) { id in
-                    showingCamera = false
+            .fullScreenCover(isPresented: $showingCamera, onDismiss: {
+                if let id = openAfterCamera {
+                    openAfterCamera = nil
                     path = [id]
+                }
+            }) {
+                CameraView(library: model.library, simulated: UITesting.isActive) { id in
+                    openAfterCamera = id
+                    showingCamera = false
                 }
                 .navigationTransition(.zoom(sourceID: LibraryView.camera, in: transition))
             }

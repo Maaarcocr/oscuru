@@ -72,7 +72,7 @@ final class OscuruUITests: XCTestCase {
         capture("11-camera-shot")
         lastShot.tap()
         XCTAssertTrue(element(app, "thread.original").waitForExistence(timeout: 30), "the shot opens as a new conversation")
-        sleep(1)
+        sleep(2)
         capture("12-camera-photo")
 
         // Settings.
