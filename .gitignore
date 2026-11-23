@@ -1,47 +1,26 @@
-# Learn more https://docs.github.com/en/get-started/getting-started-with-git/ignoring-files
-
-# dependencies
-node_modules/
-
-# Expo
-.expo/
-dist/
-web-build/
-expo-env.d.ts
-
-# Native
-.kotlin/
-*.orig.*
-*.jks
-*.p8
-*.p12
-*.key
-*.mobileprovision
-
-# Metro
-.metro-health-check*
-
-# debug
-npm-debug.*
-yarn-debug.*
-yarn-error.*
-
 # macOS
 .DS_Store
-*.pem
 
-# local env files
-.env*.local
+# Swift packages
+.build/
+.swiftpm/
 
-# typescript
-*.tsbuildinfo
+# Xcode: the project is generated from ios/project.yml and never committed
+ios/Oscuru.xcodeproj/
+ios/DerivedData*/
+ios/build/
+xcuserdata/
+*.xcresult
 
-example
-
-# generated native folders
-/ios
-/android
-
-# signing material written by the build workflow
+# Signing material
+*.p12
+*.p8
+*.mobileprovision
+*.key.pem
+*.certSigningRequest
+ios/Config/Signing.local.xcconfig
 /credentials.json
 /credentials/
+
+# Node (only the Expo build tooling uses it)
+node_modules/
