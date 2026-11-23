@@ -69,7 +69,7 @@ struct FiltersView: View {
                     .onSubmit(save)
                     .padding(.horizontal, 16)
                     .padding(.vertical, 12)
-                    .glassEffect(.regular, in: .capsule)
+                    .background(Color(white: 0.2), in: Capsule())
                     .accessibilityIdentifier("filters.name")
                 Button(L10n.save, action: save)
                     .buttonStyle(.glassProminent)

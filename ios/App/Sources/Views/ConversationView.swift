@@ -32,6 +32,8 @@ struct ConversationView: View {
             }
             .navigationTitle(L10n.conversation)
             .navigationBarTitleDisplayMode(.inline)
+            // The conversation scrolls under a solid bar, so the title never sits on top of a message.
+            .toolbarBackgroundVisibility(.visible, for: .navigationBar)
             .toolbar {
                 ToolbarItem(placement: .confirmationAction) {
                     Button(L10n.done) { dismiss() }
