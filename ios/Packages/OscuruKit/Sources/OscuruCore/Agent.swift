@@ -136,7 +136,7 @@ public enum Agent {
     /// is not modified; the one to continue from is in the result.
     public static func run(
         client: ModelClient, model: String, port: AgentPort, conversation: [JSONValue], instruction: String,
-        onEvent: @escaping @Sendable (AgentEvent) -> Void
+        onEvent: @escaping @Sendable (AgentEvent) async -> Void
     ) async throws -> AgentTurn {
         var messages = compactEarlierImages(conversation)
         var scripts = 0
@@ -156,9 +156,9 @@ public enum Agent {
                 userMessage(text: "\(instruction.trimmingCharacters(in: .whitespacesAndNewlines))\n\n[Photo context]\n\(context.json.text())\(preface)", images: opening))
 
             while true {
-                onEvent(.thinking)
+                await onEvent(.thinking)
                 let response = try await client.chat(ChatRequest(model: model, messages: messages, tools: [Prompt.tool], sessionID: context.sessionID))
-                if let usage = response.usage { onEvent(.usage(usage, model: response.model)) }
+                if let usage = response.usage { await onEvent(.usage(usage, model: response.model)) }
                 if Task.isCancelled { return cancelled() }
 
                 // The assistant message goes back exactly as it came: some providers attach reasoning
@@ -173,7 +173,7 @@ public enum Agent {
                 let said = text(of: .object(assistant)).trimmingCharacters(in: .whitespacesAndNewlines)
                 if !said.isEmpty {
                     lastText = said
-                    onEvent(.text(said))
+                    await onEvent(.text(said))
                 }
                 if calls.isEmpty {
                     return AgentTurn(stop: .done, text: lastText, scripts: scripts, conversation: messages)
@@ -195,9 +195,9 @@ public enum Agent {
                         continue
                     }
                     scripts += 1
-                    onEvent(.scriptStarted(id: id, code: arguments["code"]?.stringValue ?? ""))
+                    await onEvent(.scriptStarted(id: id, code: arguments["code"]?.stringValue ?? ""))
                     let execution = await port.execute(arguments: arguments)
-                    onEvent(.scriptFinished(id: id, payload: execution.payload))
+                    await onEvent(.scriptFinished(id: id, payload: execution.payload))
                     reply(execution.payload)
                     images += execution.images
                     if Task.isCancelled { return cancelled() }

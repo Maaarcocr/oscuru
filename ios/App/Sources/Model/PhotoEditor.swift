@@ -189,11 +189,10 @@ final class PhotoEditor {
         let conversation = conversation
         task = Task {
             do {
+                // Events are delivered in order, each handled before the agent goes on.
                 let turn = try await Agent.run(client: client, model: model, port: port, conversation: conversation, instruction: text) { event in
-                    Task { @MainActor in self.handle(event, run: run) }
+                    await self.handle(event, run: run)
                 }
-                // Let the last events land before the run is closed.
-                await Task.yield()
                 self.conversation = turn.conversation
                 if turn.stop == .cancelled { self.add(run, .notice(L10n.assistantStopped, isError: false)) }
             } catch let error as ModelError {

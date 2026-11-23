@@ -89,7 +89,8 @@ struct ScriptedModel: ModelClient {
             if message["role"] == "tool", let reported = JSONValue(text: message["content"]?.stringValue ?? "")?["revision"]?.doubleValue {
                 revision = Int(reported)
             }
-            let text = Agent.text(of: message)
+            // The instruction and context are the first text part; picture labels follow it.
+            let text = message["content"]?.arrayValue?.first?["text"]?.stringValue ?? ""
             guard message["role"] == "user", let marker = text.range(of: "[Photo context]\n") else { continue }
             var json = String(text[marker.upperBound...])
             if let extra = json.range(of: "\n\n[") { json = String(json[..<extra.lowerBound]) }
