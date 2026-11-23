@@ -6,10 +6,17 @@
       "@/*": [
         "./src/*"
       ],
+      "@modules/*": [
+        "./modules/*"
+      ],
       "@/assets/*": [
         "./assets/*"
       ]
-    }
+    },
+    "types": [
+      "jest",
+      "node"
+    ]
   },
   "include": [
     "**/*.ts",

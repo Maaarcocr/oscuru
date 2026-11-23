@@ -115,7 +115,7 @@ export const GLOBAL_SPECS: Record<keyof GlobalAdjustments, ParamSpec> = {
     step: 50,
     unit: 'K',
     description:
-      'White balance in Kelvin, as in Camera Raw: a higher value makes the photo warmer. Starts at the as-shot value (metadata.asShot.temperature).',
+      'White balance in Kelvin, as in Camera Raw: a higher value makes the photo warmer.',
   },
   tint: {
     min: -150,
@@ -123,7 +123,7 @@ export const GLOBAL_SPECS: Record<keyof GlobalAdjustments, ParamSpec> = {
     default: 0,
     step: 1,
     unit: '',
-    description: 'White balance tint: negative is greener, positive is more magenta. Starts at the as-shot value.',
+    description: 'White balance tint: negative is greener, positive is more magenta.',
   },
   texture: tone('Fine local contrast (small details). Negative smooths.'),
   clarity: tone('Mid-size local contrast. Negative gives a soft glow.'),

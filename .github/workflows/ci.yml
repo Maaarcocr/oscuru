@@ -10,6 +10,26 @@ concurrency:
   group: verify-${{ github.ref }}
   cancel-in-progress: true
 jobs:
+  app:
+    name: App checks (types, lint, tests, iOS bundle)
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - name: Type check
+        run: npm run typecheck
+      - name: Lint
+        run: npm run lint
+      - name: Unit tests (editing state, colour, sandbox, script transactions, agent loop, costs, strings in en + it)
+        run: npm test
+      - name: Bundle the app for iOS
+        run: npx expo export --platform ios --output-dir dist
+
   engine:
     name: Rendering engine tests (Core Image on macOS)
     runs-on: macos-26
@@ -22,3 +42,57 @@ jobs:
           swift --version
       - name: Engine tests (tables, colour, geometry, RAW decoding)
         run: swift test --package-path modules/oscuru-engine/native-tests
+
+  ios:
+    name: Native iOS build and launch (simulator, unsigned)
+    needs: [app, engine]
+    runs-on: macos-26
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - name: Generate the native project and install pods
+        run: npx expo prebuild --platform ios
+      - name: Build Release for the simulator
+        run: |
+          xcodebuild -version
+          xcodebuild build -workspace ios/Oscuru.xcworkspace -scheme Oscuru -configuration Release \
+            -sdk iphonesimulator -destination 'generic/platform=iOS Simulator' \
+            -derivedDataPath ios/build CODE_SIGNING_ALLOWED=NO > xcodebuild.log 2>&1 || {
+              echo '--- errors ---'
+              grep -E 'error:|fatal error|Undefined symbol|ld: ' xcodebuild.log | sort -u | head -80
+              echo '--- end of log ---'
+              tail -40 xcodebuild.log
+              exit 1
+            }
+          tail -3 xcodebuild.log
+      - name: Launch on a simulator and take a screenshot
+        run: |
+          DEVICE="$(xcrun simctl list devices available -j | python3 -c "import json,sys; devices=[d for group in json.load(sys.stdin)['devices'].values() for d in group if d['name'].startswith('iPhone')]; print(devices[0]['udid'])")"
+          xcrun simctl boot "$DEVICE"
+          xcrun simctl bootstatus "$DEVICE" -b
+          xcrun simctl install "$DEVICE" ios/build/Build/Products/Release-iphonesimulator/Oscuru.app
+          xcrun simctl launch "$DEVICE" com.rudilosso.oscuru
+          sleep 25
+          mkdir -p screenshots
+          xcrun simctl io "$DEVICE" screenshot screenshots/launch.png
+          # The app must still be running: a crash at launch would have removed it.
+          xcrun simctl spawn "$DEVICE" launchctl list | grep com.rudilosso.oscuru
+      - name: Save the launch screenshot
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ios-launch-screenshot
+          path: screenshots
+          if-no-files-found: warn
+      - name: Save the build log
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: xcodebuild-log
+          path: xcodebuild.log
+          if-no-files-found: ignore
