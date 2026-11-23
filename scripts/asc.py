@@ -105,9 +105,18 @@ def prepare(work, serial):
         bundle = matches[0]["id"]
         print(f"Bundle ID {BUNDLE_ID} is registered.")
     else:
-        reply = ok(
-            *call("POST", "/v1/bundleIds", {"data": {"type": "bundleIds", "attributes": {"identifier": BUNDLE_ID, "name": APP_NAME, "platform": "IOS"}}}),
-            "register the bundle ID",
+        def register():
+            status, reply = call("POST", "/v1/bundleIds", {"data": {"type": "bundleIds", "attributes": {"identifier": BUNDLE_ID, "name": APP_NAME, "platform": "IOS"}}})
+            # Apple can take a while to apply an accepted agreement to every part of the account.
+            if status == 403 and "agreement" in json.dumps(reply).lower():
+                return None
+            return ok(status, reply, "register the bundle ID")
+
+        reply = waiting(
+            register,
+            "Apple to accept the agreement for registering identifiers",
+            "Apple still says an agreement is pending. Check appstoreconnect.apple.com → Business (Agreements) and "
+            "developer.apple.com/account for anything left to accept.",
         )
         bundle = reply["data"]["id"]
         notice(f"Registered the bundle ID {BUNDLE_ID}.")
