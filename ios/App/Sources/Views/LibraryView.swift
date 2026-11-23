@@ -66,6 +66,8 @@ struct LibraryView: View {
                         }
                         .padding(.horizontal, 12)
                         .padding(.top, 8)
+                        // New shots slide in when the camera closes.
+                        .animation(.snappy, value: model.library.photos.map(\.id))
                     }
                 }
             }
