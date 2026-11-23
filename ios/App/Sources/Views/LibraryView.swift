@@ -26,7 +26,9 @@ struct LibraryView: View {
     @State private var importing = false
     @State private var problem: String?
     @State private var showingSettings = false
+    @State private var showingCamera = false
     @State private var path: [String] = []
+    @Namespace private var transition
 
     private let columns = [GridItem(.flexible(), spacing: 6), GridItem(.flexible(), spacing: 6)]
 
@@ -39,11 +41,11 @@ struct LibraryView: View {
                     } description: {
                         Text(L10n.libraryEmptyMessage)
                     } actions: {
+                        // The camera button below is the main way in; these bring in photos you have.
                         PhotosPicker(selection: $picked, matching: .images, preferredItemEncoding: .current) {
-                            Text(L10n.fromPhotos).padding(.horizontal, 8)
+                            Text(L10n.fromPhotos)
                         }
-                        .buttonStyle(.glassProminent)
-                        .controlSize(.large)
+                        .buttonStyle(.glass)
                         Button(L10n.fromFiles) { choosingFile = true }
                             .buttonStyle(.glass)
                     }
@@ -67,6 +69,7 @@ struct LibraryView: View {
                     }
                 }
             }
+            .safeAreaInset(edge: .bottom, spacing: 0) { cameraButton }
             .background(Color.black.ignoresSafeArea())
             .navigationTitle(Text(verbatim: "Oscuru"))
             .toolbar {
@@ -94,6 +97,13 @@ struct LibraryView: View {
                 }
             }
             .sheet(isPresented: $showingSettings) { SettingsView() }
+            .fullScreenCover(isPresented: $showingCamera) {
+                CameraView(library: model.library, simulated: UITesting.isActive) { id in
+                    showingCamera = false
+                    path = [id]
+                }
+                .navigationTransition(.zoom(sourceID: LibraryView.camera, in: transition))
+            }
             .fileImporter(isPresented: $choosingFile, allowedContentTypes: [.rawImage, .image]) { result in
                 guard case .success(let url) = result else { return }
                 add(name: url.lastPathComponent) {
@@ -119,6 +129,29 @@ struct LibraryView: View {
                 Text(problem ?? "")
             }
         }
+    }
+
+    private static let camera = "camera"
+
+    /// The way to take a photo: at the bottom, where the composer is in a conversation and the
+    /// shutter is in the camera, which grows out of it.
+    private var cameraButton: some View {
+        Button {
+            showingCamera = true
+        } label: {
+            Image(systemName: "camera.fill")
+                .font(.system(size: 22, weight: .semibold))
+                .frame(width: 44, height: 44)
+        }
+        .buttonStyle(.glassProminent)
+        .buttonBorderShape(.circle)
+        .controlSize(.extraLarge)
+        .matchedTransitionSource(id: LibraryView.camera, in: transition)
+        .accessibilityLabel(L10n.camera)
+        .accessibilityIdentifier("library.camera")
+        .frame(maxWidth: .infinity)
+        .padding(.top, 8)
+        .padding(.bottom, 4)
     }
 
     /// Brings a file into the library and opens it. `fetch` produces a temporary copy to import.

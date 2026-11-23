@@ -241,6 +241,8 @@ final class PhotoEditor {
     /// Develops a version at full resolution into a temporary file for the share sheet.
     func export(_ state: EditingState, as format: ExportFormat) async throws -> URL {
         let name = (document.name as NSString).deletingPathExtension
+            .replacingOccurrences(of: ":", with: ".")
+            .replacingOccurrences(of: "/", with: "-")
         let url = FileManager.default.temporaryDirectory.appending(path: "\(name.isEmpty ? "Oscuru" : name).\(format == .heic ? "heic" : "jpg")")
         try? FileManager.default.removeItem(at: url)
         let renderer = renderer

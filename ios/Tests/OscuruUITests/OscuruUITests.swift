@@ -1,7 +1,7 @@
 import XCTest
 
 /// The main flow, against a sample photo and a played-back model (-ui-testing): ask for an edit,
-/// watch the assistant work and reply, open a version, save a filter. Elements are
+/// watch the assistant work and reply, open a version, save a filter, take a photo. Elements are
 /// found by accessibility identifier, never by text, so the same test runs in English and Italian.
 /// Screenshots are kept in the result bundle and exported by CI, which is how the app is reviewed
 /// without a Mac.
@@ -56,12 +56,31 @@ final class OscuruUITests: XCTestCase {
         capture("08-filters")
         element(app, "filters.done").tap()
 
+        // The camera, from the library: shoot, then go straight to the new photo's conversation.
+        app.navigationBars.buttons.element(boundBy: 0).tap()
+        XCTAssertTrue(photo.waitForExistence(timeout: 30))
+        capture("09-library")
+        element(app, "library.camera").tap()
+        let shutter = element(app, "camera.shutter")
+        XCTAssertTrue(shutter.waitForExistence(timeout: 30))
+        sleep(1)
+        capture("10-camera")
+        shutter.tap()
+        let lastShot = element(app, "camera.lastShot")
+        XCTAssertTrue(waitUntil(timeout: 60) { lastShot.exists && lastShot.isEnabled }, "the shot lands in the library")
+        sleep(1)
+        capture("11-camera-shot")
+        lastShot.tap()
+        XCTAssertTrue(element(app, "thread.original").waitForExistence(timeout: 30), "the shot opens as a new conversation")
+        sleep(1)
+        capture("12-camera-photo")
+
         // Settings.
         app.navigationBars.buttons.element(boundBy: 0).tap()
         XCTAssertTrue(photo.waitForExistence(timeout: 30))
         element(app, "library.settings").tap()
         XCTAssertTrue(element(app, "settings.connected").waitForExistence(timeout: 30))
-        capture("09-settings")
+        capture("13-settings")
 
         // Signed out: one button to sign in, and the other ways on their own page.
         element(app, "settings.disconnect").tap()
@@ -72,10 +91,19 @@ final class OscuruUITests: XCTestCase {
             break
         }
         XCTAssertTrue(element(app, "settings.signIn").waitForExistence(timeout: 30))
-        capture("10-signed-out")
+        capture("14-signed-out")
         element(app, "settings.other").tap()
         XCTAssertTrue(element(app, "settings.key").waitForExistence(timeout: 30))
-        capture("11-other-ways")
+        capture("15-other-ways")
+    }
+
+    private func waitUntil(timeout: TimeInterval, _ condition: () -> Bool) -> Bool {
+        let end = Date().addingTimeInterval(timeout)
+        while Date() < end {
+            if condition() { return true }
+            RunLoop.current.run(until: Date().addingTimeInterval(0.25))
+        }
+        return condition()
     }
 
     private func element(_ app: XCUIApplication, _ identifier: String) -> XCUIElement {

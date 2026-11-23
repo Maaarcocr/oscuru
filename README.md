@@ -13,6 +13,7 @@ The assistant never generates or alters image content. It writes small JavaScrip
 
 ## What it does
 
+- **A camera that doesn't process.** Shoot single-frame Bayer RAW: no Smart HDR, Deep Fusion, night mode, noise reduction or sharpening at capture, just what the sensor saw, kept as a DNG. The shot opens as a new conversation.
 - **A conversation.** Each photo is a thread: the original, what you asked for, and the version that came back. Open any version to zoom in or compare it with the one before.
 - **An assistant that looks.** It sees the photo before and after each step, can zoom into any part of it, and measures what it needs (histogram, clipping, colour casts). It works as long as the photo needs, and you can stop it at any time.
 - **Every version kept.** Nothing is lost: any earlier version in the thread can be brought back or shared, and the thread is saved with the photo.

@@ -1,6 +1,198 @@
 {
   "sourceLanguage": "en",
   "strings": {
+    "camera.denied.message": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Allow Oscuru to use the camera in Settings to take RAW photos."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Consenti a Oscuru di usare la fotocamera in Impostazioni per scattare foto RAW."
+          }
+        }
+      }
+    },
+    "camera.denied.title": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Camera Access Is Off"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "L’accesso alla fotocamera è disattivato"
+          }
+        }
+      }
+    },
+    "camera.exposure": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Exposure"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Esposizione"
+          }
+        }
+      }
+    },
+    "camera.failed": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The photo couldn’t be taken"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Impossibile scattare la foto"
+          }
+        }
+      }
+    },
+    "camera.lastShot": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Open Last Photo"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Apri l’ultima foto"
+          }
+        }
+      }
+    },
+    "camera.noRAW": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "This lens can’t take RAW photos. Try another one."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Questo obiettivo non scatta in RAW. Provane un altro."
+          }
+        }
+      }
+    },
+    "camera.openSettings": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Open Settings"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Apri Impostazioni"
+          }
+        }
+      }
+    },
+    "camera.shutter": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Take Photo"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Scatta"
+          }
+        }
+      }
+    },
+    "camera.title": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Camera"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Fotocamera"
+          }
+        }
+      }
+    },
+    "camera.unavailable.message": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "This iPhone doesn’t give apps the RAW data from its cameras. You can still add photos you already have."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Questo iPhone non dà alle app i dati RAW delle sue fotocamere. Puoi comunque aggiungere le foto che hai già."
+          }
+        }
+      }
+    },
+    "camera.unavailable.title": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No RAW Camera"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nessuna fotocamera RAW"
+          }
+        }
+      }
+    },
+    "camera.viewfinder": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Viewfinder. Tap to focus; swipe up or down to change the exposure."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mirino. Tocca per mettere a fuoco; scorri in su o in giù per cambiare l’esposizione."
+          }
+        }
+      }
+    },
     "change.crop": {
       "localizations": {
         "en": {
@@ -614,13 +806,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Add a RAW photo (Apple ProRAW or DNG) to start. JPEG and HEIC work too. Your originals are never changed."
+            "value": "Take a photo: Oscuru keeps exactly what the sensor saw, with no processing. Or add one you already have. Then say how you want it to look."
           }
         },
         "it": {
           "stringUnit": {
             "state": "translated",
-            "value": "Aggiungi una foto RAW (Apple ProRAW o DNG) per iniziare. Vanno bene anche JPEG e HEIC. Gli originali non vengono mai modificati."
+            "value": "Scatta una foto: Oscuru tiene esattamente ciò che ha visto il sensore, senza elaborazioni. Oppure aggiungine una che hai già. Poi di’ come la vuoi."
           }
         }
       }

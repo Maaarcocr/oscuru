@@ -24,6 +24,20 @@ enum L10n {
     static var fromFiles: String { String(localized: "library.fromFiles") }
     static var importFailed: String { String(localized: "library.importFailed") }
 
+    // MARK: Camera
+    static var camera: String { String(localized: "camera.title") }
+    static var cameraShutter: String { String(localized: "camera.shutter") }
+    static var cameraLastShot: String { String(localized: "camera.lastShot") }
+    static var cameraViewfinder: String { String(localized: "camera.viewfinder") }
+    static var cameraExposure: String { String(localized: "camera.exposure") }
+    static var cameraDeniedTitle: String { String(localized: "camera.denied.title") }
+    static var cameraDeniedMessage: String { String(localized: "camera.denied.message") }
+    static var cameraOpenSettings: String { String(localized: "camera.openSettings") }
+    static var cameraUnavailableTitle: String { String(localized: "camera.unavailable.title") }
+    static var cameraUnavailableMessage: String { String(localized: "camera.unavailable.message") }
+    static var cameraNoRAW: String { String(localized: "camera.noRAW") }
+    static var cameraFailed: String { String(localized: "camera.failed") }
+
     // MARK: Photo
     static var photoUnreadable: String { String(localized: "photo.unreadable") }
     static var filters: String { String(localized: "filters.title") }

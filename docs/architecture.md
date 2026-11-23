@@ -61,6 +61,10 @@ There is no time limit. When the person stops the assistant, every API call thro
 
 It depends on two small protocols, `ModelClient` and `AgentPort`. That is the seam for moving orchestration to a server later.
 
+## Camera
+
+`Camera` (app) asks AVFoundation for RAW only: `AVCapturePhotoSettings(rawPixelFormatType:)` with a Bayer format, no processed image, ProRAW off. Apple's photo processing (Smart HDR, Deep Fusion, night mode, multi-frame fusion, its noise reduction and sharpening) only runs on processed photos, so none of it touches the shot. It uses one physical lens at a time, as Bayer RAW comes from a single sensor; lenses that offer no Bayer format are left out. Bayer RAW is the sensor's binned 12 MP readout; 48 MP is only available as ProRAW, which is processed. Each shot goes into the library as a DNG through the same `Library.add` as an import, and is developed by the engine like any other RAW. The viewfinder is AVFoundation's ordinary preview, so it looks more finished than the shot. In UI tests the sample photo stands in for the lens.
+
 ## Filters
 
 A filter is the look of a photo: tone, colour, curves, HSL, grading. Crop and detail stay with the photo they were made on. White balance is stored as a shift from the as-shot value, so a warm filter stays warm on a photo taken in different light. Filters are saved, applied, renamed and deleted from the filter sheet, and scripts reach them through `photo.filters`.
