@@ -561,6 +561,24 @@ final class EngineTests: XCTestCase {
     return url
   }
 
+  func testBaseCurveKeepsMidtonesAndRollsOffHighlights() throws {
+    let space = CGColorSpace(name: CGColorSpace.extendedLinearSRGB)!
+    func through(_ value: CGFloat) -> Float {
+      let color = CIColor(red: value, green: value, blue: value, colorSpace: space)!
+      let image = PhotoSession.applyBaseCurve(to: CIImage(color: color).cropped(to: CGRect(x: 0, y: 0, width: 1, height: 1)))
+      var pixel = [Float](repeating: 0, count: 4)
+      engine.context.render(
+        image, toBitmap: &pixel, rowBytes: 16, bounds: CGRect(x: 0, y: 0, width: 1, height: 1), format: .RGBAf, colorSpace: space)
+      return pixel[1]
+    }
+    XCTAssertEqual(through(0.02), 0.02, accuracy: 0.001, "shadows as measured")
+    XCTAssertEqual(through(0.18), 0.18, accuracy: 0.003, "midtones as measured")
+    XCTAssertEqual(through(0.6), 0.6, accuracy: 0.005)
+    XCTAssertEqual(through(1), Float(ColorPipeline.baseCurve(1)), accuracy: 0.01, "white rolls off")
+    XCTAssertGreaterThan(through(4), 0.99, "far brighter than white is white")
+    XCTAssertLessThanOrEqual(through(4), 1.001)
+  }
+
   func testBayerRAWGoesThroughTheRAWDecoder() throws {
     try checkRAW(try makeDNG("bayer.dng", linear: false))
   }

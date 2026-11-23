@@ -129,6 +129,53 @@ public enum ColorPipeline {
         return table
     }
 
+    // MARK: Base curve
+
+    /// Where Oscuru's base curve stops being the identity, in linear light (1 is the decoder's white).
+    public static let baseCurveKnee = 0.75
+    /// The brightest linear value the base curve table covers; anything brighter is white.
+    public static let baseCurveMaximum = 8.0
+    public static let baseCurveTableSize = 4096
+
+    /// Oscuru's base curve for RAW files: from the scene-linear light the RAW decoder measures to
+    /// display light, per channel. Up to `baseCurveKnee` it is the identity: the light exactly as
+    /// the sensor measured it, with no lift, toe or contrast. Above, it rolls off smoothly towards
+    /// white, starting with the same slope so there is no visible joint, so bright highlights
+    /// compress instead of clipping. That is all it does; every other choice about the look is
+    /// made in the conversation.
+    public static func baseCurve(_ x: Double) -> Double {
+        if x <= baseCurveKnee { return Swift.max(0, x) }
+        let room = 1 - baseCurveKnee
+        return baseCurveKnee + room * (1 - exp(-(x - baseCurveKnee) / room))
+    }
+
+    /// The sRGB (and Display P3) transfer function, extended past 1 for values brighter than white.
+    public static func encode(_ linear: Double) -> Double {
+        linear <= 0.0031308 ? 12.92 * linear : 1.055 * pow(linear, 1 / 2.4) - 0.055
+    }
+
+    public static func decode(_ encoded: Double) -> Double {
+        encoded <= 0.04045 ? encoded / 12.92 : pow((encoded + 0.055) / 1.055, 2.4)
+    }
+
+    /// The upper end of the base curve table's input, in encoded (extended Display P3) values.
+    public static var baseCurveDomain: Double { encode(baseCurveMaximum) }
+
+    /// The base curve as a table for Core Image's colour curves, applied in extended Display P3:
+    /// `size` entries evenly spaced over encoded input 0...`baseCurveDomain`, the same value for
+    /// red, green and blue, encoded output. Encoded steps are fine in the shadows, where linear
+    /// steps would band.
+    public static func baseCurveTable(size: Int = baseCurveTableSize) -> [Float] {
+        let domain = baseCurveDomain
+        var table = [Float](repeating: 0, count: size * 3)
+        for i in 0..<size {
+            let input = decode(Double(i) / Double(size - 1) * domain)
+            let value = Float(encode(baseCurve(input)))
+            for channel in 0..<3 { table[i * 3 + channel] = value }
+        }
+        return table
+    }
+
     static func hue(_ r: Double, _ g: Double, _ b: Double, max: Double, chroma: Double) -> Double {
         var hue: Double
         if max == r {

@@ -502,4 +502,58 @@ final class ColorPipelineTests: XCTestCase {
         assertColor(ColorPipeline.apply(state, to: (-1, -1, -1)), (0, 0, 0), accuracy: 1e-12)
         assertColor(ColorPipeline.apply(base, to: (1.5, -0.5, 0.5)), (1, 0, 0.5))
     }
+
+    // MARK: Base curve
+
+    func testBaseCurveKeepsTheLightAsMeasuredUpToTheKnee() {
+        for x in stride(from: 0.0, through: ColorPipeline.baseCurveKnee, by: 0.01) {
+            XCTAssertEqual(ColorPipeline.baseCurve(x), x, accuracy: 1e-12)
+        }
+        XCTAssertEqual(ColorPipeline.baseCurve(-0.1), 0, "negative light is black")
+    }
+
+    func testBaseCurveRollsOffHighlightsWithoutAJoint() {
+        let knee = ColorPipeline.baseCurveKnee
+        let h = 1e-6
+        let slopeAbove = (ColorPipeline.baseCurve(knee + h) - ColorPipeline.baseCurve(knee)) / h
+        XCTAssertEqual(slopeAbove, 1, accuracy: 1e-4, "the same slope on both sides of the knee")
+
+        var previous = -1.0
+        for step in 0...2000 {
+            let y = ColorPipeline.baseCurve(Double(step) / 2000 * ColorPipeline.baseCurveMaximum)
+            XCTAssertGreaterThanOrEqual(y, previous, "the curve never reverses tones")
+            XCTAssertLessThanOrEqual(y, 1)
+            previous = y
+        }
+        let white = ColorPipeline.baseCurve(1)
+        XCTAssertGreaterThan(white, 0.88, "the decoder's white stays bright")
+        XCTAssertLessThan(white, 0.95, "and leaves room for what is brighter")
+        XCTAssertGreaterThan(ColorPipeline.baseCurve(ColorPipeline.baseCurveMaximum), 0.9999)
+    }
+
+    func testBaseCurveTableIsTheCurveInEncodedValues() {
+        let size = ColorPipeline.baseCurveTableSize
+        let table = ColorPipeline.baseCurveTable()
+        XCTAssertEqual(table.count, size * 3)
+        XCTAssertEqual(table[0], 0)
+        XCTAssertEqual(Double(table[(size - 1) * 3]), 1, accuracy: 1e-4)
+        for i in stride(from: 0, to: size, by: 37) {
+            let encoded = Double(i) / Double(size - 1) * ColorPipeline.baseCurveDomain
+            let expected = ColorPipeline.encode(ColorPipeline.baseCurve(ColorPipeline.decode(encoded)))
+            for channel in 0..<3 { XCTAssertEqual(Double(table[i * 3 + channel]), expected, accuracy: 1e-5) }
+            if ColorPipeline.decode(encoded) <= ColorPipeline.baseCurveKnee {
+                XCTAssertEqual(Double(table[i * 3]), encoded, accuracy: 1e-5, "the identity below the knee")
+            }
+        }
+        // Even steps in encoded values stay fine in the shadows.
+        let firstSteps = ColorPipeline.decode(ColorPipeline.baseCurveDomain / Double(size - 1))
+        XCTAssertLessThan(firstSteps, 0.0002)
+    }
+
+    func testTransferFunctionRoundTrips() {
+        for x in [0, 0.001, 0.0031308, 0.01, 0.18, 0.5, 1, 2, 8] {
+            XCTAssertEqual(ColorPipeline.decode(ColorPipeline.encode(x)), x, accuracy: 1e-9)
+        }
+        XCTAssertEqual(ColorPipeline.encode(0.18), 0.4614, accuracy: 1e-3)
+    }
 }

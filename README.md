@@ -18,7 +18,7 @@ The assistant never generates or alters image content. It writes small JavaScrip
 - **An assistant that looks.** It sees the photo before and after each step, can zoom into any part of it, and measures what it needs (histogram, clipping, colour casts). It works as long as the photo needs, and you can stop it at any time.
 - **Every version kept.** Nothing is lost: any earlier version in the thread can be brought back or shared, and the thread is saved with the photo.
 - **Saved filters.** Save a look and apply it to any photo, yourself or by asking the assistant.
-- **Real RAW development.** Apple ProRAW, DNG and the camera RAW formats iOS reads, plus JPEG and HEIC, developed on the phone with Core Image. Originals are never changed. Export at full resolution to JPEG or HEIC.
+- **Real RAW development, ours.** Apple ProRAW, DNG and the camera RAW formats iOS reads, plus JPEG and HEIC, developed on the phone with Core Image. Apple's decoder only does the maths the file dictates; its tone curve, noise reduction and sharpening are off, and Oscuru's own base curve keeps the light as measured. Originals are never changed. Export at full resolution to JPEG or HEIC.
 - **Your model, your account.** The assistant runs on any OpenRouter model that reads images and calls tools, with your own sign-in. The app records what it costs and sets no limits of its own.
 
 ## How it's built

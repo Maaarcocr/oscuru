@@ -7,8 +7,8 @@ import OscuruCore
 /// Opens photos and renders recipes with Core Image. Safe to call from any thread: calls are
 /// carried out one at a time.
 ///
-/// Pipeline, in order: develop (exposure, white balance, noise reduction, in linear light) →
-/// local highlight and shadow recovery → local contrast → tone tables → colour cube →
+/// Pipeline, in order: develop (exposure, white balance, noise reduction, in linear light; for RAW
+/// files, Apple's decoder with its looks off, then Oscuru's base curve) → local highlight and shadow recovery → local contrast → tone tables → colour cube →
 /// flips, rotation, straightening, crop → vignette → output.
 public final class Engine: @unchecked Sendable {
   public let context: CIContext

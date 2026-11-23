@@ -40,7 +40,7 @@ The loop has no limits: no cap on scripts, no spending limit, no timeout on requ
 
 `OscuruEngine` decodes and renders with Core Image. In order:
 
-1. **Develop**, in linear light: for RAW files `CIRAWFilter` applies exposure, white balance, noise reduction and sharpening inside the decoder. The developed photo at preview size is cached, so tone and colour changes do not decode again.
+1. **Develop**, in linear light: for RAW files `CIRAWFilter` applies exposure, white balance, noise reduction and sharpening inside the decoder. Apple's looks in the decoder are switched off (no boost tone curve, local tone mapping, noise reduction or sharpening unless asked for), so it does only what the file's own numbers decide: demosaicing, the camera's colour matrix and white balance, the lens corrections in the file, and fitting colours into range. Its linear output then gets Oscuru's base curve (`ColorPipeline.baseCurve`): the identity up to 0.75 of white, then a smooth exponential roll-off towards white. Every other choice about the look is made in the conversation. The developed photo at preview size is cached, so tone and colour changes do not decode again.
 2. **Local recovery** (highlights and shadows) and **local contrast** (clarity and texture, radius relative to the photo).
 3. **Tone stage**: a per-channel 1D table. 4. **Colour stage**: a 33³ cube. Both are computed in `ColorPipeline` (pure Swift, unit-tested on Linux) and applied in gamma-encoded Display P3.
 5. **Geometry**: flips, quarter turns, straightening, crop. 6. **Vignette**.

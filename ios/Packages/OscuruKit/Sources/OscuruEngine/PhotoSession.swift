@@ -45,13 +45,10 @@ public final class PhotoSession {
     if looksRaw, let filter = CIRAWFilter(imageURL: url), let output = filter.outputImage {
       isRaw = true
       rawFilter = filter
-      rawDefaults = (
-        filter.neutralTemperature,
-        filter.neutralTint,
-        filter.isSharpnessSupported ? filter.sharpnessAmount : 0,
-        filter.isLuminanceNoiseReductionSupported ? filter.luminanceNoiseReductionAmount : 0,
-        filter.isColorNoiseReductionSupported ? filter.colorNoiseReductionAmount : 0
-      )
+      PhotoSession.neutralize(filter)
+      // White balance starts as shot. Noise reduction and sharpening start at zero: Oscuru adds
+      // nothing the person or the assistant did not ask for.
+      rawDefaults = (filter.neutralTemperature, filter.neutralTint, 0, 0, 0)
       size = output.extent.size
       fullImage = nil
       previewImage = nil
@@ -117,7 +114,7 @@ public final class PhotoSession {
         guard let output = filter.outputImage else {
           throw EngineError.renderFailed("the RAW decoder produced no image")
         }
-        image = output.atOrigin()
+        image = PhotoSession.applyBaseCurve(to: output.atOrigin())
         if cache {
           image = try PhotoSession.bake(image, context: context)
           developedCache = (key, image)
@@ -179,6 +176,32 @@ public final class PhotoSession {
       image = (sharpen.outputImage ?? image).cropped(to: image.extent)
     }
     return image
+  }
+
+  /// Leaves Apple's decoder only what the file's own numbers decide: demosaicing, the camera's
+  /// colour matrix and white balance, the lens corrections the file carries, and fitting colours
+  /// into range. Its looks are off: no tone curve, no local tone mapping, no noise reduction, no
+  /// sharpening. What comes out is linear light, as the sensor measured it.
+  private static func neutralize(_ filter: CIRAWFilter) {
+    filter.boostAmount = 0
+    if filter.isLocalToneMapSupported { filter.localToneMapAmount = 0 }
+    if filter.isSharpnessSupported { filter.sharpnessAmount = 0 }
+    if filter.isLuminanceNoiseReductionSupported { filter.luminanceNoiseReductionAmount = 0 }
+    if filter.isColorNoiseReductionSupported { filter.colorNoiseReductionAmount = 0 }
+  }
+
+  private static let baseCurveTable: Data = ColorPipeline.baseCurveTable().withUnsafeBufferPointer { Data(buffer: $0) }
+
+  /// Oscuru's base curve (`ColorPipeline.baseCurve`): the light as measured, with only the
+  /// brightest highlights rolled off towards white.
+  static func applyBaseCurve(to image: CIImage) -> CIImage {
+    guard let space = CGColorSpace(name: CGColorSpace.extendedDisplayP3) else { return image }
+    let filter = CIFilter.colorCurves()
+    filter.inputImage = image
+    filter.curvesData = baseCurveTable
+    filter.curvesDomain = CIVector(x: 0, y: CGFloat(ColorPipeline.baseCurveDomain))
+    filter.colorSpace = space
+    return filter.outputImage ?? image
   }
 
   /// Renders to a half-float bitmap in extended linear sRGB, so highlights above white survive.

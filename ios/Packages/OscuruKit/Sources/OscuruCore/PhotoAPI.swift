@@ -156,7 +156,7 @@ public enum PhotoAPI {
         }
 
         interface DetailSettings {
-        \(fields(Specs.detail) { _ in "Starts at 0 for JPEG/HEIC and at the decoder's own default for RAW." })
+        \(fields(Specs.detail) { _ in "Starts at 0: nothing is added until you add it." })
         }
 
         /**
@@ -258,7 +258,10 @@ public enum PhotoAPI {
          * An uncaught error discards everything the script changed.
          *
          * Rendering order. Exposure, white balance, noise reduction and sharpening act on linear scene
-         * data (inside the RAW decoder for RAW files). Then: local highlight/shadow recovery, clarity and
+         * data (inside the RAW decoder for RAW files). RAW files then get Oscuru's base curve: the light
+         * as measured up to 0.75 of white, then a smooth roll-off so highlights compress instead of
+         * clipping. No other tone curve, contrast or local tone mapping is applied for you, so an
+         * unedited RAW looks flat and true to the scene. Then: local highlight/shadow recovery, clarity and
          * texture, the tone stage (dehaze, blacks/whites, contrast, curves), the colour stage (HSL,
          * vibrance, saturation, grading), geometry, vignette.
          */
