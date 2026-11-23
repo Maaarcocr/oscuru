@@ -1,134 +1,6 @@
 {
   "sourceLanguage": "en",
   "strings": {
-    "assistant.connect": {
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Connect OpenRouter to start editing"
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Collega OpenRouter per iniziare"
-          }
-        }
-      }
-    },
-    "assistant.cost %@": {
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Cost %@"
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Costo %@"
-          }
-        }
-      }
-    },
-    "assistant.looking": {
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Looking at the photo…"
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Sto guardando la foto…"
-          }
-        }
-      }
-    },
-    "assistant.placeholder": {
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "What should it look like?"
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Come dovrebbe essere?"
-          }
-        }
-      }
-    },
-    "assistant.revert": {
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Revert"
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Annulla"
-          }
-        }
-      }
-    },
-    "assistant.send": {
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Send"
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Invia"
-          }
-        }
-      }
-    },
-    "assistant.stop": {
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Stop"
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Ferma"
-          }
-        }
-      }
-    },
-    "assistant.stopped": {
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Stopped. Edits already made are kept; you can revert them."
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Fermato. Le modifiche già fatte restano; puoi annullarle."
-          }
-        }
-      }
-    },
     "change.crop": {
       "localizations": {
         "en": {
@@ -305,6 +177,22 @@
         }
       }
     },
+    "common.close": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Close"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chiudi"
+          }
+        }
+      }
+    },
     "common.delete": {
       "localizations": {
         "en": {
@@ -337,6 +225,22 @@
         }
       }
     },
+    "common.more": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "More"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Altro"
+          }
+        }
+      }
+    },
     "common.ok": {
       "localizations": {
         "en": {
@@ -349,6 +253,22 @@
           "stringUnit": {
             "state": "translated",
             "value": "OK"
+          }
+        }
+      }
+    },
+    "common.open": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Open"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Apri"
           }
         }
       }
@@ -401,82 +321,66 @@
         }
       }
     },
-    "conversation.empty": {
+    "composer.connect": {
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Nothing yet"
+            "value": "Connect OpenRouter to Start"
           }
         },
         "it": {
           "stringUnit": {
             "state": "translated",
-            "value": "Ancora niente"
+            "value": "Collega OpenRouter per iniziare"
           }
         }
       }
     },
-    "conversation.hint": {
+    "composer.placeholder": {
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Opens the conversation."
+            "value": "Describe the look you want"
           }
         },
         "it": {
           "stringUnit": {
             "state": "translated",
-            "value": "Apre la conversazione."
+            "value": "Descrivi il look che vuoi"
           }
         }
       }
     },
-    "conversation.more %@": {
+    "composer.send": {
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "%@ more"
+            "value": "Send"
           }
         },
         "it": {
           "stringUnit": {
             "state": "translated",
-            "value": "altre %@"
+            "value": "Invia"
           }
         }
       }
     },
-    "conversation.showScript": {
+    "composer.stop": {
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Script"
+            "value": "Stop"
           }
         },
         "it": {
           "stringUnit": {
             "state": "translated",
-            "value": "Script"
-          }
-        }
-      }
-    },
-    "conversation.title": {
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Conversation"
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Conversazione"
+            "value": "Ferma"
           }
         }
       }
@@ -1078,189 +982,125 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Touch and hold to see the photo as it was opened."
+            "value": "Touch and hold to see the version before this one."
           }
         },
         "it": {
           "stringUnit": {
             "state": "translated",
-            "value": "Tieni premuto per vedere la foto com’era all’apertura."
+            "value": "Tieni premuto per vedere la versione precedente."
           }
         }
       }
     },
-    "photo.export": {
+    "photo.share": {
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Export at full resolution"
+            "value": "Share Photo"
           }
         },
         "it": {
           "stringUnit": {
             "state": "translated",
-            "value": "Esporta a piena risoluzione"
+            "value": "Condividi foto"
           }
         }
       }
     },
-    "photo.export.failed": {
+    "photo.share.failed": {
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Could not export"
+            "value": "Could not prepare the photo"
           }
         },
         "it": {
           "stringUnit": {
             "state": "translated",
-            "value": "Impossibile esportare"
+            "value": "Impossibile preparare la foto"
           }
         }
       }
     },
-    "photo.export.heic": {
+    "photo.share.heic": {
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Export HEIC"
+            "value": "HEIC"
           }
         },
         "it": {
           "stringUnit": {
             "state": "translated",
-            "value": "Esporta HEIC"
+            "value": "HEIC"
           }
         }
       }
     },
-    "photo.export.jpeg": {
+    "photo.share.jpeg": {
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Export JPEG"
+            "value": "JPEG"
           }
         },
         "it": {
           "stringUnit": {
             "state": "translated",
-            "value": "Esporta JPEG"
+            "value": "JPEG"
           }
         }
       }
     },
-    "photo.more": {
+    "photo.startOver": {
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "More"
+            "value": "Start Over"
           }
         },
         "it": {
           "stringUnit": {
             "state": "translated",
-            "value": "Altro"
+            "value": "Ricomincia"
           }
         }
       }
     },
-    "photo.original": {
+    "photo.startOver.message": {
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Original"
+            "value": "Every version stays in the conversation, so you can bring any of them back."
           }
         },
         "it": {
           "stringUnit": {
             "state": "translated",
-            "value": "Originale"
+            "value": "Ogni versione resta nella conversazione: puoi riprenderne qualsiasi."
           }
         }
       }
     },
-    "photo.redo": {
+    "photo.startOver.title": {
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Redo"
+            "value": "Start over from the original?"
           }
         },
         "it": {
           "stringUnit": {
             "state": "translated",
-            "value": "Ripeti"
-          }
-        }
-      }
-    },
-    "photo.reset": {
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Reset all edits"
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Ripristina tutte le modifiche"
-          }
-        }
-      }
-    },
-    "photo.reset.message": {
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "The photo goes back to how it was opened. You can undo this."
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "La foto torna com’era all’apertura. Puoi annullare questa operazione."
-          }
-        }
-      }
-    },
-    "photo.reset.title": {
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Reset all edits?"
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Ripristinare tutte le modifiche?"
-          }
-        }
-      }
-    },
-    "photo.undo": {
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Undo"
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Annulla modifica"
+            "value": "Ricominciare dall’originale?"
           }
         }
       }
@@ -1558,6 +1398,38 @@
         "en": {
           "stringUnit": {
             "state": "translated",
+            "value": "Paste the code"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Incolla il codice"
+          }
+        }
+      }
+    },
+    "settings.code.footer": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "If signing in doesn’t bring you back to Oscuru: get a code, copy it, and paste it here."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Se l’accesso non ti riporta a Oscuru: ottieni un codice, copialo e incollalo qui."
+          }
+        }
+      }
+    },
+    "settings.code.title": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
             "value": "Code from OpenRouter"
           }
         },
@@ -1565,6 +1437,22 @@
           "stringUnit": {
             "state": "translated",
             "value": "Codice da OpenRouter"
+          }
+        }
+      }
+    },
+    "settings.connect": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Connect"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Collega"
           }
         }
       }
@@ -1654,13 +1542,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Sign-in did not come back? Get a code instead"
+            "value": "Get a Code"
           }
         },
         "it": {
           "stringUnit": {
             "state": "translated",
-            "value": "L’accesso non è tornato all’app? Usa un codice"
+            "value": "Ottieni un codice"
           }
         }
       }
@@ -1681,18 +1569,50 @@
         }
       }
     },
-    "settings.keyPlaceholder": {
+    "settings.key.footer": {
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Or paste an API key"
+            "value": "Create one at openrouter.ai/keys."
           }
         },
         "it": {
           "stringUnit": {
             "state": "translated",
-            "value": "Oppure incolla una chiave API"
+            "value": "Creane una su openrouter.ai/keys."
+          }
+        }
+      }
+    },
+    "settings.key.title": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "API Key"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chiave API"
+          }
+        }
+      }
+    },
+    "settings.keyPlaceholder": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Paste your key"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Incolla la chiave"
           }
         }
       }
@@ -1745,12 +1665,28 @@
         }
       }
     },
+    "settings.otherWays": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Other Ways to Connect"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Altri modi per collegarsi"
+          }
+        }
+      }
+    },
     "settings.signIn": {
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Sign in with OpenRouter"
+            "value": "Sign In with OpenRouter"
           }
         },
         "it": {
@@ -1773,22 +1709,6 @@
           "stringUnit": {
             "state": "translated",
             "value": "Ricomincia l’accesso: questo codice non appartiene a un accesso di questa sessione."
-          }
-        }
-      }
-    },
-    "settings.use": {
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Use"
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Usa"
           }
         }
       }
@@ -1937,6 +1857,182 @@
         }
       }
     },
+    "thread.earlier": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Your earlier edits"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Le tue modifiche precedenti"
+          }
+        }
+      }
+    },
+    "thread.filter %@": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Applied “%@”"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Applicato «%@»"
+          }
+        }
+      }
+    },
+    "thread.looking": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Looking at the photo…"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sto guardando la foto…"
+          }
+        }
+      }
+    },
+    "thread.oneStep": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "1 step"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "1 passo"
+          }
+        }
+      }
+    },
+    "thread.original": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Original"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Originale"
+          }
+        }
+      }
+    },
+    "thread.restore": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Brought back an earlier version"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ripresa una versione precedente"
+          }
+        }
+      }
+    },
+    "thread.restoreVersion": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bring Back This Version"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Riprendi questa versione"
+          }
+        }
+      }
+    },
+    "thread.script": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Show script"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mostra script"
+          }
+        }
+      }
+    },
+    "thread.startOver": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Back to the original"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tornata all’originale"
+          }
+        }
+      }
+    },
+    "thread.steps %@": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ steps"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ passi"
+          }
+        }
+      }
+    },
+    "thread.stopped": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Stopped. The photo keeps the edits made so far."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Fermato. La foto tiene le modifiche fatte finora."
+          }
+        }
+      }
+    },
     "usage.footer": {
       "localizations": {
         "en": {
@@ -2029,6 +2125,22 @@
           "stringUnit": {
             "state": "translated",
             "value": "In totale"
+          }
+        }
+      }
+    },
+    "viewer.restore": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bring Back"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Riprendi"
           }
         }
       }

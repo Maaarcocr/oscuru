@@ -33,6 +33,11 @@ final class PhotoRenderer: ScriptHost, @unchecked Sendable {
         try engine.image(id: id, recipe: recipe(state), options: RenderOptions(maxEdge: 2048))
     }
 
+    /// The photo for the conversation: sharp on any iPhone at the width of the screen.
+    func cardImage(of state: EditingState) throws -> CGImage {
+        try engine.image(id: id, recipe: recipe(state), options: RenderOptions(maxEdge: 1400))
+    }
+
     func thumbnail(of state: EditingState, maxEdge: Double = 480) -> Data? {
         try? engine.jpeg(id: id, recipe: recipe(state), options: RenderOptions(maxEdge: maxEdge), quality: 0.8)
     }

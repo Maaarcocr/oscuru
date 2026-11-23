@@ -1,7 +1,7 @@
 import XCTest
 
 /// The main flow, against a sample photo and a played-back model (-ui-testing): ask for an edit,
-/// watch the assistant work, compare, save a filter, revert, look at the conversation. Elements are
+/// watch the assistant work and reply, open a version, save a filter. Elements are
 /// found by accessibility identifier, never by text, so the same test runs in English and Italian.
 /// Screenshots are kept in the result bundle and exported by CI, which is how the app is reviewed
 /// without a Mac.
@@ -19,84 +19,48 @@ final class OscuruUITests: XCTestCase {
         capture("01-library")
         photo.tap()
 
-        // The editor: the photo and a place to say what you want.
-        let prompt = element(app, "photo.prompt")
-        XCTAssertTrue(prompt.waitForExistence(timeout: 30))
-        XCTAssertTrue(element(app, "photo.image").waitForExistence(timeout: 30))
+        // The thread: the original, and a place to say what you want.
+        let field = element(app, "composer.field")
+        XCTAssertTrue(field.waitForExistence(timeout: 30))
+        XCTAssertTrue(element(app, "thread.original").waitForExistence(timeout: 30))
         capture("02-photo")
-        XCTAssertFalse(element(app, "photo.undo").isEnabled, "nothing to undo on an untouched photo")
 
-        // An instruction. The assistant runs scripts on the phone until it is happy, then says what it did.
-        prompt.tap()
-        prompt.typeText("Make it cinematic and recover the sky")
+        // An instruction. The assistant works, the photo changes, then it replies in the thread.
+        field.tap()
+        field.typeText("Make it cinematic and recover the sky")
         capture("03-typing")
-        element(app, "photo.send").tap()
-        XCTAssertTrue(element(app, "photo.stop").waitForExistence(timeout: 30), "the assistant can be stopped while it works")
+        element(app, "composer.send").tap()
+        XCTAssertTrue(element(app, "composer.stop").waitForExistence(timeout: 30))
         capture("04-working")
-        let note = element(app, "photo.note")
-        XCTAssertTrue(note.waitForExistence(timeout: 120), "the assistant finishes with a note")
-        capture("05-edited")
-        XCTAssertTrue(element(app, "photo.undo").isEnabled, "its edits are undo steps")
+        XCTAssertTrue(element(app, "thread.reply").waitForExistence(timeout: 120), "the assistant replies")
+        capture("05-reply")
+        element(app, "thread.steps").tap()
+        capture("06-steps")
 
-        // Holding "Before" shows the original; so does touching and holding the photo.
-        element(app, "photo.compare").press(forDuration: 1.2)
-        element(app, "photo.image").press(forDuration: 1.2)
+        // A version full screen.
+        element(app, "thread.version").tap()
+        XCTAssertTrue(element(app, "viewer.close").waitForExistence(timeout: 30))
+        capture("07-viewer")
+        element(app, "viewer.close").tap()
 
         // Save the look as a filter.
-        let filters = element(app, "photo.filters")
-        filters.tap()
+        element(app, "photo.menu").tap()
+        element(app, "menu.filters").tap()
         let name = element(app, "filters.name")
         XCTAssertTrue(name.waitForExistence(timeout: 30))
-        capture("06-filters-empty")
         name.tap()
         name.typeText("Dusk")
         element(app, "filters.save").tap()
-        let saved = element(app, "filters.item")
-        XCTAssertTrue(saved.waitForExistence(timeout: 30), "the filter is saved")
-        capture("07-filters")
+        XCTAssertTrue(element(app, "filters.item").waitForExistence(timeout: 30), "the filter is saved")
+        capture("08-filters")
         element(app, "filters.done").tap()
 
-        // Take the assistant's edits back, then apply the filter instead: the same look returns.
-        let revert = element(app, "photo.revert")
-        XCTAssertTrue(revert.waitForExistence(timeout: 30))
-        revert.tap()
-        XCTAssertTrue(revert.waitForNonExistence(timeout: 30), "nothing left to revert")
-        capture("08-reverted")
-        filters.tap()
-        XCTAssertTrue(saved.waitForExistence(timeout: 30))
-        saved.tap()
-        XCTAssertTrue(saved.waitForNonExistence(timeout: 30), "applying a filter closes the sheet")
-        capture("09-filter-applied")
-
-        // The conversation, with the scripts the assistant ran.
-        note.tap()
-        let script = element(app, "conversation.script")
-        XCTAssertTrue(script.waitForExistence(timeout: 30))
-        script.tap()
-        capture("10-conversation")
-        element(app, "conversation.done").tap()
-
-        // A second instruction in the same conversation: the assistant saves a filter itself.
-        prompt.tap()
-        prompt.typeText("Save this look as a filter")
-        element(app, "photo.send").tap()
-        XCTAssertTrue(element(app, "photo.stop").waitForNonExistence(timeout: 120))
-        XCTAssertTrue(note.waitForExistence(timeout: 30))
-        capture("11-second-instruction")
-
-        // The menu: conversation, export, reset.
-        element(app, "photo.more").tap()
-        capture("12-menu")
-        app.tap()
-
-        // Back to the library; settings show the connection and what has been spent.
+        // Settings.
         app.navigationBars.buttons.element(boundBy: 0).tap()
         XCTAssertTrue(photo.waitForExistence(timeout: 30))
         element(app, "library.settings").tap()
         XCTAssertTrue(element(app, "settings.connected").waitForExistence(timeout: 30))
-        capture("13-settings")
-        element(app, "settings.done").tap()
-        capture("14-library-after")
+        capture("09-settings")
     }
 
     private func element(_ app: XCUIApplication, _ identifier: String) -> XCUIElement {

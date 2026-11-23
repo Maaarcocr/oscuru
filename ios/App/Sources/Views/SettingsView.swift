@@ -5,74 +5,21 @@ struct SettingsView: View {
     @Environment(AppModel.self) private var model
     @Environment(\.dismiss) private var dismiss
     @Environment(\.webAuthenticationSession) private var webAuthenticationSession
-    @Environment(\.openURL) private var openURL
     @State private var busy = false
-    @State private var key = ""
-    @State private var code = ""
-    @State private var showingCode = false
     @State private var problem: String?
     @State private var confirmingDisconnect = false
+    @State private var showingOtherWays = false
 
     private var account: Account { model.account }
 
     var body: some View {
         NavigationStack {
             Form {
-                Section {
-                    if account.isConnected {
-                        LabeledContent(L10n.settingsAccount, value: L10n.settingsConnected)
-                            .accessibilityIdentifier("settings.connected")
-                        if let info = account.keyInfo {
-                            LabeledContent(L10n.settingsKey, value: info.label)
-                        }
-                        Button(L10n.settingsDisconnect, role: .destructive) { confirmingDisconnect = true }
-                            .alert(L10n.settingsDisconnectTitle, isPresented: $confirmingDisconnect) {
-                                Button(L10n.settingsDisconnect, role: .destructive) { account.disconnect() }
-                                Button(L10n.cancel, role: .cancel) {}
-                            } message: {
-                                Text(L10n.settingsDisconnectMessage)
-                            }
-                    } else {
-                        Button(L10n.settingsSignIn) {
-                            attempt {
-                                if try await !account.signIn(using: webAuthenticationSession) { showingCode = true }
-                            }
-                        }
-                        .accessibilityIdentifier("settings.signIn")
-                        Button(L10n.settingsGetCode) {
-                            if let url = account.codeSignInURL() { openURL(url) }
-                            showingCode = true
-                        }
-                        if showingCode {
-                            HStack {
-                                TextField(L10n.settingsCodePlaceholder, text: $code)
-                                    .textInputAutocapitalization(.never)
-                                    .autocorrectionDisabled()
-                                Button(L10n.settingsUse) { attempt { try await account.finishSignIn(code: code) } }
-                                    .disabled(code.trimmingCharacters(in: .whitespaces).isEmpty)
-                            }
-                        }
-                        HStack {
-                            SecureField(L10n.settingsKeyPlaceholder, text: $key)
-                                .textInputAutocapitalization(.never)
-                                .autocorrectionDisabled()
-                                .accessibilityIdentifier("settings.key")
-                            Button(L10n.settingsUse) {
-                                attempt {
-                                    try await account.connect(key: key)
-                                    key = ""
-                                }
-                            }
-                            .disabled(key.trimmingCharacters(in: .whitespaces).isEmpty)
-                        }
-                    }
-                } header: {
-                    Text(verbatim: "OpenRouter")
-                } footer: {
-                    Text(L10n.settingsAccountFooter)
+                if account.isConnected {
+                    connected
+                } else {
+                    signIn
                 }
-                .disabled(busy)
-
                 Section {
                     NavigationLink {
                         ModelPicker()
@@ -83,22 +30,18 @@ struct SettingsView: View {
                 } footer: {
                     Text(L10n.settingsModelFooter)
                 }
-
                 if account.isConnected {
+                    usage
                     Section {
-                        LabeledContent(L10n.usageToday, value: UsageLedger.dollars(account.spentToday))
-                        LabeledContent(L10n.usageMonth, value: UsageLedger.dollars(account.spentThisMonth))
-                        LabeledContent(L10n.usageTotal, value: UsageLedger.dollars(account.spentInTotal))
-                        if let info = account.keyInfo {
-                            LabeledContent(L10n.usageKey, value: UsageLedger.dollars(info.usage))
-                        }
-                    } header: {
-                        Text(L10n.usageTitle)
-                    } footer: {
-                        Text(L10n.usageFooter)
+                        Button(L10n.settingsDisconnect, role: .destructive) { confirmingDisconnect = true }
+                            .alert(L10n.settingsDisconnectTitle, isPresented: $confirmingDisconnect) {
+                                Button(L10n.settingsDisconnect, role: .destructive) { account.disconnect() }
+                                Button(L10n.cancel, role: .cancel) {}
+                            } message: {
+                                Text(L10n.settingsDisconnectMessage)
+                            }
                     }
                 }
-
                 Section {
                     Text(L10n.privacyBody)
                         .font(.footnote)
@@ -109,6 +52,7 @@ struct SettingsView: View {
             }
             .navigationTitle(L10n.settings)
             .navigationBarTitleDisplayMode(.inline)
+            .navigationDestination(isPresented: $showingOtherWays) { OtherWaysToConnect() }
             .toolbar {
                 ToolbarItem(placement: .confirmationAction) {
                     Button(L10n.done) { dismiss() }
@@ -124,6 +68,58 @@ struct SettingsView: View {
         }
     }
 
+    private var signIn: some View {
+        Section {
+            Button {
+                attempt {
+                    // When the page does not hand back a code, offer the other ways.
+                    if try await !account.signIn(using: webAuthenticationSession) { showingOtherWays = true }
+                }
+            } label: {
+                HStack {
+                    Text(L10n.settingsSignIn)
+                    Spacer()
+                    if busy { ProgressView() }
+                }
+            }
+            .disabled(busy)
+            .accessibilityIdentifier("settings.signIn")
+            Button(L10n.settingsOtherWays) { showingOtherWays = true }
+                .accessibilityIdentifier("settings.other")
+        } header: {
+            Text(verbatim: "OpenRouter")
+        } footer: {
+            Text(L10n.settingsAccountFooter)
+        }
+    }
+
+    private var connected: some View {
+        Section {
+            LabeledContent(L10n.settingsAccount, value: L10n.settingsConnected)
+                .accessibilityIdentifier("settings.connected")
+            if let info = account.keyInfo, !info.label.isEmpty {
+                LabeledContent(L10n.settingsKey, value: info.label)
+            }
+        } header: {
+            Text(verbatim: "OpenRouter")
+        }
+    }
+
+    private var usage: some View {
+        Section {
+            LabeledContent(L10n.usageToday, value: UsageLedger.dollars(account.spentToday))
+            LabeledContent(L10n.usageMonth, value: UsageLedger.dollars(account.spentThisMonth))
+            LabeledContent(L10n.usageTotal, value: UsageLedger.dollars(account.spentInTotal))
+            if let info = account.keyInfo {
+                LabeledContent(L10n.usageKey, value: UsageLedger.dollars(info.usage))
+            }
+        } header: {
+            Text(L10n.usageTitle)
+        } footer: {
+            Text(L10n.usageFooter)
+        }
+    }
+
     private func attempt(_ work: @escaping () async throws -> Void) {
         guard !busy else { return }
         busy = true
@@ -131,6 +127,73 @@ struct SettingsView: View {
             defer { busy = false }
             do {
                 try await work()
+            } catch let error as ModelError {
+                problem = L10n.message(for: error)
+            } catch {
+                problem = String(describing: error)
+            }
+        }
+    }
+}
+
+/// For when signing in does not come back to the app: a code from OpenRouter's page, or a key.
+private struct OtherWaysToConnect: View {
+    @Environment(AppModel.self) private var model
+    @Environment(\.dismiss) private var dismiss
+    @Environment(\.openURL) private var openURL
+    @State private var code = ""
+    @State private var key = ""
+    @State private var busy = false
+    @State private var problem: String?
+
+    var body: some View {
+        Form {
+            Section {
+                Button(L10n.settingsGetCode) {
+                    if let url = model.account.codeSignInURL() { openURL(url) }
+                }
+                TextField(L10n.settingsCodePlaceholder, text: $code)
+                    .textInputAutocapitalization(.never)
+                    .autocorrectionDisabled()
+                Button(L10n.settingsConnect) { attempt { try await model.account.finishSignIn(code: code) } }
+                    .disabled(busy || code.trimmingCharacters(in: .whitespaces).isEmpty)
+            } header: {
+                Text(L10n.settingsCodeTitle)
+            } footer: {
+                Text(L10n.settingsCodeFooter)
+            }
+
+            Section {
+                SecureField(L10n.settingsKeyPlaceholder, text: $key)
+                    .textInputAutocapitalization(.never)
+                    .autocorrectionDisabled()
+                    .accessibilityIdentifier("settings.key")
+                Button(L10n.settingsConnect) { attempt { try await model.account.connect(key: key) } }
+                    .disabled(busy || key.trimmingCharacters(in: .whitespaces).isEmpty)
+                    .accessibilityIdentifier("settings.connectKey")
+            } header: {
+                Text(L10n.settingsKeyTitle)
+            } footer: {
+                Text(L10n.settingsKeyFooter)
+            }
+        }
+        .navigationTitle(L10n.settingsOtherWays)
+        .navigationBarTitleDisplayMode(.inline)
+        .alert(L10n.settingsConnectFailed, isPresented: Binding(get: { problem != nil }, set: { if !$0 { problem = nil } })) {
+            Button(L10n.ok, role: .cancel) {}
+        } message: {
+            Text(problem ?? "")
+        }
+    }
+
+    private func attempt(_ work: @escaping () async throws -> Void) {
+        guard !busy else { return }
+        busy = true
+        Task {
+            defer { busy = false }
+            do {
+                try await work()
+                dismiss()
             } catch let error as ModelError {
                 problem = L10n.message(for: error)
             } catch {

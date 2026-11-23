@@ -103,6 +103,16 @@ final class Library {
         write(document)
     }
 
+    func loadThread(_ id: String) -> SavedThread? {
+        guard let data = try? Data(contentsOf: folder(id).appending(path: "thread.json")) else { return nil }
+        return try? JSONDecoder().decode(SavedThread.self, from: data)
+    }
+
+    func saveThread(_ id: String, _ thread: SavedThread) {
+        guard let data = try? JSONEncoder().encode(thread) else { return }
+        try? data.write(to: folder(id).appending(path: "thread.json"), options: .atomic)
+    }
+
     func delete(id: String) {
         try? FileManager.default.removeItem(at: folder(id))
         photos.removeAll { $0.id == id }

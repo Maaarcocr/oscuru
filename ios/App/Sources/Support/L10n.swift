@@ -11,6 +11,9 @@ enum L10n {
     static var save: String { String(localized: "common.save") }
     static var delete: String { String(localized: "common.delete") }
     static var rename: String { String(localized: "common.rename") }
+    static var close: String { String(localized: "common.close") }
+    static var open: String { String(localized: "common.open") }
+    static var more: String { String(localized: "common.more") }
     static var settings: String { String(localized: "common.settings") }
 
     // MARK: Library
@@ -23,42 +26,69 @@ enum L10n {
 
     // MARK: Photo
     static var photoUnreadable: String { String(localized: "photo.unreadable") }
-    static var original: String { String(localized: "photo.original") }
-    static var undo: String { String(localized: "photo.undo") }
-    static var redo: String { String(localized: "photo.redo") }
-    static var more: String { String(localized: "photo.more") }
-    static var export: String { String(localized: "photo.export") }
-    static var exportJPEG: String { String(localized: "photo.export.jpeg") }
-    static var exportHEIC: String { String(localized: "photo.export.heic") }
-    static var exportFailed: String { String(localized: "photo.export.failed") }
-    static var resetEdits: String { String(localized: "photo.reset") }
-    static var resetTitle: String { String(localized: "photo.reset.title") }
-    static var resetMessage: String { String(localized: "photo.reset.message") }
+    static var filters: String { String(localized: "filters.title") }
+    static var sharePhoto: String { String(localized: "photo.share") }
+    static var shareJPEG: String { String(localized: "photo.share.jpeg") }
+    static var shareHEIC: String { String(localized: "photo.share.heic") }
+    static var exportFailed: String { String(localized: "photo.share.failed") }
+    static var startOver: String { String(localized: "photo.startOver") }
+    static var startOverTitle: String { String(localized: "photo.startOver.title") }
+    static var startOverMessage: String { String(localized: "photo.startOver.message") }
 
-    // MARK: Assistant
-    static var promptPlaceholder: String { String(localized: "assistant.placeholder") }
-    static var send: String { String(localized: "assistant.send") }
-    static var stop: String { String(localized: "assistant.stop") }
-    static var revert: String { String(localized: "assistant.revert") }
-    static var connectToEdit: String { String(localized: "assistant.connect") }
-    static var assistantLooking: String { String(localized: "assistant.looking") }
+    // MARK: Composer
+    static var composerPlaceholder: String { String(localized: "composer.placeholder") }
+    static var composerConnect: String { String(localized: "composer.connect") }
+    static var send: String { String(localized: "composer.send") }
+    static var stop: String { String(localized: "composer.stop") }
+    /// Ideas for a first instruction: a short label, and what is sent.
+    struct Suggestion: Hashable {
+        let label: String
+        let instruction: String
+    }
+    static var suggestions: [Suggestion] {
+        [
+            Suggestion(label: String(localized: "suggest.cinematic.label"), instruction: String(localized: "suggest.cinematic")),
+            Suggestion(label: String(localized: "suggest.sky.label"), instruction: String(localized: "suggest.sky")),
+            Suggestion(label: String(localized: "suggest.natural.label"), instruction: String(localized: "suggest.natural")),
+            Suggestion(label: String(localized: "suggest.mono.label"), instruction: String(localized: "suggest.mono")),
+        ]
+    }
+
+    // MARK: Thread
+    /// "Original · Apple iPhone 17 Pro · RAW"
+    static func originalCaption(_ info: PhotoInfo) -> String {
+        var parts = [String(localized: "thread.original")]
+        if let model = info.model, !model.isEmpty { parts.append(model) }
+        if info.isRaw { parts.append("RAW") }
+        return parts.joined(separator: " · ")
+    }
+    static func appliedFilter(_ name: String) -> String { String(localized: "thread.filter \(name)") }
+    static var restored: String { String(localized: "thread.restore") }
+    static var backToOriginal: String { String(localized: "thread.startOver") }
+    static var earlierEdits: String { String(localized: "thread.earlier") }
+    static var looking: String { String(localized: "thread.looking") }
+    static var stopped: String { String(localized: "thread.stopped") }
+    static var restoreVersion: String { String(localized: "thread.restoreVersion") }
+    static var script: String { String(localized: "thread.script") }
+    static var scriptStopped: String { String(localized: "script.stopped") }
     static func step(_ number: Int) -> String {
         let text = String(number)
         return String(localized: "step.title \(text)")
     }
-    static var before: String { String(localized: "photo.before") }
-    static var beforeHint: String { String(localized: "photo.before.hint") }
-    static var conversationHint: String { String(localized: "conversation.hint") }
-    static var assistantStopped: String { String(localized: "assistant.stopped") }
-    static func cost(_ amount: String) -> String { String(localized: "assistant.cost \(amount)") }
-    /// Ideas for a first instruction: a short label, and what is sent.
-    static var suggestions: [(label: String, instruction: String)] {
-        [
-            (String(localized: "suggest.cinematic.label"), String(localized: "suggest.cinematic")),
-            (String(localized: "suggest.sky.label"), String(localized: "suggest.sky")),
-            (String(localized: "suggest.natural.label"), String(localized: "suggest.natural")),
-            (String(localized: "suggest.mono.label"), String(localized: "suggest.mono")),
-        ]
+    static func stepsCount(_ count: Int) -> String {
+        if count == 1 { return String(localized: "thread.oneStep") }
+        let text = String(count)
+        return String(localized: "thread.steps \(text)")
+    }
+    static func stepTitle(_ number: Int, _ outcome: Step.Outcome) -> String {
+        let title = step(number)
+        switch outcome {
+        case .applied: return title
+        case .running: return "\(title) · \(String(localized: "script.running"))"
+        case .unchanged: return "\(title) · \(String(localized: "script.unchanged"))"
+        case .failed: return "\(title) · \(String(localized: "script.failed"))"
+        case .stale: return "\(title) · \(String(localized: "script.stale"))"
+        }
     }
 
     static func message(for error: ModelError) -> String {
@@ -74,25 +104,10 @@ enum L10n {
         return error.message.isEmpty ? summary : "\(summary)\n\(error.message)"
     }
 
-    // MARK: Conversation
-    static var conversation: String { String(localized: "conversation.title") }
-    static var conversationEmpty: String { String(localized: "conversation.empty") }
-    static var scriptStopped: String { String(localized: "script.stopped") }
-    static var showScript: String { String(localized: "conversation.showScript") }
-    static func stepTitle(_ number: Int, _ state: TranscriptItem.ScriptState) -> String {
-        let title = step(number)
-        switch state {
-        case .applied: return title
-        case .running: return "\(title) · \(String(localized: "script.running"))"
-        case .unchanged: return "\(title) · \(String(localized: "script.unchanged"))"
-        case .failed: return "\(title) · \(String(localized: "script.failed"))"
-        case .stale: return "\(title) · \(String(localized: "script.stale"))"
-        }
-    }
-    static func moreChanges(_ count: Int) -> String {
-        let text = String(count)
-        return String(localized: "conversation.more \(text)")
-    }
+    // MARK: Viewer
+    static var before: String { String(localized: "photo.before") }
+    static var beforeHint: String { String(localized: "photo.before.hint") }
+    static var restore: String { String(localized: "viewer.restore") }
 
     /// A change a script made, in words: "Highlights −45", "Blue · saturation −10", "Tone curve".
     static func describe(_ change: StepChange) -> String {
@@ -199,7 +214,6 @@ enum L10n {
     }
 
     // MARK: Filters
-    static var filters: String { String(localized: "filters.title") }
     static var filtersEmpty: String { String(localized: "filters.empty") }
     static var filterNamePlaceholder: String { String(localized: "filters.name") }
 
@@ -208,10 +222,15 @@ enum L10n {
     static var settingsConnected: String { String(localized: "settings.connected") }
     static var settingsKey: String { String(localized: "settings.key") }
     static var settingsSignIn: String { String(localized: "settings.signIn") }
+    static var settingsOtherWays: String { String(localized: "settings.otherWays") }
+    static var settingsCodeTitle: String { String(localized: "settings.code.title") }
+    static var settingsCodeFooter: String { String(localized: "settings.code.footer") }
     static var settingsGetCode: String { String(localized: "settings.getCode") }
     static var settingsCodePlaceholder: String { String(localized: "settings.code") }
+    static var settingsKeyTitle: String { String(localized: "settings.key.title") }
+    static var settingsKeyFooter: String { String(localized: "settings.key.footer") }
     static var settingsKeyPlaceholder: String { String(localized: "settings.keyPlaceholder") }
-    static var settingsUse: String { String(localized: "settings.use") }
+    static var settingsConnect: String { String(localized: "settings.connect") }
     static var settingsDisconnect: String { String(localized: "settings.disconnect") }
     static var settingsDisconnectTitle: String { String(localized: "settings.disconnect.title") }
     static var settingsDisconnectMessage: String { String(localized: "settings.disconnect.message") }

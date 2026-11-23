@@ -6,68 +6,95 @@ import OscuruEngine
 import OscuruScripting
 
 /// One setting a script changed.
-struct StepChange: Equatable {
+struct StepChange: Codable, Equatable {
     let path: String
     let from: JSONValue
     let to: JSONValue
 }
 
-/// One line of what the person and the assistant did to a photo.
-struct TranscriptItem: Identifiable, Equatable {
-    enum ScriptState: Equatable {
+/// One script the assistant ran.
+struct Step: Codable, Equatable {
+    enum Outcome: Codable, Equatable {
         case running
-        case applied(changes: Int)
+        case applied
         case unchanged
         case failed(String)
         case stale
     }
 
-    enum Kind: Equatable {
-        case user(String)
-        case assistant(String)
-        case script(code: String, state: ScriptState, changes: [StepChange], logs: [String])
-        case notice(String, isError: Bool)
-    }
-
-    let id: String
-    /// The instruction this belongs to.
-    let run: String
-    var kind: Kind
+    var code: String
+    var outcome: Outcome
+    var changes: [StepChange] = []
+    var logs: [String] = []
 }
 
-/// One photo open on screen: its settings over time, its picture, and the conversation with the
-/// assistant. Everything that changes the photo goes through `history`, so there is one editing path.
+/// One thing that happened to the photo: the thread is a list of these. A turn that changed the
+/// photo keeps the settings it left, so every version can be shown again and restored.
+struct Turn: Codable, Identifiable, Equatable {
+    enum Kind: Codable, Equatable {
+        case original
+        case instruction(String)
+        case filter(String)
+        case restore
+        case startOver
+        /// Edits made before the photo had a thread.
+        case earlier
+    }
+
+    enum Status: Codable, Equatable {
+        case working
+        case done
+        case stopped
+        case failed(String)
+    }
+
+    var id: String
+    var kind: Kind
+    /// What the assistant said, in order. Once it has finished, the last one is its reply.
+    var messages: [String] = []
+    var steps: [Step] = []
+    /// The photo after this turn, when the turn changed it (and the original, for the first turn).
+    var result: EditingState?
+    var status: Status = .done
+    var cost: Double?
+}
+
+/// What is saved of a photo's thread: what the person sees, and what the model has been told.
+struct SavedThread: Codable {
+    var turns: [Turn]
+    var conversation: [JSONValue]
+}
+
+/// One photo open on screen, as a conversation: its turns, its settings over time, and the photo
+/// as it is now. Everything that changes the photo goes through `history`, so there is one
+/// editing path, and adds a turn, so the thread is the whole story.
 @MainActor
 @Observable
 final class PhotoEditor {
     nonisolated let document: PhotoDocument
     nonisolated let info: PhotoInfo
+    nonisolated let renderer: PhotoRenderer
     private(set) var history: EditHistory
-    /// The photo as it is now, for the screen.
+    private(set) var turns: [Turn]
+    /// The photo as it is now.
     private(set) var image: CGImage?
     /// Goes up with every new picture, so the screen can cross-fade between them.
     private(set) var imageVersion = 0
+    private(set) var renderError: String?
     /// Goes up each time the assistant finishes an instruction.
     private(set) var completedRuns = 0
-    /// The photo as opened, framed like the current one. Rendered when first asked for.
-    private(set) var originalImage: CGImage?
-    private(set) var renderError: String?
+    /// Goes up whenever the thread changes, so the screen can follow it.
+    private(set) var threadVersion = 0
 
-    private(set) var transcript: [TranscriptItem] = []
-    /// The instruction being carried out, if any.
-    private(set) var activeRun: String?
-    private(set) var scriptsThisRun = 0
-    private(set) var costs: [String: Double] = [:]
-
-    nonisolated let renderer: PhotoRenderer
     private let runtime: ScriptRuntime
     private let library: Library
     private let account: Account
     private let modelClient: @MainActor () -> ModelClient
-    private var conversation: [JSONValue] = []
+    private var conversation: [JSONValue]
     private var task: Task<Void, Never>?
     private var renderGeneration = 0
-    private var originalCrop: Crop?
+    private var pictures: [String: CGImage] = [:]
+    private var pictureOrder: [String] = []
 
     init(document: PhotoDocument, info: PhotoInfo, renderer: PhotoRenderer, library: Library, account: Account, modelClient: @escaping @MainActor () -> ModelClient) {
         self.document = document
@@ -78,23 +105,56 @@ final class PhotoEditor {
         self.modelClient = modelClient
         runtime = ScriptRuntime(host: renderer)
         history = EditHistory(state: document.state, revision: document.revision)
+
+        let original = EditingState(defaults: info.defaults)
+        let saved = library.loadThread(document.id)
+        var turns = saved?.turns ?? [Turn(id: "original", kind: .original, result: original)]
+        if saved == nil, document.state != original {
+            turns.append(Turn(id: UUID().uuidString, kind: .earlier, result: document.state))
+        }
+        // A turn still working when the app closed was cut off.
+        for index in turns.indices where turns[index].status == .working {
+            turns[index].status = .stopped
+            for step in turns[index].steps.indices where turns[index].steps[step].outcome == .running {
+                turns[index].steps[step].outcome = .failed(L10n.scriptStopped)
+            }
+        }
+        self.turns = turns
+        conversation = saved?.conversation ?? []
         refreshImage()
     }
 
     var state: EditingState { history.state }
+    var isWorking: Bool { task != nil }
+    var original: EditingState { EditingState(defaults: info.defaults) }
 
-    /// What the assistant last said while working on the current instruction.
-    var workingCaption: String? {
-        guard let run = activeRun else { return nil }
-        for item in transcript.reversed() where item.run == run {
-            if case .assistant(let text) = item.kind { return text }
-        }
-        return nil
+    /// The turn whose photo is the current one.
+    var currentTurnID: String? { turns.last { $0.result != nil }?.id }
+
+    /// The photo before this turn: the result of the latest earlier turn that had one.
+    func resultBefore(_ turn: Turn) -> EditingState? {
+        guard let index = turns.firstIndex(where: { $0.id == turn.id }) else { return nil }
+        return turns[..<index].last { $0.result != nil }?.result
     }
-    var isWorking: Bool { activeRun != nil }
-    var isEdited: Bool { history.state != EditingState(defaults: info.defaults) }
 
-    // MARK: Changing the photo
+    var hasInstructions: Bool {
+        turns.contains { if case .instruction = $0.kind { return true } else { return false } }
+    }
+
+    // MARK: The thread
+
+    private func save() {
+        library.saveThread(document.id, SavedThread(turns: turns, conversation: conversation))
+        threadVersion += 1
+    }
+
+    private func update(_ id: String, _ change: (inout Turn) -> Void) {
+        guard let index = turns.lastIndex(where: { $0.id == id }) else { return }
+        change(&turns[index])
+        threadVersion += 1
+    }
+
+    // MARK: Changing the photo yourself
 
     /// Called after every change to `history`: saves and redraws.
     private func changed() {
@@ -102,44 +162,50 @@ final class PhotoEditor {
         refreshImage()
     }
 
-    func undo() {
-        if history.undo() { changed() }
-    }
-
-    func redo() {
-        if history.redo() { changed() }
-    }
-
-    func reset() {
-        if history.push(EditingState(defaults: info.defaults), source: .reset) { changed() }
-    }
-
     func apply(_ filter: SavedFilter) {
-        if history.push(filter.look.applied(to: history.state, defaults: info.defaults), source: .filter(name: filter.name)) { changed() }
+        guard !isWorking else { return }
+        let state = filter.look.applied(to: history.state, defaults: info.defaults)
+        guard history.push(state, source: .filter(name: filter.name)) else { return }
+        changed()
+        turns.append(Turn(id: UUID().uuidString, kind: .filter(filter.name), result: state))
+        save()
     }
 
-    /// Undoes everything the assistant did for one instruction.
-    func revert(run: String) {
-        if history.revert(run: run) { changed() }
+    /// Makes an earlier version the current one again, as a new turn.
+    func restore(_ state: EditingState) {
+        guard !isWorking, history.push(state, source: .reverted) else { return }
+        changed()
+        turns.append(Turn(id: UUID().uuidString, kind: .restore, result: state))
+        save()
     }
 
-    func canRevert(run: String) -> Bool { history.canRevert(run: run) }
+    func startOver() {
+        guard !isWorking, history.push(original, source: .reset) else { return }
+        changed()
+        turns.append(Turn(id: UUID().uuidString, kind: .startOver, result: original))
+        save()
+    }
 
     var currentLook: Look { Look(state: history.state, defaults: info.defaults) }
 
     // MARK: Pictures
+
+    private func key(_ state: EditingState) -> String { state.json.text() }
+
+    private func remember(_ image: CGImage, for state: EditingState) {
+        let key = key(state)
+        if pictures[key] == nil { pictureOrder.append(key) }
+        pictures[key] = image
+        if pictureOrder.count > 16 { pictures[pictureOrder.removeFirst()] = nil }
+    }
 
     private func refreshImage() {
         renderGeneration += 1
         let generation = renderGeneration
         let state = history.state
         let renderer = renderer
-        if originalCrop != state.crop {
-            originalImage = nil
-            originalCrop = nil
-        }
         Task.detached(priority: .userInitiated) {
-            let result = Result { try renderer.screenImage(of: state) }
+            let result = Result { try renderer.cardImage(of: state) }
             await MainActor.run {
                 // A newer change is already on its way: its picture wins.
                 guard generation == self.renderGeneration else { return }
@@ -148,6 +214,7 @@ final class PhotoEditor {
                     self.image = image
                     self.imageVersion += 1
                     self.renderError = nil
+                    self.remember(image, for: state)
                 case .failure(let error):
                     self.renderError = String(describing: error)
                 }
@@ -155,27 +222,26 @@ final class PhotoEditor {
         }
     }
 
-    /// Renders the original for the before/after comparison, once per framing.
-    func prepareOriginal() {
-        guard originalImage == nil, originalCrop == nil else { return }
-        let crop = history.state.crop
-        originalCrop = crop
-        let state = renderer.original(framedLike: history.state)
+    /// The photo with these settings, sized for the thread. Kept for a while once rendered.
+    func picture(of state: EditingState) async -> CGImage? {
+        if let image = pictures[key(state)] { return image }
         let renderer = renderer
-        Task.detached(priority: .userInitiated) {
-            let image = try? renderer.screenImage(of: state)
-            await MainActor.run {
-                if self.originalCrop == crop { self.originalImage = image }
-            }
-        }
+        guard let image = await Task.detached(priority: .userInitiated, operation: { try? renderer.cardImage(of: state) }).value else { return nil }
+        remember(image, for: state)
+        return image
     }
 
-    /// Develops the photo at full resolution into a temporary file for the share sheet.
-    func export(_ format: ExportFormat) async throws -> URL {
+    /// The photo with these settings, large enough to fill the screen and zoom into.
+    func fullPicture(of state: EditingState) async -> CGImage? {
+        let renderer = renderer
+        return await Task.detached(priority: .userInitiated) { try? renderer.screenImage(of: state) }.value
+    }
+
+    /// Develops a version at full resolution into a temporary file for the share sheet.
+    func export(_ state: EditingState, as format: ExportFormat) async throws -> URL {
         let name = (document.name as NSString).deletingPathExtension
         let url = FileManager.default.temporaryDirectory.appending(path: "\(name.isEmpty ? "Oscuru" : name).\(format == .heic ? "heic" : "jpg")")
         try? FileManager.default.removeItem(at: url)
-        let state = history.state
         let renderer = renderer
         try await Task.detached(priority: .userInitiated) { try renderer.export(state, format: format, to: url) }.value
         return url
@@ -192,36 +258,33 @@ final class PhotoEditor {
 
     // MARK: The assistant
 
-    private func add(_ run: String, _ kind: TranscriptItem.Kind, id: String = UUID().uuidString) {
-        transcript.append(TranscriptItem(id: id, run: run, kind: kind))
-    }
-
     /// Gives the assistant an instruction. It works until it is done or the person stops it.
     func send(_ instruction: String) {
         let text = instruction.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !text.isEmpty, activeRun == nil, account.isConnected else { return }
+        guard !text.isEmpty, !isWorking, account.isConnected else { return }
         let run = UUID().uuidString
-        activeRun = run
-        scriptsThisRun = 0
-        add(run, .user(text))
+        let start = history.state
+        turns.append(Turn(id: run, kind: .instruction(text), status: .working))
+        save()
         let client = modelClient()
         let model = account.activeModel
         let port = EditorPort(editor: self, run: run)
         let conversation = conversation
         task = Task {
+            var status = Turn.Status.done
             do {
                 // Events are delivered in order, each handled before the agent goes on.
                 let turn = try await Agent.run(client: client, model: model, port: port, conversation: conversation, instruction: text) { event in
                     await self.handle(event, run: run)
                 }
                 self.conversation = turn.conversation
-                if turn.stop == .cancelled { self.add(run, .notice(L10n.assistantStopped, isError: false)) }
+                if turn.stop == .cancelled { status = .stopped }
             } catch let error as ModelError {
-                self.add(run, .notice(L10n.message(for: error), isError: true))
+                status = .failed(L10n.message(for: error))
             } catch {
-                self.add(run, .notice(String(describing: error), isError: true))
+                status = .failed(String(describing: error))
             }
-            self.finish(run)
+            self.finish(run, status: status, from: start)
         }
     }
 
@@ -229,16 +292,18 @@ final class PhotoEditor {
         task?.cancel()
     }
 
-    private func finish(_ run: String) {
-        // A script still marked as running when the run ended never finished.
-        for index in transcript.indices {
-            if case .script(let code, .running, let changes, let logs) = transcript[index].kind {
-                transcript[index].kind = .script(code: code, state: .failed(L10n.scriptStopped), changes: changes, logs: logs)
+    private func finish(_ run: String, status: Turn.Status, from start: EditingState) {
+        let current = history.state
+        update(run) { turn in
+            turn.status = status
+            for index in turn.steps.indices where turn.steps[index].outcome == .running {
+                turn.steps[index].outcome = .failed(L10n.scriptStopped)
             }
+            if current != start { turn.result = current }
         }
-        activeRun = nil
-        completedRuns += 1
         task = nil
+        completedRuns += 1
+        save()
         Task {
             await account.refresh()
             await saveThumbnail()
@@ -250,26 +315,30 @@ final class PhotoEditor {
         case .thinking:
             break
         case .text(let text):
-            add(run, .assistant(text))
-        case .scriptStarted(let id, let code):
-            scriptsThisRun += 1
-            add(run, .script(code: code, state: .running, changes: [], logs: []), id: id)
-        case .scriptFinished(let id, let payload):
-            guard let index = transcript.firstIndex(where: { $0.id == id }), case .script(let code, _, _, _) = transcript[index].kind else { return }
+            update(run) { $0.messages.append(text) }
+        case .scriptStarted(_, let code):
+            update(run) { $0.steps.append(Step(code: code, outcome: .running)) }
+        case .scriptFinished(_, let payload):
             let changes = (payload["changes"]?.arrayValue ?? []).map { change in
                 StepChange(path: change["path"]?.stringValue ?? "", from: change["from"] ?? .null, to: change["to"] ?? .null)
             }
             let logs = (payload["logs"]?.arrayValue ?? []).compactMap(\.stringValue)
-            let state: TranscriptItem.ScriptState
+            let outcome: Step.Outcome
             switch payload["status"]?.stringValue {
-            case "ok": state = payload["applied"] == true ? .applied(changes: changes.count) : .unchanged
-            case "stale_revision": state = .stale
-            default: state = .failed(payload["error"]?["message"]?.stringValue ?? "")
+            case "ok": outcome = payload["applied"] == true ? .applied : .unchanged
+            case "stale_revision": outcome = .stale
+            default: outcome = .failed(payload["error"]?["message"]?.stringValue ?? "")
             }
-            transcript[index].kind = .script(code: code, state: state, changes: changes, logs: logs)
+            update(run) { turn in
+                guard let last = turn.steps.indices.last else { return }
+                turn.steps[last].outcome = outcome
+                turn.steps[last].changes = changes
+                turn.steps[last].logs = logs
+            }
         case .usage(let usage, let model):
-            account.record(usage, model: model, run: run, photo: document.id)
-            costs[run] = account.spent(onRun: run)
+            _ = account.record(usage, model: model, run: run, photo: document.id)
+            let spent = account.spent(onRun: run)
+            update(run) { $0.cost = spent }
         }
     }
 
