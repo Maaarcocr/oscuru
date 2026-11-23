@@ -109,7 +109,7 @@ enum L10n {
     static var beforeHint: String { String(localized: "photo.before.hint") }
     static var restore: String { String(localized: "viewer.restore") }
 
-    /// A change a script made, in words: "Highlights −45", "Blue · saturation −10", "Tone curve".
+    /// A change a script made, in words: "Highlights −45", "Blues saturation −10", "Tone curve".
     static func describe(_ change: StepChange) -> String {
         let parts = change.path.split(separator: ".").map(String.init)
         func signed(_ value: JSONValue) -> String {
@@ -136,12 +136,12 @@ enum L10n {
         case ("curves", 2):
             return curve(parts[1])
         case ("hsl", 3):
-            return "\(color(parts[1])) · \(property(parts[2])) \(signed(change.to))"
+            return "\(color(parts[1])) \(property(parts[2])) \(signed(change.to))"
         case ("grading", 3):
             let value = parts[2] == "hue" ? "\(plain(change.to))°" : percent(change.to)
-            return "\(String(localized: "change.grading")) \(range(parts[1])) · \(property(parts[2])) \(value)"
+            return "\(String(localized: "change.grading")) \(range(parts[1])) \(property(parts[2])) \(value)"
         case ("grading", 2):
-            return "\(String(localized: "change.grading")) · \(property(parts[1])) \(percent(change.to))"
+            return "\(String(localized: "change.grading")) \(property(parts[1])) \(percent(change.to))"
         case ("crop", _):
             return String(localized: "change.crop")
         default:

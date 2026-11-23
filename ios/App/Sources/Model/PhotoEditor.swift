@@ -26,6 +26,8 @@ struct Step: Codable, Equatable {
     var outcome: Outcome
     var changes: [StepChange] = []
     var logs: [String] = []
+    /// What the assistant said as it started this script.
+    var note: String?
 }
 
 /// One thing that happened to the photo: the thread is a list of these. A turn that changed the
@@ -50,7 +52,7 @@ struct Turn: Codable, Identifiable, Equatable {
 
     var id: String
     var kind: Kind
-    /// What the assistant said, in order. Once it has finished, the last one is its reply.
+    /// What the assistant said that is not a step's note: once it has finished, its reply.
     var messages: [String] = []
     var steps: [Step] = []
     /// The photo after this turn, when the turn changed it (and the original, for the first turn).
@@ -93,6 +95,8 @@ final class PhotoEditor {
     private var conversation: [JSONValue]
     private var task: Task<Void, Never>?
     private var renderGeneration = 0
+    /// Whether the assistant's latest words came with the response now being handled.
+    private var saidSomething = false
     private var pictures: [String: CGImage] = [:]
     private var pictureOrder: [String] = []
 
@@ -313,11 +317,18 @@ final class PhotoEditor {
     private func handle(_ event: AgentEvent, run: String) {
         switch event {
         case .thinking:
-            break
+            saidSomething = false
         case .text(let text):
+            saidSomething = true
             update(run) { $0.messages.append(text) }
         case .scriptStarted(_, let code):
-            update(run) { $0.steps.append(Step(code: code, outcome: .running)) }
+            // Words that come with a script are that step's note; words on their own are the reply.
+            let hasNote = saidSomething
+            saidSomething = false
+            update(run) { turn in
+                let note = hasNote ? turn.messages.popLast() : nil
+                turn.steps.append(Step(code: code, outcome: .running, note: note))
+            }
         case .scriptFinished(_, let payload):
             let changes = (payload["changes"]?.arrayValue ?? []).map { change in
                 StepChange(path: change["path"]?.stringValue ?? "", from: change["from"] ?? .null, to: change["to"] ?? .null)

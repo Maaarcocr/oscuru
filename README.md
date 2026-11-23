@@ -13,9 +13,9 @@ The assistant never generates or alters image content. It writes small JavaScrip
 
 ## What it does
 
-- **One screen.** The photo, and a place to say what you want. Touch and hold to see the original; pinch to zoom.
+- **A conversation.** Each photo is a thread: the original, what you asked for, and the version that came back. Open any version to zoom in or compare it with the one before.
 - **An assistant that looks.** It sees the photo before and after each step, can zoom into any part of it, and measures what it needs (histogram, clipping, colour casts). It works as long as the photo needs, and you can stop it at any time.
-- **Undo everything.** Every step is an undo step; one tap reverts everything the assistant did for a request.
+- **Every version kept.** Nothing is lost: any earlier version in the thread can be brought back or shared, and the thread is saved with the photo.
 - **Saved filters.** Save a look and apply it to any photo, yourself or by asking the assistant.
 - **Real RAW development.** Apple ProRAW, DNG and the camera RAW formats iOS reads, plus JPEG and HEIC, developed on the phone with Core Image. Originals are never changed. Export at full resolution to JPEG or HEIC.
 - **Your model, your account.** The assistant runs on any OpenRouter model that reads images and calls tools, with your own sign-in. The app records what it costs and sets no limits of its own.

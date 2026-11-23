@@ -20,7 +20,7 @@ struct PhotoView: View {
                 ProgressView().tint(.white)
             }
         }
-        .navigationTitle(document.name)
+        .navigationTitle((document.name as NSString).deletingPathExtension)
         .navigationBarTitleDisplayMode(.inline)
         .task {
             guard editor == nil else { return }
@@ -79,7 +79,10 @@ private struct ThreadView: View {
                 .padding(.bottom, 16)
             }
             .scrollDismissesKeyboard(.interactively)
-            .defaultScrollAnchor(.bottom)
+            // A short thread starts at the top; a long one stays at its latest turn.
+            .defaultScrollAnchor(.top, for: .alignment)
+            .defaultScrollAnchor(.bottom, for: .initialOffset)
+            .defaultScrollAnchor(.bottom, for: .sizeChanges)
             .accessibilityIdentifier("thread")
             .onChange(of: editor.threadVersion) {
                 withAnimation(.snappy) { proxy.scrollTo(ThreadView.end, anchor: .bottom) }
@@ -92,6 +95,8 @@ private struct ThreadView: View {
                 }
             }
             .safeAreaInset(edge: .bottom, spacing: 0) { composer }
+            // Kept clear of the top edge so the thread stops at the title bar instead of sliding under it.
+            .padding(.top, 1)
         }
         .background(Color.black)
         .toolbar { menu }
@@ -295,19 +300,25 @@ private struct TurnView: View {
     /// What the assistant said and did for an instruction.
     @ViewBuilder
     private var reply: some View {
-        let working = turn.status == .working
-        ForEach(Array(turn.messages.enumerated()), id: \.offset) { index, message in
-            let isReply = !working && index == turn.messages.count - 1
-            Text(message)
-                .font(isReply ? .body : .subheadline)
-                .foregroundStyle(isReply ? Color.primary : Color.secondary)
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .textSelection(.enabled)
-                .accessibilityIdentifier(isReply ? "thread.reply" : "thread.message")
-        }
-        if working {
-            WorkingCard(editor: editor, steps: turn.steps.count, caption: turn.messages.last)
+        if turn.status == .working {
+            // Its latest words while it works; they stay with the step once it is done.
+            if let note = turn.messages.last ?? turn.steps.last(where: { $0.note != nil })?.note {
+                Text(note)
+                    .font(.subheadline)
+                    .foregroundStyle(.secondary)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .contentTransition(.opacity)
+                    .animation(.easeInOut(duration: 0.3), value: note)
+                    .accessibilityIdentifier("thread.message")
+            }
+            WorkingCard(editor: editor, steps: turn.steps.count)
         } else {
+            ForEach(Array(turn.messages.enumerated()), id: \.offset) { _, message in
+                Text(message)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .textSelection(.enabled)
+                    .accessibilityIdentifier("thread.reply")
+            }
             if turn.result != nil { card }
             switch turn.status {
             case .stopped: Caption(text: L10n.stopped)
@@ -315,6 +326,7 @@ private struct TurnView: View {
                 Text(message)
                     .font(.footnote)
                     .foregroundStyle(.red)
+                    .frame(maxWidth: .infinity, alignment: .leading)
                     .accessibilityIdentifier("thread.error")
             default: EmptyView()
             }
@@ -388,7 +400,6 @@ private struct PhotoCard: View {
 private struct WorkingCard: View {
     let editor: PhotoEditor
     let steps: Int
-    let caption: String?
 
     var body: some View {
         ZStack {
@@ -471,6 +482,11 @@ private struct StepView: View {
                 Image(systemName: symbol).foregroundStyle(tint)
                 Text(L10n.stepTitle(number, step.outcome)).font(.footnote.weight(.semibold))
             }
+            if let note = step.note {
+                Text(note)
+                    .font(.footnote)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
             if !step.changes.isEmpty {
                 Text(step.changes.map(L10n.describe).joined(separator: " · "))
                     .font(.footnote)
@@ -543,7 +559,7 @@ private struct PhotoViewer: View {
                 Button {
                     dismiss()
                 } label: {
-                    Image(systemName: "xmark").font(.body.weight(.semibold)).frame(width: 44, height: 44)
+                    Image(systemName: "xmark").font(.body.weight(.semibold)).frame(width: 30, height: 30)
                 }
                 .buttonStyle(.glass)
                 .buttonBorderShape(.circle)
@@ -565,7 +581,7 @@ private struct PhotoViewer: View {
                         Button(L10n.shareJPEG) { share(.jpeg) }
                         Button(L10n.shareHEIC) { share(.heic) }
                     } label: {
-                        Image(systemName: "square.and.arrow.up").font(.body.weight(.semibold)).frame(width: 44, height: 44)
+                        Image(systemName: "square.and.arrow.up").font(.body.weight(.semibold)).frame(width: 30, height: 30)
                     }
                     .buttonStyle(.glass)
                     .buttonBorderShape(.circle)

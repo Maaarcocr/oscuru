@@ -61,6 +61,20 @@ final class OscuruUITests: XCTestCase {
         element(app, "library.settings").tap()
         XCTAssertTrue(element(app, "settings.connected").waitForExistence(timeout: 30))
         capture("09-settings")
+
+        // Signed out: one button to sign in, and the other ways on their own page.
+        element(app, "settings.disconnect").tap()
+        let alert = app.alerts.firstMatch
+        XCTAssertTrue(alert.waitForExistence(timeout: 30))
+        for label in ["Disconnect", "Scollega"] where alert.buttons[label].exists {
+            alert.buttons[label].tap()
+            break
+        }
+        XCTAssertTrue(element(app, "settings.signIn").waitForExistence(timeout: 30))
+        capture("10-signed-out")
+        element(app, "settings.other").tap()
+        XCTAssertTrue(element(app, "settings.key").waitForExistence(timeout: 30))
+        capture("11-other-ways")
     }
 
     private func element(_ app: XCUIApplication, _ identifier: String) -> XCUIElement {

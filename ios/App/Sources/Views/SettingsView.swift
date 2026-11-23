@@ -34,6 +34,7 @@ struct SettingsView: View {
                     usage
                     Section {
                         Button(L10n.settingsDisconnect, role: .destructive) { confirmingDisconnect = true }
+                            .accessibilityIdentifier("settings.disconnect")
                             .alert(L10n.settingsDisconnectTitle, isPresented: $confirmingDisconnect) {
                                 Button(L10n.settingsDisconnect, role: .destructive) { account.disconnect() }
                                 Button(L10n.cancel, role: .cancel) {}
