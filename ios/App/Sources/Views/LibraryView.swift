@@ -28,7 +28,7 @@ struct LibraryView: View {
     @State private var showingSettings = false
     @State private var path: [String] = []
 
-    private let columns = [GridItem(.adaptive(minimum: 110), spacing: 2)]
+    private let columns = [GridItem(.flexible(), spacing: 6), GridItem(.flexible(), spacing: 6)]
 
     var body: some View {
         NavigationStack(path: $path) {
@@ -40,14 +40,16 @@ struct LibraryView: View {
                         Text(L10n.libraryEmptyMessage)
                     } actions: {
                         PhotosPicker(selection: $picked, matching: .images, preferredItemEncoding: .current) {
-                            Text(L10n.fromPhotos)
+                            Text(L10n.fromPhotos).padding(.horizontal, 8)
                         }
-                        .buttonStyle(.borderedProminent)
+                        .buttonStyle(.glassProminent)
+                        .controlSize(.large)
                         Button(L10n.fromFiles) { choosingFile = true }
+                            .buttonStyle(.glass)
                     }
                 } else {
                     ScrollView {
-                        LazyVGrid(columns: columns, spacing: 2) {
+                        LazyVGrid(columns: columns, spacing: 6) {
                             ForEach(model.library.photos) { photo in
                                 NavigationLink(value: photo.id) {
                                     Thumbnail(url: model.library.thumbnailURL(photo.id), stamp: photo.thumbnailStamp, isRaw: photo.info.isRaw)
@@ -60,9 +62,12 @@ struct LibraryView: View {
                                 }
                             }
                         }
+                        .padding(.horizontal, 12)
+                        .padding(.top, 8)
                     }
                 }
             }
+            .background(Color.black.ignoresSafeArea())
             .navigationTitle(Text(verbatim: "Oscuru"))
             .toolbar {
                 ToolbarItem(placement: .topBarLeading) {
@@ -147,18 +152,18 @@ private struct Thumbnail: View {
             .aspectRatio(1, contentMode: .fit)
             .overlay {
                 if let image {
-                    Image(uiImage: image).resizable().scaledToFill()
+                    Image(uiImage: image).resizable().scaledToFill().transition(.opacity)
                 }
             }
-            .clipped()
+            .clipShape(RoundedRectangle(cornerRadius: 14))
             .overlay(alignment: .bottomLeading) {
                 if isRaw {
                     Text(verbatim: "RAW")
                         .font(.caption2.weight(.bold))
-                        .padding(.horizontal, 5)
-                        .padding(.vertical, 2)
-                        .background(.black.opacity(0.6), in: RoundedRectangle(cornerRadius: 4))
-                        .padding(6)
+                        .padding(.horizontal, 7)
+                        .padding(.vertical, 3)
+                        .glassEffect(.regular, in: .capsule)
+                        .padding(8)
                 }
             }
             .contentShape(Rectangle())
