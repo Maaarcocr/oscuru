@@ -38,17 +38,16 @@ final class OscuruUITests: XCTestCase {
         capture("05-edited")
         XCTAssertTrue(element(app, "photo.undo").isEnabled, "its edits are undo steps")
 
-        // Touch and hold shows the original.
+        // Holding "Before" shows the original; so does touching and holding the photo.
+        element(app, "photo.compare").press(forDuration: 1.2)
         element(app, "photo.image").press(forDuration: 1.2)
 
         // Save the look as a filter.
-        element(app, "photo.more").tap()
         let filters = element(app, "photo.filters")
-        XCTAssertTrue(filters.waitForExistence(timeout: 30))
-        capture("06-menu")
         filters.tap()
         let name = element(app, "filters.name")
         XCTAssertTrue(name.waitForExistence(timeout: 30))
+        capture("06-filters-empty")
         name.tap()
         name.typeText("Dusk")
         element(app, "filters.save").tap()
@@ -63,8 +62,6 @@ final class OscuruUITests: XCTestCase {
         revert.tap()
         XCTAssertTrue(revert.waitForNonExistence(timeout: 30), "nothing left to revert")
         capture("08-reverted")
-        element(app, "photo.more").tap()
-        XCTAssertTrue(filters.waitForExistence(timeout: 30))
         filters.tap()
         XCTAssertTrue(saved.waitForExistence(timeout: 30))
         saved.tap()
@@ -87,14 +84,19 @@ final class OscuruUITests: XCTestCase {
         XCTAssertTrue(note.waitForExistence(timeout: 30))
         capture("11-second-instruction")
 
+        // The menu: conversation, export, reset.
+        element(app, "photo.more").tap()
+        capture("12-menu")
+        app.tap()
+
         // Back to the library; settings show the connection and what has been spent.
         app.navigationBars.buttons.element(boundBy: 0).tap()
         XCTAssertTrue(photo.waitForExistence(timeout: 30))
         element(app, "library.settings").tap()
         XCTAssertTrue(element(app, "settings.connected").waitForExistence(timeout: 30))
-        capture("12-settings")
+        capture("13-settings")
         element(app, "settings.done").tap()
-        capture("13-library-after")
+        capture("14-library-after")
     }
 
     private func element(_ app: XCUIApplication, _ identifier: String) -> XCUIElement {

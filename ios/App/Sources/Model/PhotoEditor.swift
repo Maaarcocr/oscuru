@@ -5,6 +5,13 @@ import OscuruCore
 import OscuruEngine
 import OscuruScripting
 
+/// One setting a script changed.
+struct StepChange: Equatable {
+    let path: String
+    let from: JSONValue
+    let to: JSONValue
+}
+
 /// One line of what the person and the assistant did to a photo.
 struct TranscriptItem: Identifiable, Equatable {
     enum ScriptState: Equatable {
@@ -18,7 +25,7 @@ struct TranscriptItem: Identifiable, Equatable {
     enum Kind: Equatable {
         case user(String)
         case assistant(String)
-        case script(code: String, state: ScriptState, changes: [String], logs: [String])
+        case script(code: String, state: ScriptState, changes: [StepChange], logs: [String])
         case notice(String, isError: Bool)
     }
 
@@ -38,6 +45,10 @@ final class PhotoEditor {
     private(set) var history: EditHistory
     /// The photo as it is now, for the screen.
     private(set) var image: CGImage?
+    /// Goes up with every new picture, so the screen can cross-fade between them.
+    private(set) var imageVersion = 0
+    /// Goes up each time the assistant finishes an instruction.
+    private(set) var completedRuns = 0
     /// The photo as opened, framed like the current one. Rendered when first asked for.
     private(set) var originalImage: CGImage?
     private(set) var renderError: String?
@@ -71,6 +82,15 @@ final class PhotoEditor {
     }
 
     var state: EditingState { history.state }
+
+    /// What the assistant last said while working on the current instruction.
+    var workingCaption: String? {
+        guard let run = activeRun else { return nil }
+        for item in transcript.reversed() where item.run == run {
+            if case .assistant(let text) = item.kind { return text }
+        }
+        return nil
+    }
     var isWorking: Bool { activeRun != nil }
     var isEdited: Bool { history.state != EditingState(defaults: info.defaults) }
 
@@ -126,6 +146,7 @@ final class PhotoEditor {
                 switch result {
                 case .success(let image):
                     self.image = image
+                    self.imageVersion += 1
                     self.renderError = nil
                 case .failure(let error):
                     self.renderError = String(describing: error)
@@ -216,6 +237,7 @@ final class PhotoEditor {
             }
         }
         activeRun = nil
+        completedRuns += 1
         task = nil
         Task {
             await account.refresh()
@@ -235,9 +257,7 @@ final class PhotoEditor {
         case .scriptFinished(let id, let payload):
             guard let index = transcript.firstIndex(where: { $0.id == id }), case .script(let code, _, _, _) = transcript[index].kind else { return }
             let changes = (payload["changes"]?.arrayValue ?? []).map { change in
-                let path = change["path"]?.stringValue ?? ""
-                if path.hasPrefix("curves.") { return path }
-                return "\(path)  \((change["from"] ?? .null).described) → \((change["to"] ?? .null).described)"
+                StepChange(path: change["path"]?.stringValue ?? "", from: change["from"] ?? .null, to: change["to"] ?? .null)
             }
             let logs = (payload["logs"]?.arrayValue ?? []).compactMap(\.stringValue)
             let state: TranscriptItem.ScriptState

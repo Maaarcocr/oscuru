@@ -33,22 +33,6 @@
         }
       }
     },
-    "assistant.editing %@": {
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Editing · step %@"
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Sto modificando · passo %@"
-          }
-        }
-      }
-    },
     "assistant.looking": {
       "localizations": {
         "en": {
@@ -70,13 +54,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Describe an edit…"
+            "value": "What should it look like?"
           }
         },
         "it": {
           "stringUnit": {
             "state": "translated",
-            "value": "Descrivi una modifica…"
+            "value": "Come dovrebbe essere?"
           }
         }
       }
@@ -141,6 +125,166 @@
           "stringUnit": {
             "state": "translated",
             "value": "Fermato. Le modifiche già fatte restano; puoi annullarle."
+          }
+        }
+      }
+    },
+    "change.crop": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Crop"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ritaglio"
+          }
+        }
+      }
+    },
+    "change.grading": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Grade"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Grading"
+          }
+        }
+      }
+    },
+    "color.aqua": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Aquas"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Acqua"
+          }
+        }
+      }
+    },
+    "color.blue": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Blues"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Blu"
+          }
+        }
+      }
+    },
+    "color.green": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Greens"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Verdi"
+          }
+        }
+      }
+    },
+    "color.magenta": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Magentas"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Magenta"
+          }
+        }
+      }
+    },
+    "color.orange": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Oranges"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Arancioni"
+          }
+        }
+      }
+    },
+    "color.purple": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Purples"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Viola"
+          }
+        }
+      }
+    },
+    "color.red": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Reds"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Rossi"
+          }
+        }
+      }
+    },
+    "color.yellow": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Yellows"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Gialli"
           }
         }
       }
@@ -273,6 +417,54 @@
         }
       }
     },
+    "conversation.hint": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Opens the conversation."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Apre la conversazione."
+          }
+        }
+      }
+    },
+    "conversation.more %@": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ more"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "altre %@"
+          }
+        }
+      }
+    },
+    "conversation.showScript": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Script"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Script"
+          }
+        }
+      }
+    },
     "conversation.title": {
       "localizations": {
         "en": {
@@ -285,6 +477,70 @@
           "stringUnit": {
             "state": "translated",
             "value": "Conversazione"
+          }
+        }
+      }
+    },
+    "curve.blue": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Blue curve"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Curva del blu"
+          }
+        }
+      }
+    },
+    "curve.green": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Green curve"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Curva del verde"
+          }
+        }
+      }
+    },
+    "curve.red": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Red curve"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Curva del rosso"
+          }
+        }
+      }
+    },
+    "curve.rgb": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tone curve"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Curva tonale"
           }
         }
       }
@@ -385,66 +641,34 @@
         }
       }
     },
+    "filters.empty": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Save a look below to use it on other photos. You can also ask the assistant to save or apply one."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Salva qui sotto un look per usarlo su altre foto. Puoi anche chiedere all’assistente di salvarne o applicarne uno."
+          }
+        }
+      }
+    },
     "filters.name": {
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Name"
+            "value": "Name this look"
           }
         },
         "it": {
           "stringUnit": {
             "state": "translated",
-            "value": "Nome"
-          }
-        }
-      }
-    },
-    "filters.save.footer": {
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "A filter keeps the tone and colour of this photo, not its crop. You can also ask the assistant to save or apply one."
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Un filtro conserva tono e colore di questa foto, non il ritaglio. Puoi anche chiedere all’assistente di salvarne o applicarne uno."
-          }
-        }
-      }
-    },
-    "filters.save.title": {
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Save this look"
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Salva questo look"
-          }
-        }
-      }
-    },
-    "filters.saved.title": {
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Your filters"
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "I tuoi filtri"
+            "value": "Dai un nome a questo look"
           }
         }
       }
@@ -557,6 +781,310 @@
           "stringUnit": {
             "state": "translated",
             "value": "Impossibile aggiungere questa foto"
+          }
+        }
+      }
+    },
+    "param.blacks": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Blacks"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Neri"
+          }
+        }
+      }
+    },
+    "param.clarity": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Clarity"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chiarezza"
+          }
+        }
+      }
+    },
+    "param.colorNoiseReduction": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Colour noise reduction"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Riduzione rumore colore"
+          }
+        }
+      }
+    },
+    "param.contrast": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Contrast"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Contrasto"
+          }
+        }
+      }
+    },
+    "param.dehaze": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dehaze"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Rimuovi foschia"
+          }
+        }
+      }
+    },
+    "param.exposure": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Exposure"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Esposizione"
+          }
+        }
+      }
+    },
+    "param.highlights": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Highlights"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Luci"
+          }
+        }
+      }
+    },
+    "param.noiseReduction": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Noise reduction"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Riduzione rumore"
+          }
+        }
+      }
+    },
+    "param.saturation": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Saturation"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Saturazione"
+          }
+        }
+      }
+    },
+    "param.shadows": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Shadows"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ombre"
+          }
+        }
+      }
+    },
+    "param.sharpening": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sharpening"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nitidezza"
+          }
+        }
+      }
+    },
+    "param.temperature": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Temperature"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Temperatura"
+          }
+        }
+      }
+    },
+    "param.texture": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Texture"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Texture"
+          }
+        }
+      }
+    },
+    "param.tint": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tint"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tinta"
+          }
+        }
+      }
+    },
+    "param.vibrance": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Vibrance"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Vividezza"
+          }
+        }
+      }
+    },
+    "param.vignette": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Vignette"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Vignettatura"
+          }
+        }
+      }
+    },
+    "param.whites": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Whites"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bianchi"
+          }
+        }
+      }
+    },
+    "photo.before": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Before"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Prima"
+          }
+        }
+      }
+    },
+    "photo.before.hint": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Touch and hold to see the photo as it was opened."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tieni premuto per vedere la foto com’era all’apertura."
           }
         }
       }
@@ -785,18 +1313,130 @@
         }
       }
     },
-    "script.applied %@": {
+    "property.balance": {
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Edit applied · %@ settings"
+            "value": "balance"
           }
         },
         "it": {
           "stringUnit": {
             "state": "translated",
-            "value": "Modifica applicata · %@ impostazioni"
+            "value": "bilanciamento"
+          }
+        }
+      }
+    },
+    "property.blending": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "blending"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "fusione"
+          }
+        }
+      }
+    },
+    "property.hue": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "hue"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "tonalità"
+          }
+        }
+      }
+    },
+    "property.luminance": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "luminance"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "luminanza"
+          }
+        }
+      }
+    },
+    "property.saturation": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "saturation"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "saturazione"
+          }
+        }
+      }
+    },
+    "range.highlights": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "highlights"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "luci"
+          }
+        }
+      }
+    },
+    "range.midtones": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "midtones"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "mezzitoni"
+          }
+        }
+      }
+    },
+    "range.shadows": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "shadows"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ombre"
           }
         }
       }
@@ -1153,6 +1793,22 @@
         }
       }
     },
+    "step.title %@": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Step %@"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Passo %@"
+          }
+        }
+      }
+    },
     "suggest.cinematic": {
       "localizations": {
         "en": {
@@ -1165,6 +1821,22 @@
           "stringUnit": {
             "state": "translated",
             "value": "Rendila cinematografica"
+          }
+        }
+      }
+    },
+    "suggest.cinematic.label": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cinematic"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cinematografica"
           }
         }
       }
@@ -1185,6 +1857,22 @@
         }
       }
     },
+    "suggest.mono.label": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Black & white"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bianco e nero"
+          }
+        }
+      }
+    },
     "suggest.natural": {
       "localizations": {
         "en": {
@@ -1201,6 +1889,22 @@
         }
       }
     },
+    "suggest.natural.label": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Natural colour"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Colori naturali"
+          }
+        }
+      }
+    },
     "suggest.sky": {
       "localizations": {
         "en": {
@@ -1213,6 +1917,22 @@
           "stringUnit": {
             "state": "translated",
             "value": "Recupera il cielo, schiarisci il primo piano"
+          }
+        }
+      }
+    },
+    "suggest.sky.label": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Recover the sky"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Recupera il cielo"
           }
         }
       }
