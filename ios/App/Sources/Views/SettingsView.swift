@@ -1,0 +1,177 @@
+import OscuruCore
+import SwiftUI
+
+struct SettingsView: View {
+    @Environment(AppModel.self) private var model
+    @Environment(\.dismiss) private var dismiss
+    @Environment(\.webAuthenticationSession) private var webAuthenticationSession
+    @Environment(\.openURL) private var openURL
+    @State private var busy = false
+    @State private var key = ""
+    @State private var code = ""
+    @State private var showingCode = false
+    @State private var problem: String?
+    @State private var confirmingDisconnect = false
+
+    private var account: Account { model.account }
+
+    var body: some View {
+        NavigationStack {
+            Form {
+                Section {
+                    if account.isConnected {
+                        LabeledContent(L10n.settingsAccount, value: L10n.settingsConnected)
+                            .accessibilityIdentifier("settings.connected")
+                        if let info = account.keyInfo {
+                            LabeledContent(L10n.settingsKey, value: info.label)
+                        }
+                        Button(L10n.settingsDisconnect, role: .destructive) { confirmingDisconnect = true }
+                            .alert(L10n.settingsDisconnectTitle, isPresented: $confirmingDisconnect) {
+                                Button(L10n.settingsDisconnect, role: .destructive) { account.disconnect() }
+                                Button(L10n.cancel, role: .cancel) {}
+                            } message: {
+                                Text(L10n.settingsDisconnectMessage)
+                            }
+                    } else {
+                        Button(L10n.settingsSignIn) {
+                            attempt {
+                                if try await !account.signIn(using: webAuthenticationSession) { showingCode = true }
+                            }
+                        }
+                        .accessibilityIdentifier("settings.signIn")
+                        Button(L10n.settingsGetCode) {
+                            if let url = account.codeSignInURL() { openURL(url) }
+                            showingCode = true
+                        }
+                        if showingCode {
+                            HStack {
+                                TextField(L10n.settingsCodePlaceholder, text: $code)
+                                    .textInputAutocapitalization(.never)
+                                    .autocorrectionDisabled()
+                                Button(L10n.settingsUse) { attempt { try await account.finishSignIn(code: code) } }
+                                    .disabled(code.trimmingCharacters(in: .whitespaces).isEmpty)
+                            }
+                        }
+                        HStack {
+                            SecureField(L10n.settingsKeyPlaceholder, text: $key)
+                                .textInputAutocapitalization(.never)
+                                .autocorrectionDisabled()
+                                .accessibilityIdentifier("settings.key")
+                            Button(L10n.settingsUse) {
+                                attempt {
+                                    try await account.connect(key: key)
+                                    key = ""
+                                }
+                            }
+                            .disabled(key.trimmingCharacters(in: .whitespaces).isEmpty)
+                        }
+                    }
+                } header: {
+                    Text(verbatim: "OpenRouter")
+                } footer: {
+                    Text(L10n.settingsAccountFooter)
+                }
+                .disabled(busy)
+
+                Section {
+                    NavigationLink {
+                        ModelPicker()
+                    } label: {
+                        LabeledContent(L10n.settingsModel, value: account.models.first { $0.id == account.activeModel }?.name ?? account.activeModel)
+                    }
+                    .accessibilityIdentifier("settings.model")
+                } footer: {
+                    Text(L10n.settingsModelFooter)
+                }
+
+                if account.isConnected {
+                    Section {
+                        LabeledContent(L10n.usageToday, value: UsageLedger.dollars(account.spentToday))
+                        LabeledContent(L10n.usageMonth, value: UsageLedger.dollars(account.spentThisMonth))
+                        LabeledContent(L10n.usageTotal, value: UsageLedger.dollars(account.spentInTotal))
+                        if let info = account.keyInfo {
+                            LabeledContent(L10n.usageKey, value: UsageLedger.dollars(info.usage))
+                        }
+                    } header: {
+                        Text(L10n.usageTitle)
+                    } footer: {
+                        Text(L10n.usageFooter)
+                    }
+                }
+
+                Section {
+                    Text(L10n.privacyBody)
+                        .font(.footnote)
+                        .foregroundStyle(.secondary)
+                } header: {
+                    Text(L10n.privacyTitle)
+                }
+            }
+            .navigationTitle(L10n.settings)
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .confirmationAction) {
+                    Button(L10n.done) { dismiss() }
+                        .accessibilityIdentifier("settings.done")
+                }
+            }
+            .alert(L10n.settingsConnectFailed, isPresented: Binding(get: { problem != nil }, set: { if !$0 { problem = nil } })) {
+                Button(L10n.ok, role: .cancel) {}
+            } message: {
+                Text(problem ?? "")
+            }
+            .task { await account.refresh() }
+        }
+    }
+
+    private func attempt(_ work: @escaping () async throws -> Void) {
+        guard !busy else { return }
+        busy = true
+        Task {
+            defer { busy = false }
+            do {
+                try await work()
+            } catch let error as ModelError {
+                problem = L10n.message(for: error)
+            } catch {
+                problem = String(describing: error)
+            }
+        }
+    }
+}
+
+private struct ModelPicker: View {
+    @Environment(AppModel.self) private var model
+    @State private var search = ""
+
+    var body: some View {
+        let account = model.account
+        let shown = account.models.filter { search.isEmpty || $0.name.localizedCaseInsensitiveContains(search) || $0.id.localizedCaseInsensitiveContains(search) }
+        List {
+            if account.models.isEmpty {
+                Text(account.activeModel)
+            }
+            ForEach(shown) { entry in
+                Button {
+                    account.chosenModel = entry.id
+                } label: {
+                    HStack {
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text(entry.name).foregroundStyle(.primary)
+                            Text(L10n.modelPrice(id: entry.id, input: entry.promptPrice, output: entry.completionPrice))
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                        }
+                        Spacer()
+                        if entry.id == account.activeModel {
+                            Image(systemName: "checkmark").foregroundStyle(.tint)
+                        }
+                    }
+                }
+            }
+        }
+        .searchable(text: $search)
+        .navigationTitle(L10n.settingsModel)
+        .navigationBarTitleDisplayMode(.inline)
+    }
+}

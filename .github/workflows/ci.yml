@@ -10,6 +10,15 @@ concurrency:
   group: verify-${{ github.ref }}
   cancel-in-progress: true
 jobs:
+  strings:
+    name: Strings complete in English and Italian
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - run: bash -n scripts/*.sh
+      - run: python3 scripts/check-strings.py
+
   core:
     name: Core tests (Linux)
     runs-on: ubuntu-latest
@@ -32,3 +41,58 @@ jobs:
           swift --version
       - name: Core, Core Image engine (tables, colour, geometry, RAW decoding) and JavaScriptCore runtime
         run: swift test --package-path ios/Packages/OscuruKit
+
+  ios:
+    name: App build and UI tests (en + it)
+    needs: [strings, core, kit]
+    runs-on: macos-26
+    timeout-minutes: 50
+    steps:
+      - uses: actions/checkout@v4
+      - name: Tool versions and project generator
+        run: |
+          xcodebuild -version
+          brew install xcodegen
+          xcodegen --version
+      - name: Build Release for a real iOS device (unsigned)
+        run: |
+          (cd ios && xcodegen generate)
+          xcodebuild build -project ios/Oscuru.xcodeproj -scheme Oscuru \
+            -configuration Release -destination 'generic/platform=iOS' \
+            -derivedDataPath ios/DerivedData-Release CODE_SIGNING_ALLOWED=NO > release-build.log 2>&1 || {
+              grep -E 'error:|fatal error|Undefined symbol|ld: ' release-build.log | sort -u | head -80
+              tail -30 release-build.log
+              exit 1
+            }
+          tail -2 release-build.log
+      - name: Run the UI tests in English and Italian
+        run: ./scripts/test-ios.sh > ui-tests.log 2>&1 || {
+            grep -E 'error:|XCTAssert|failed|Failing tests' ui-tests.log | sort -u | head -80
+            tail -40 ui-tests.log
+            exit 1
+          }
+      - name: Export UI test screenshots
+        if: always()
+        run: |
+          mkdir -p ios/build/screenshots
+          for result in ios/build/*.xcresult; do
+            [[ -e "$result" ]] || continue
+            name="$(basename "$result" .xcresult)"
+            xcrun xcresulttool export attachments --path "$result" --output-path "ios/build/screenshots/$name" || true
+          done
+      - name: Save UI test screenshots
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ios-screenshots
+          path: ios/build/screenshots
+          if-no-files-found: warn
+      - name: Save logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ios-logs
+          path: |
+            release-build.log
+            ui-tests.log
+          if-no-files-found: ignore

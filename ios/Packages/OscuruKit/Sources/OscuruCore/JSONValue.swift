@@ -168,6 +168,8 @@ extension JSONValue: ExpressibleByStringLiteral, ExpressibleByFloatLiteral, Expr
 
 /// A number the way JavaScript would print it: no trailing ".0", up to 6 decimals.
 public func formatNumber(_ value: Double) -> String {
+    if value.isNaN { return "NaN" }
+    if value.isInfinite { return value < 0 ? "-Infinity" : "Infinity" }
     if value == value.rounded(), abs(value) < 1e15 {
         return String(Int64(value))
     }

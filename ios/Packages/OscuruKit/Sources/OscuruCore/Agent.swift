@@ -95,7 +95,8 @@ public struct AgentTurn: Sendable {
 public enum Agent {
     static let removedImageNote = "[A picture from an earlier request was here. It was removed to save space; later pictures show the photo as it is now.]"
 
-    static func text(of message: JSONValue) -> String {
+    /// The words in a message, without its pictures.
+    public static func text(of message: JSONValue) -> String {
         if let text = message["content"]?.stringValue { return text }
         return (message["content"]?.arrayValue ?? []).compactMap { $0["type"] == "text" ? $0["text"]?.stringValue : nil }.joined()
     }

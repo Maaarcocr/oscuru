@@ -37,7 +37,8 @@ public final class ScriptRuntime: @unchecked Sendable {
                 self?.dispatch(name, argumentsJSON) ?? #"{"error":{"name":"Error","message":"The script environment has gone away."}}"#
             }
             context.setObject(native, forKeyedSubscript: "__oscuruNative" as NSString)
-            context.evaluateScript(ScriptRuntime.prelude)?.call(withArguments: [context.objectForKeyedSubscript("__oscuruNative") as Any])
+            context.evaluateScript(ScriptRuntime.prelude, withSourceURL: URL(string: "oscuru-prelude.js"))?
+                .call(withArguments: [context.objectForKeyedSubscript("__oscuruNative") as Any])
             context.evaluateScript("delete globalThis.__oscuruNative")
         }
 
@@ -72,13 +73,13 @@ public final class ScriptRuntime: @unchecked Sendable {
             // A block keeps `let` and `const` to this call, so a script can declare the same names
             // again next time, while `var` and functions stay in the context.
             let lineOffset = 1
-            var result = context.evaluateScript("{\n\(request.code)\n}")
+            var result = context.evaluateScript("{\n\(request.code)\n}", withSourceURL: ScriptRuntime.scriptURL)
             if let exception = thrown, exception.forProperty("name")?.toString() == "SyntaxError",
                 (exception.forProperty("message")?.toString() ?? "").contains("Return statements are only valid inside functions")
             {
                 // Written as a function body, with `return`: run it as one.
                 thrown = nil
-                result = context.evaluateScript("(function () {\n\(request.code)\n}).call(undefined)")
+                result = context.evaluateScript("(function () {\n\(request.code)\n}).call(undefined)", withSourceURL: ScriptRuntime.scriptURL)
             }
             context.exceptionHandler = nil
 
@@ -86,8 +87,21 @@ public final class ScriptRuntime: @unchecked Sendable {
                 error: nil, state: session.draft, changes: [], logs: session.logs, returnValue: nil, shown: session.shown,
                 durationMs: Int(Date().timeIntervalSince(started) * 1000))
             if let exception = thrown {
-                let line = exception.forProperty("line").flatMap { $0.isNumber ? Int($0.toInt32()) - lineOffset : nil }
-                let column = exception.forProperty("column").flatMap { $0.isNumber ? Int($0.toInt32()) : nil }
+                // Errors raised by the API are created inside the prelude, so the place in the person's
+                // script comes from the call stack; syntax errors carry it themselves.
+                var line: Int?
+                var column: Int?
+                if exception.isObject {
+                    let stack = exception.forProperty("stack")?.toString() ?? ""
+                    if let match = stack.firstMatch(of: #/oscuru-script\.js:(\d+):(\d+)/#) {
+                        line = Int(match.1)
+                        column = Int(match.2)
+                    } else if (exception.forProperty("sourceURL")?.toString() ?? "").hasSuffix("oscuru-script.js") {
+                        line = exception.forProperty("line").flatMap { $0.isNumber ? Int($0.toInt32()) : nil }
+                        column = exception.forProperty("column").flatMap { $0.isNumber ? Int($0.toInt32()) : nil }
+                    }
+                }
+                line = line.map { $0 - lineOffset }
                 var name = exception.isObject ? (exception.forProperty("name")?.toString() ?? "Error") : "Error"
                 var message = exception.isObject ? (exception.forProperty("message")?.toString() ?? exception.toString() ?? "") : (exception.toString() ?? "")
                 if isCancelled() {
@@ -113,6 +127,7 @@ public final class ScriptRuntime: @unchecked Sendable {
     }
 
     static let maxReturnLength = 20000
+    static let scriptURL = URL(string: "oscuru-script.js")
 
     private func currentEngine() -> Engine {
         lock.lock()
@@ -193,7 +208,7 @@ public final class ScriptRuntime: @unchecked Sendable {
               if (reply.error.name === "Cancelled") error.name = "Cancelled";
               throw error;
             }
-            return reply.ok;
+            return reply.ok === null ? undefined : reply.ok;
           };
           const bind = (name) => (...args) => call(name, ...args);
           const group = (prefix, names) => Object.freeze(Object.fromEntries(names.map((name) => [name, bind(prefix + "." + name)])));

@@ -1,0 +1,96 @@
+# XcodeGen spec. Generate the project with `xcodegen generate` (the .xcodeproj is never committed).
+name: Oscuru
+
+options:
+  developmentLanguage: en
+  deploymentTarget:
+    iOS: "26.0"
+  createIntermediateGroups: true
+
+settings:
+  base:
+    SWIFT_VERSION: "5.0"
+    MARKETING_VERSION: "0.1.0"
+    CURRENT_PROJECT_VERSION: "1"
+    TARGETED_DEVICE_FAMILY: "1"
+    LOCALIZATION_PREFERS_STRING_CATALOGS: YES
+    SWIFT_EMIT_LOC_STRINGS: NO
+    ENABLE_USER_SCRIPT_SANDBOXING: YES
+  configs:
+    Debug:
+      DEAD_CODE_STRIPPING: NO
+
+packages:
+  OscuruKit:
+    path: Packages/OscuruKit
+
+targets:
+  Oscuru:
+    type: application
+    platform: iOS
+    sources:
+      - path: App/Sources
+      - path: App/Resources
+      - path: App/Assets.xcassets
+      - path: App/PrivacyInfo.xcprivacy
+        buildPhase: resources
+    dependencies:
+      - package: OscuruKit
+        product: OscuruCore
+      - package: OscuruKit
+        product: OscuruEngine
+      - package: OscuruKit
+        product: OscuruScripting
+    configFiles:
+      Debug: Config/Oscuru.xcconfig
+      Release: Config/Oscuru.xcconfig
+    settings:
+      base:
+        PRODUCT_NAME: Oscuru
+        # Signing lives in Config/Oscuru.xcconfig so a build service can set it for this target only.
+        PRODUCT_BUNDLE_IDENTIFIER: $(OSCURU_APP_BUNDLE_ID)
+        CODE_SIGN_STYLE: $(OSCURU_CODE_SIGN_STYLE)
+        CODE_SIGN_IDENTITY: $(OSCURU_CODE_SIGN_IDENTITY)
+        "CODE_SIGN_IDENTITY[sdk=iphoneos*]": $(OSCURU_CODE_SIGN_IDENTITY)
+        DEVELOPMENT_TEAM: $(OSCURU_DEVELOPMENT_TEAM)
+        PROVISIONING_PROFILE_SPECIFIER: $(OSCURU_PROVISIONING_PROFILE)
+        INFOPLIST_FILE: App/Info.plist
+        # iPhone only. Set on the target because XcodeGen's app preset defaults to "1,2".
+        TARGETED_DEVICE_FAMILY: "1"
+        ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
+        ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME: AccentColor
+        SUPPORTS_MACCATALYST: NO
+        SUPPORTS_MAC_DESIGNED_FOR_IPHONE_IPAD: NO
+        SUPPORTS_XR_DESIGNED_FOR_IPHONE_IPAD: NO
+
+  OscuruUITests:
+    type: bundle.ui-testing
+    platform: iOS
+    sources:
+      - path: Tests/OscuruUITests
+    dependencies:
+      - target: Oscuru
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.rudilosso.oscuru.uitests
+        GENERATE_INFOPLIST_FILE: YES
+        TEST_TARGET_NAME: Oscuru
+        CODE_SIGN_STYLE: Automatic
+
+schemes:
+  Oscuru:
+    build:
+      targets:
+        Oscuru: all
+    run:
+      config: Debug
+    test:
+      config: Debug
+      targets:
+        - OscuruUITests
+    profile:
+      config: Release
+    analyze:
+      config: Debug
+    archive:
+      config: Release

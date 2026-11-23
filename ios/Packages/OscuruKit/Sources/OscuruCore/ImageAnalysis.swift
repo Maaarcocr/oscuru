@@ -37,7 +37,7 @@ public struct ImageAnalysis: Equatable, Sendable {
     /// Measures an sRGB RGBA8 bitmap (row-major, top row first). Nil when the bitmap is empty or too short.
     public init?(pixels: Data, width: Int, height: Int) {
         let count = width * height
-        guard count > 0, pixels.count >= count * 4 else { return nil }
+        guard width > 0, height > 0, pixels.count >= count * 4 else { return nil }
         var luminance = [Int](repeating: 0, count: 256)
         var red = [Int](repeating: 0, count: 256)
         var green = [Int](repeating: 0, count: 256)
