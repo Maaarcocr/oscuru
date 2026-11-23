@@ -69,8 +69,10 @@ private struct ThreadView: View {
             ScrollView {
                 LazyVStack(alignment: .leading, spacing: 22) {
                     ForEach(editor.turns) { turn in
-                        TurnView(turn: turn, editor: editor, open: open, share: share)
-                            .id(turn.id)
+                        TurnView(turn: turn, editor: editor, open: open, share: share) { id in
+                            withAnimation(.snappy) { proxy.scrollTo(id) }
+                        }
+                        .id(turn.id)
                     }
                     Color.clear.frame(height: 1).id(ThreadView.end)
                 }
@@ -264,6 +266,8 @@ private struct TurnView: View {
     let editor: PhotoEditor
     let open: (Turn) -> Void
     let share: (EditingState, ExportFormat) -> Void
+    /// Scrolls just enough to bring the view with this id fully onto the screen.
+    let reveal: (String) -> Void
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
@@ -331,7 +335,7 @@ private struct TurnView: View {
             default: EmptyView()
             }
             if !turn.steps.isEmpty {
-                StepsSummary(steps: turn.steps, cost: turn.cost)
+                StepsSummary(id: "\(turn.id).steps", steps: turn.steps, cost: turn.cost, reveal: reveal)
             }
         }
     }
@@ -435,8 +439,10 @@ private struct WorkingCard: View {
 
 /// What the assistant's scripts did, in words. Folded away until asked for.
 private struct StepsSummary: View {
+    let id: String
     let steps: [Step]
     let cost: Double?
+    let reveal: (String) -> Void
     @State private var expanded = false
 
     var body: some View {
@@ -466,6 +472,15 @@ private struct StepsSummary: View {
                 .padding(14)
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .background(Color(white: 0.1), in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+                .id(id)
+            }
+        }
+        .onChange(of: expanded) { _, isExpanded in
+            guard isExpanded else { return }
+            Task {
+                // Once the steps are laid out, bring them onto the screen.
+                try? await Task.sleep(for: .milliseconds(80))
+                reveal(id)
             }
         }
     }

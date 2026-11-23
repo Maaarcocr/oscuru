@@ -35,6 +35,7 @@ final class OscuruUITests: XCTestCase {
         XCTAssertTrue(element(app, "thread.reply").waitForExistence(timeout: 120), "the assistant replies")
         capture("05-reply")
         element(app, "thread.steps").tap()
+        sleep(1)
         capture("06-steps")
 
         // A version full screen.

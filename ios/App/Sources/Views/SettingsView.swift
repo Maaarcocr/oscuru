@@ -156,8 +156,9 @@ private struct OtherWaysToConnect: View {
                 TextField(L10n.settingsCodePlaceholder, text: $code)
                     .textInputAutocapitalization(.never)
                     .autocorrectionDisabled()
-                Button(L10n.settingsConnect) { attempt { try await model.account.finishSignIn(code: code) } }
-                    .disabled(busy || code.trimmingCharacters(in: .whitespaces).isEmpty)
+                    .submitLabel(.go)
+                    .onSubmit(connectWithCode)
+                if hasCode { connectButton(action: connectWithCode) }
             } header: {
                 Text(L10n.settingsCodeTitle)
             } footer: {
@@ -168,16 +169,21 @@ private struct OtherWaysToConnect: View {
                 SecureField(L10n.settingsKeyPlaceholder, text: $key)
                     .textInputAutocapitalization(.never)
                     .autocorrectionDisabled()
+                    .submitLabel(.go)
+                    .onSubmit(connectWithKey)
                     .accessibilityIdentifier("settings.key")
-                Button(L10n.settingsConnect) { attempt { try await model.account.connect(key: key) } }
-                    .disabled(busy || key.trimmingCharacters(in: .whitespaces).isEmpty)
-                    .accessibilityIdentifier("settings.connectKey")
+                if hasKey {
+                    connectButton(action: connectWithKey)
+                        .accessibilityIdentifier("settings.connectKey")
+                }
             } header: {
                 Text(L10n.settingsKeyTitle)
             } footer: {
                 Text(L10n.settingsKeyFooter)
             }
         }
+        .animation(.default, value: hasCode)
+        .animation(.default, value: hasKey)
         .navigationTitle(L10n.settingsOtherWays)
         .navigationBarTitleDisplayMode(.inline)
         .alert(L10n.settingsConnectFailed, isPresented: Binding(get: { problem != nil }, set: { if !$0 { problem = nil } })) {
@@ -185,6 +191,31 @@ private struct OtherWaysToConnect: View {
         } message: {
             Text(problem ?? "")
         }
+    }
+
+    private var hasCode: Bool { !code.trimmingCharacters(in: .whitespaces).isEmpty }
+    private var hasKey: Bool { !key.trimmingCharacters(in: .whitespaces).isEmpty }
+
+    private func connectWithCode() {
+        guard hasCode else { return }
+        attempt { try await model.account.finishSignIn(code: code) }
+    }
+
+    private func connectWithKey() {
+        guard hasKey else { return }
+        attempt { try await model.account.connect(key: key) }
+    }
+
+    /// Shown once there is something to connect with.
+    private func connectButton(action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            HStack {
+                Text(L10n.settingsConnect)
+                Spacer()
+                if busy { ProgressView() }
+            }
+        }
+        .disabled(busy)
     }
 
     private func attempt(_ work: @escaping () async throws -> Void) {
