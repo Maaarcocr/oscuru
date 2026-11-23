@@ -1,0 +1,17 @@
+# Expo build (EAS) steps for Oscuru, a native Swift app with no React Native.
+# The standard iOS build would run npm install and pod install; Oscuru needs neither, so this
+# custom build signs and archives the Xcode project directly. The project is generated with
+# XcodeGen before upload (see .github/workflows/expo-build.yml), so it arrives ready to build.
+build:
+  name: Native iOS (Swift)
+  steps:
+    - eas/checkout
+    - eas/resolve_apple_team_id_from_credentials:
+        id: resolve_apple_team_id_from_credentials
+    - eas/configure_ios_credentials
+    - eas/configure_ios_version
+    - eas/generate_gymfile_from_template:
+        inputs:
+          credentials: ${ eas.job.secrets.buildCredentials }
+    - eas/run_fastlane
+    - eas/find_and_upload_build_artifacts

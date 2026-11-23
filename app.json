@@ -1,0 +1,11 @@
+{
+  "expo": {
+    "name": "Oscuru",
+    "slug": "oscuru",
+    "version": "0.1.0",
+    "platforms": ["ios"],
+    "ios": {
+      "bundleIdentifier": "com.rudilosso.oscuru"
+    }
+  }
+}

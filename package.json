@@ -1,0 +1,7 @@
+{
+  "name": "oscuru",
+  "version": "0.1.0",
+  "private": true,
+  "license": "AGPL-3.0-only",
+  "description": "Only here so Expo's build service (EAS) recognizes the project. The app is native Swift: see ios/."
+}

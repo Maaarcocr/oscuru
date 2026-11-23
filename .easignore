@@ -1,0 +1,14 @@
+# What Expo's build service uploads. Unlike .gitignore, the generated Xcode project is included:
+# the build workflow generates it just before uploading.
+.git/
+.build/
+.swiftpm/
+ios/DerivedData*/
+ios/build/
+xcuserdata/
+*.xcresult
+*.p12
+*.p8
+*.mobileprovision
+/credentials/
+node_modules/

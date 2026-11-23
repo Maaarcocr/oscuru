@@ -1,6 +1,6 @@
 # Architecture
 
-Oscuru is an Expo app (SDK 58, React Native on Hermes, TypeScript) with one local Swift module. This page says how the parts fit and why each choice was made. Where the original specification asked for something different, the difference is called out.
+Oscuru is a native iPhone app. This page says how the parts fit and why.
 
 ## The loop
 
@@ -8,83 +8,74 @@ Oscuru is an Expo app (SDK 58, React Native on Hermes, TypeScript) with one loca
 person: "make it cinematic, recover the sky"
    │
    ▼
-agent loop (src/agent/agent.ts)  ── HTTPS ──▶  model on OpenRouter
-   │   sends: instruction, settings, metadata, statistics, a rendered preview
+Agent.run (OscuruCore)  ── HTTPS ──▶  model on OpenRouter
+   │   sends: the instruction, settings, metadata, statistics, saved filters,
+   │          the photo (and the original, when it has been edited)
    │   receives: execute_edit_script({ sessionId, baseRevision, code })
    ▼
-EditorSession.runScript (src/editor/session.ts)
-   │   checks the session and revision
+EditorPort (app)                checks the session and revision
    ▼
-sandbox (src/script)            the script calls photo.current.adjust(…), curves.set(…), commit()
-   │   on a draft of the editing state; a throw discards everything
+ScriptRuntime (JavaScriptCore)  runs the script in this photo's REPL context;
+   │                            photo.current.adjust(…), curves.set(…), getStatistics(), photo.show(…)
    ▼
-editing state (src/engine/state.ts)   one new undo step, revision + 1
+EditHistory                     the result becomes the photo's settings: one undo step, revision + 1
    ▼
-renderer (modules/oscuru-engine, Swift + Core Image)   preview + a small bitmap for statistics
+Engine (Core Image)             renders the photo
    ▼
-tool result: changes, logs, statistics as JSON, and the new preview as an image
+tool result: what changed, the script's value and logs, statistics,
+             and pictures: before this request's edits, after, and anything photo.show() asked for
    ▼
-the model looks, and either sends another script or writes its closing note
+the model looks, and runs another script or writes its closing note
 ```
+
+The loop has no limits: no cap on scripts, no spending limit, no timeout on requests. It ends when the model replies without calling the tool, or when the person taps Stop.
 
 ## Editing state
 
-`src/engine/state.ts` defines the whole state as plain data: global adjustments, four curves, eight HSL ranges, three-way grading, detail, crop. Every change goes through a function that validates and returns a new state, so an invalid state cannot exist, and the same checks serve the sliders, saved documents and scripts. The parameter vocabulary follows Camera Raw; the rendering semantics are Oscuru's own.
+`EditingState` holds the whole development as plain data: global adjustments, four curves, eight HSL ranges, three-way grading, detail, crop. Every change goes through a function that validates it, so an invalid state cannot exist, and the same checks serve scripts, saved documents and filters. Ranges and descriptions live in one table per group (`Specs`); the API documentation given to the model is generated from them.
 
-Ranges, defaults and descriptions live in one table per group (`GLOBAL_SPECS` and friends). The sliders, the validators and the API documentation given to the model are all generated from those tables.
+`EditHistory` is the only way the photo changes. Every change (a script, undo, a filter, a reset) is a step and gives a new revision. A script names the revision it was written against and is refused if the photo has moved on, with the current state and picture in the reply.
 
 ## Rendering
 
-RAW decoding and everything that needs neighbouring pixels is native (`modules/oscuru-engine/ios/Engine`, Core Image). The order is:
+`OscuruEngine` decodes and renders with Core Image. In order:
 
-1. **Develop**, in linear scene-referred light: for RAW files `CIRAWFilter` applies exposure, white balance, noise reduction and sharpening inside the decoder; other files get the equivalent filters on linearized data.
-2. **Local recovery**: the recovering directions of highlights and shadows (`CIHighlightShadowAdjust`), then clarity and texture as unsharp masks whose radius is a fraction of the long edge, so previews match exports.
-3. **Tone stage**: a per-channel 1D table. 4. **Colour stage**: a 33³ cube. Both are computed in TypeScript (`src/engine/color.ts`) and applied in gamma-encoded Display P3.
-5. **Geometry**: flips, quarter turns, straightening, crop. 6. **Vignette**. 7. **Output** to JPEG/HEIC, plus a small sRGB bitmap that `src/engine/stats.ts` turns into the histogram and statistics.
+1. **Develop**, in linear light: for RAW files `CIRAWFilter` applies exposure, white balance, noise reduction and sharpening inside the decoder. The developed photo at preview size is cached, so tone and colour changes do not decode again.
+2. **Local recovery** (highlights and shadows) and **local contrast** (clarity and texture, radius relative to the photo).
+3. **Tone stage**: a per-channel 1D table. 4. **Colour stage**: a 33³ cube. Both are computed in `ColorPipeline` (pure Swift, unit-tested on Linux) and applied in gamma-encoded Display P3.
+5. **Geometry**: flips, quarter turns, straightening, crop. 6. **Vignette**.
 
-The working space is extended linear sRGB in half floats. A developed RAW at preview size is cached, so moving a tone or colour control does not decode the file again.
-
-Why tables: the point operations (contrast, curves, HSL, grading…) are where the photographic character is, and as TypeScript they are unit-tested on any machine and can change with an over-the-air update. The Swift side stays small and only applies what it is given. `native-tests` (run with `swift test` on macOS in CI) pin down what the TypeScript assumes about Core Image: table layouts, colour spaces, rotation and white-balance directions, and that RAW files really go through the RAW decoder.
-
-**Differences from the specification.** The UI is React Native rather than SwiftUI, because the app is built and published with Expo. There are no hand-written Metal kernels yet: the pipeline is built from Core Image's own filters and lookup tables. Dehaze is a global approximation, and masks are not implemented.
+The screen gets Display P3; the model gets sRGB JPEGs (models read sRGB; a wide-gamut file would look washed out to them); exports are full-resolution Display P3 JPEG or HEIC with the capture details carried over. Statistics are measured on a small sRGB bitmap.
 
 ## Scripting
 
-**The runtime is an interpreter, not JavaScriptCore.** The specification proposed JavaScriptCore and noted it should not be assumed to be a security boundary or to enforce hard limits. `src/script/interpreter.ts` is a small JavaScript interpreter (parsing with acorn) that runs inside the app's own JavaScript engine. That gives:
+Each open photo has one JavaScriptCore context, kept between scripts: a REPL. `var`, functions and `globalThis` persist; each script is wrapped in a block so `let`/`const` do not collide between calls. The context gets two globals, `photo` and `console`, built in a small prelude over a single native function. Nothing else from the app is reachable.
 
-- a real boundary: a script can only reach what it is handed (`photo`, `console`, and allow-listed standard helpers). There is no path to the global object, `Function`, the network or the file system, because property access itself is interpreted and guarded;
-- hard limits that do not depend on the engine: a step budget, a wall-clock limit, call depth, collection sizes, an allocation budget, and cooperative cancellation. Limit and security errors cannot be caught by the script;
-- an answer to App Store rule 2.5.2: downloaded text is interpreted against a fixed API of existing features, not compiled or executed as native code;
-- testability: the sandbox has about a thousand tests that run in CI, including a table of escape attempts.
+A script works on a draft of the settings. Statistics inside a script reflect its own changes so far (rendered on demand), and `photo.show()` queues pictures — current, before this request, or the original, optionally zoomed into a region. When the script ends normally its draft becomes the photo's settings; if it throws, nothing changes.
 
-The language is a pragmatic modern subset (const/let, functions, closures, destructuring, loops, Math, JSON, arrays, objects, Map/Set). Classes, async, regular expressions and modules are rejected before anything runs.
-
-**The API** is `photo.current` (`src/script/photoApi.ts`). Its contract is `src/script/apiDeclarations.ts`, written out as [`photo-api.d.ts`](photo-api.d.ts); a test checks that the declarations list exactly the members the runtime provides.
-
-**Transactions** (`src/script/execute.ts`). A script works on a draft. `commit()` marks the draft as the result; if the script then finishes normally, the draft becomes the photo's state as one undo step. If it throws, breaks a limit or is cancelled, nothing changes. Statistics available inside a script describe the photo as rendered at the script's base revision; fresh ones come back with the tool result.
-
-**Revisions.** Every committed change, manual or scripted, increases the revision. A script names the revision it was written against and is refused if the photo has moved on, with the current state and preview in the reply, so the model starts again from what the person did instead of overwriting it. A slider that is still being dragged counts as a change.
+There is no time limit. When the person stops the assistant, every API call throws at once; a script stuck in a loop that never calls the API is abandoned with its context, and the next script starts with a fresh one.
 
 ## Agent
 
-`src/agent/agent.ts` runs one instruction: build the user message (instruction, context JSON, preview), call the model with the single tool, execute tool calls through an `AgentPort`, append results and the new preview, repeat until the model answers without a tool call or a limit stops it. It knows nothing about rendering; `src/editor/agentPort.ts` is the phone's side.
+`Agent.run` carries out one instruction. It returns the conversation to continue from; a cancelled turn returns the conversation as it was. Within an instruction every picture stays, so the model can compare every step; before a new instruction, pictures from earlier ones are replaced by a note except the latest set.
 
-The loop runs in the app in this prototype, talking straight to OpenRouter. It only depends on two small interfaces (`OpenRouterClient`, `AgentPort`), which is the seam for moving orchestration to a server later: the server would run the same loop and reach the phone's `AgentPort` over a socket.
+It depends on two small protocols, `ModelClient` and `AgentPort`. That is the seam for moving orchestration to a server later.
 
-Previews are sent as sRGB JPEGs (1024 px by default); only the two most recent stay in the conversation. A cancelled or failed turn is removed from the conversation, so the next one starts clean. Edits already applied stay, and can be reverted per instruction.
+## Filters
 
-## Accounts, cost and limits
+A filter is the look of a photo: tone, colour, curves, HSL, grading. Crop and detail stay with the photo they were made on. White balance is stored as a shift from the as-shot value, so a warm filter stays warm on a photo taken in different light. Filters are saved, applied, renamed and deleted from the filter sheet, and scripts reach them through `photo.filters`.
 
-There is no Oscuru server. The person signs in to OpenRouter (OAuth PKCE; the key OpenRouter issues is proposed with the monthly limit as its own cap) or pastes a key. The key is stored in the keychain.
+## Accounts and cost
 
-"Cost per user" is therefore cost per OpenRouter account. Every model response carries what it cost; `src/agent/cost.ts` records it per user, instruction and photo, and the agent checks three limits before every request: per instruction, per day, per month. The settings screen shows the app's own record and what OpenRouter reports for the key.
-
-**If Oscuru later pays for usage itself**, the same pieces apply with one addition: a small server holding an OpenRouter management key that creates one key per user with a spending limit (OpenRouter enforces it) and hands it to the app after sign-in. The app would not change beyond where the key comes from.
+There is no Oscuru server. The person signs in to OpenRouter (OAuth PKCE) or pastes a key; the key lives in the keychain. Every response carries what it cost; `UsageLedger` records it per user, instruction and photo, and Settings shows today, this month and in total. Oscuru never limits spending; a cap, if wanted, is set on the key at openrouter.ai.
 
 ## Storage
 
-Each photo has a folder in the app's documents directory: the copied original, a JSON document (what the engine reported, the editing state, its revision) and a thumbnail. History and the conversation live in memory while the photo is open.
+Each photo has a folder in the app's documents: the copied original, `doc.json` (what the engine reported, the editing state, its revision) and a thumbnail. Filters, settings and the usage record are JSON files next to them.
 
-## Browser preview
+## Tests
 
-`npx expo start --web` runs the same screens in a browser. `modules/oscuru-engine/index.web.ts` is a canvas stand-in for the engine and `*.web.ts` files replace the storage layer. It exists to work on the interface without a phone; it reads no RAW files and only approximates the rendering.
+- `OscuruCoreTests` (Linux and macOS): state, colour pipeline, statistics, filters, history, the agent loop with a played-back model, the OpenRouter client, and that `docs/photo-api.d.ts` is current.
+- `OscuruEngineTests` (macOS): what the TypeScript-era port assumes about Core Image — table layouts, colour spaces, rotation and white-balance directions, regions, exports, and that RAW files go through the RAW decoder.
+- `OscuruScriptingTests` (macOS): the JavaScriptCore environment — the API, the REPL, `photo.show`, filters, errors, cancellation, abandoned loops.
+- `OscuruUITests` (simulator, English and Italian): the whole flow against a sample photo and a played-back model.

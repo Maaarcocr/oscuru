@@ -1,52 +1,55 @@
 <h1 align="center">Oscuru</h1>
 
 <p align="center">
-  A RAW photo editor for iPhone where an AI assistant edits by programming the darkroom, not by generating pixels.<br>
+  A RAW photo editor for iPhone where you say what you want and an AI edits the photo, like a retoucher would.<br>
   English · Italiano
 </p>
 
 ---
 
-Oscuru ("dark" in Sicilian) develops your RAW photos on the phone with ordinary photographic controls: exposure, white balance, tone curves, HSL, colour grading, detail, crop. You can move every control yourself. Or you can describe what you want, and an assistant gets there with the same controls.
+Oscuru ("dark" in Sicilian) has no sliders. You open a RAW photo and type what you want: "make it cinematic", "recover the sky", "warmer, but keep the skin natural". An assistant develops the photo for you with the controls of a professional RAW developer — exposure, white balance, tone curves, HSL, colour grading, detail, crop — and keeps going until it looks right.
 
-The assistant never produces or alters image content. A remote model looks at a preview, writes a short JavaScript program against a documented photo API, and the phone runs it. The program sets development parameters; the phone's RAW engine renders them. The model looks at the result and refines it. Everything it did shows up in your sliders and curves, as undo steps.
+The assistant never generates or alters image content. It writes small JavaScript programs against a documented photo API; the phone runs them and renders the result with its own RAW engine. After every change the assistant sees the photo before and after, and decides what to do next.
 
 ## What it does
 
-- **RAW development on the phone.** Apple ProRAW, DNG and the camera RAW formats iOS can read, plus JPEG and HEIC. Originals are copied into the app and never written again.
-- **A full manual editor.** Light, Colour, Curves (master and per channel), HSL, Colour grading, Detail, Crop and straighten, histogram with clipping indicators, before/after, undo/redo. It works offline.
-- **An assistant with one tool.** `execute_edit_script` takes JavaScript. Scripts run in a sandbox on the phone, as a transaction: commit and it is one undo step, throw and nothing changed.
-- **Your model, your account.** The assistant reaches a model through OpenRouter with your own sign-in or key. Any model that reads images and calls tools works. Spending is recorded per user and capped per request, per day and per month.
-- **Full-resolution export** to JPEG or HEIC through the share sheet.
+- **One screen.** The photo, and a place to say what you want. Touch and hold to see the original; pinch to zoom.
+- **An assistant that looks.** It sees the photo before and after each step, can zoom into any part of it, and measures what it needs (histogram, clipping, colour casts). It works as long as the photo needs, and you can stop it at any time.
+- **Undo everything.** Every step is an undo step; one tap reverts everything the assistant did for a request.
+- **Saved filters.** Save a look and apply it to any photo, yourself or by asking the assistant.
+- **Real RAW development.** Apple ProRAW, DNG and the camera RAW formats iOS reads, plus JPEG and HEIC, developed on the phone with Core Image. Originals are never changed. Export at full resolution to JPEG or HEIC.
+- **Your model, your account.** The assistant runs on any OpenRouter model that reads images and calls tools, with your own sign-in. The app records what it costs and sets no limits of its own.
 
 ## How it's built
 
+A native iPhone app: Swift, SwiftUI, Core Image and JavaScriptCore. No server, no web views, no React Native.
+
 ```
-remote model (OpenRouter) ── one tool: execute_edit_script(sessionId, baseRevision, code)
-                                   │
-src/agent      agent loop, OpenRouter client, cost ledger and limits
-src/script     sandboxed JavaScript interpreter, the `photo` API, transactions
-src/editor     one editing session: state, revisions, history, rendering
-src/engine     editing state, tone tables and colour cube, statistics (pure TypeScript)
-modules/oscuru-engine   Swift: RAW decoding and the Core Image pipeline
-src/ui, src/app          screens (Expo Router, React Native)
+ios/App                         SwiftUI app: library, the photo screen, filters, settings
+ios/Packages/OscuruKit
+  OscuruCore                    editing state, colour pipeline, filters, history, the agent loop,
+                                the OpenRouter client, the photo API and prompt (pure Swift, also builds on Linux)
+  OscuruEngine                  RAW decoding and rendering with Core Image
+  OscuruScripting               the JavaScriptCore environment scripts run in
+docs/photo-api.d.ts             the scripting API the assistant is given
 ```
 
-Details: **[docs/architecture.md](docs/architecture.md)**. The scripting API the assistant is given: **[docs/photo-api.d.ts](docs/photo-api.d.ts)**. Building and publishing with Expo: **[docs/expo.md](docs/expo.md)**.
+Details: **[docs/architecture.md](docs/architecture.md)**. Building and publishing: **[docs/expo.md](docs/expo.md)**.
 
 ## Working on it
 
 ```sh
-npm ci
-npm run check          # types, lint, all unit tests
-npx expo start --web   # the screens in a browser, with a canvas stand-in for the engine
+swift test --package-path ios/Packages/OscuruKit     # core on any OS; engine and scripting on macOS
+python3 scripts/check-strings.py                      # English and Italian complete
+(cd ios && xcodegen generate) && open ios/Oscuru.xcodeproj
+./scripts/test-ios.sh                                 # UI tests on a simulator, in English and Italian
 ```
 
-The real app needs its own build (it has native code, so Expo Go cannot run it): see [docs/expo.md](docs/expo.md). CI builds it for the simulator on every push and runs a self-test of the sandbox and the engine there.
+CI runs all of that on every push, including the UI test on an iPhone simulator, and keeps its screenshots.
 
 ## Privacy
 
-No account, no server, no analytics. Photos and edits stay on the phone. When you use the assistant, a preview of the photo, its settings and its capture details go to OpenRouter and the model you chose, under your own OpenRouter account. Your key is kept in the keychain.
+No account, no server, no analytics. Photos and edits stay on the phone. When you use the assistant, pictures of the photo, its settings and its capture details go to OpenRouter and the model you chose, under your own OpenRouter account. Your key is kept in the keychain.
 
 ## Licence
 
