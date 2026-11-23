@@ -59,12 +59,47 @@ def ok(status, reply, what):
 
 
 def notice(text):
-    print(f"::notice::{text}")
+    print(f"::notice::{text}", flush=True)
+
+
+# How long to wait for the person to do what only they can do (accept Apple's agreement, create the
+# app record) before giving up. Set by the workflow; 0 fails at once.
+WAIT_SECONDS = int(os.environ.get("ASC_WAIT_MINUTES", "0")) * 60
+
+
+def waiting(check, what, instructions):
+    """Calls `check` until it returns something, telling the person once what to do meanwhile."""
+    deadline = time.time() + WAIT_SECONDS
+    told = False
+    while True:
+        result = check()
+        if result is not None:
+            return result
+        if time.time() >= deadline:
+            print(f"::error::{instructions}", flush=True)
+            sys.exit(3)
+        if not told:
+            print(f"::warning::Waiting for {what}. {instructions}", flush=True)
+            told = True
+        time.sleep(30)
 
 
 def prepare(work, serial):
+    # 0. Apple refuses everything until the Account Holder accepts its latest agreement.
+    def agreement():
+        status, reply = call("GET", "/v1/bundleIds", query={"filter[identifier]": BUNDLE_ID, "limit": 200})
+        if status == 403 and "agreement" in json.dumps(reply).lower():
+            return None
+        return ok(status, reply, "list bundle IDs")
+
+    reply = waiting(
+        agreement,
+        "Apple's agreement",
+        "Apple needs the Account Holder to accept its updated Developer Program agreement: on your iPhone open "
+        "developer.apple.com/account in Safari, sign in, and tap Review and Agree on the banner.",
+    )
+
     # 1. The bundle ID.
-    reply = ok(*call("GET", "/v1/bundleIds", query={"filter[identifier]": BUNDLE_ID, "limit": 200}), "list bundle IDs")
     matches = [b for b in reply["data"] if b["attributes"]["identifier"] == BUNDLE_ID]
     if matches:
         bundle = matches[0]["id"]
@@ -78,16 +113,17 @@ def prepare(work, serial):
         notice(f"Registered the bundle ID {BUNDLE_ID}.")
 
     # 2. The app record. Apple's API cannot create one: a person does, once.
-    reply = ok(*call("GET", "/v1/apps", query={"filter[bundleId]": BUNDLE_ID}), "look up the app")
-    apps = [a for a in reply["data"] if a["attributes"]["bundleId"] == BUNDLE_ID]
-    if not apps:
-        print(
-            f"::error::Oscuru has no App Store Connect app yet. Create it once: App Store Connect → Apps → + → New App: "
-            f"platform iOS, name {APP_NAME}, primary language English (U.K.) or as you like, bundle ID {BUNDLE_ID}, SKU oscuru, "
-            "full access. Then run this again."
-        )
-        sys.exit(3)
-    app = apps[0]["id"]
+    def app_record():
+        reply = ok(*call("GET", "/v1/apps", query={"filter[bundleId]": BUNDLE_ID}), "look up the app")
+        apps = [a for a in reply["data"] if a["attributes"]["bundleId"] == BUNDLE_ID]
+        return apps[0]["id"] if apps else None
+
+    app = waiting(
+        app_record,
+        "the App Store Connect app",
+        f"Create Oscuru once in App Store Connect (appstoreconnect.apple.com in Safari): Apps → + → New App → iOS, "
+        f"name {APP_NAME}, bundle ID {BUNDLE_ID}, SKU oscuru, full access. The build carries on by itself once it exists.",
+    )
     print(f"App record found ({app}).")
 
     # 3. The distribution certificate from the owner's .p12, found by serial number.
