@@ -26,6 +26,8 @@ struct LibraryView: View {
     @State private var picked: [PhotosPickerItem] = []
     @State private var choosingFile = false
     @State private var importing = false
+    /// The Photos picker, presented from the screen: a picker inside a menu goes away with the menu.
+    @State private var choosingPhotos = false
     @State private var problem: String?
     @State private var showingSettings = false
     @State private var showingCamera = false
@@ -101,10 +103,8 @@ struct LibraryView: View {
                     Text(L10n.libraryEmptyMessage)
                 } actions: {
                     // The camera button below is the main way in; these bring in photos you have.
-                    PhotosPicker(selection: $picked, matching: .images, preferredItemEncoding: .current) {
-                        Text(L10n.fromPhotos)
-                    }
-                    .buttonStyle(.glass)
+                    Button(L10n.fromPhotos) { choosingPhotos = true }
+                        .buttonStyle(.glass)
                     Button(L10n.fromFiles) { choosingFile = true }
                         .buttonStyle(.glass)
                 }
@@ -154,6 +154,7 @@ struct LibraryView: View {
                 }
                 .navigationTransition(.zoom(sourceID: LibraryView.camera, in: transition))
             }
+            .photosPicker(isPresented: $choosingPhotos, selection: $picked, matching: .images, preferredItemEncoding: .current)
             .fileImporter(isPresented: $choosingFile, allowedContentTypes: [.rawImage, .image], allowsMultipleSelection: true) { result in
                 guard case .success(let urls) = result else { return }
                 add(urls.map { url in
@@ -447,9 +448,7 @@ struct LibraryView: View {
                     ProgressView()
                 } else {
                     Menu(L10n.addPhoto, systemImage: "plus") {
-                        PhotosPicker(selection: $picked, matching: .images, preferredItemEncoding: .current) {
-                            Label(L10n.fromPhotos, systemImage: "photo.on.rectangle")
-                        }
+                        Button(L10n.fromPhotos, systemImage: "photo.on.rectangle") { choosingPhotos = true }
                         Button(L10n.fromFiles, systemImage: "folder") { choosingFile = true }
                     }
                     .accessibilityIdentifier("library.add")
