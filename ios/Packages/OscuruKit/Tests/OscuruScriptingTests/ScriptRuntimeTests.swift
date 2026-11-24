@@ -6,7 +6,8 @@ import XCTest
 
 /// A stand-in for the app: the "photo" is a flat grey whose brightness follows the exposure setting.
 private final class FakeHost: ScriptHost, @unchecked Sendable {
-    var filters = FilterCollection()
+    var styles = StyleCollection()
+    var defaults = PhotoDefaults()
     var imageRequests: [(state: EditingState, region: ScriptRegion?, maxEdge: Int)] = []
     var maskRequests: [Mask] = []
     var maskCoverage = 0.25
@@ -58,12 +59,14 @@ private final class FakeHost: ScriptHost, @unchecked Sendable {
         return FakeHost.ramp()
     }
 
-    func filterNames() -> [String] { filters.filters.map(\.name) }
-    func filter(named name: String) -> SavedFilter? { filters.named(name) }
-    func saveFilter(name: String, look: Look, state: EditingState) -> Bool { filters.save(name: name, look: look, id: UUID().uuidString, now: Date(timeIntervalSince1970: 0)) != nil }
-    func deleteFilter(name: String) -> Bool {
-        guard let filter = filters.named(name) else { return false }
-        filters.delete(id: filter.id)
+    func styleNames() -> [String] { styles.styles.map(\.name) }
+    func style(named name: String) -> Style? { styles.named(name) }
+    func saveStyle(name: String, state: EditingState) -> Bool {
+        styles.save(name: name, recipe: .look(Look(state: state, defaults: defaults)), id: UUID().uuidString, now: Date(timeIntervalSince1970: 0)) != nil
+    }
+    func deleteStyle(name: String) -> Bool {
+        guard let style = styles.named(name) else { return false }
+        styles.delete(id: style.id)
         return true
     }
 }
@@ -81,12 +84,13 @@ final class ScriptRuntimeTests: XCTestCase {
 
     override func setUp() {
         host = FakeHost()
+        host.defaults = info.defaults
         runtime = ScriptRuntime(host: host)
     }
 
     private func run(_ code: String, state: EditingState? = nil, before: EditingState? = nil, cancelled: @escaping @Sendable () -> Bool = { false }) async -> ScriptOutcome {
         let start = state ?? EditingState(defaults: info.defaults)
-        return await runtime.run(ScriptRequest(code: code, state: start, revision: 7, info: info, before: before ?? start), isCancelled: cancelled)
+        return await runtime.run(ScriptRequest(code: code, state: start, info: info, before: before ?? start), isCancelled: cancelled)
     }
 
     // MARK: Editing
@@ -111,13 +115,11 @@ final class ScriptRuntimeTests: XCTestCase {
     func testChangesAreRelativeToTheStateAndStartFromAsShotWhiteBalance() async {
         let outcome = await run(
             """
-            const { global, revision } = photo.current.getState();
+            const { global } = photo.current.getState();
             photo.current.adjust({ temperature: global.temperature + 400, exposureEV: global.exposureEV + 0.25 });
-            revision;
             """)
         XCTAssertEqual(outcome.state.value("temperature"), 5600)
         XCTAssertEqual(outcome.state.value("exposureEV"), 0.25)
-        XCTAssertEqual(outcome.returnValue, "7")
     }
 
     func testAnErrorDiscardsEverythingAndReportsWhere() async {
@@ -165,7 +167,6 @@ final class ScriptRuntimeTests: XCTestCase {
             image.curves.reset("red");
             image.hsl.reset();
             image.reset("color");
-            image.commit();
             seen;
             """)
         XCTAssertNil(outcome.error)
@@ -262,10 +263,10 @@ final class ScriptRuntimeTests: XCTestCase {
         // A fingerprint of a warm, dense picture: applying it measures this photo and curves it to match.
         let warm = FakeHost.ramp { (0.08 + $0 * 0.85, 0.06 + $0 * 0.8, 0.05 + $0 * 0.7) }
         let style = LookFitting.fingerprint(of: warm)
-        _ = host.filters.save(name: "Kyoto", look: Look(state: EditingState(), defaults: PhotoDefaults()), match: style, id: "k", now: Date(timeIntervalSince1970: 0))
+        _ = host.styles.save(name: "Kyoto", recipe: .match(style), id: "k", now: Date(timeIntervalSince1970: 0))
         var start = EditingState(defaults: info.defaults)
         try! start.adjust(["exposureEV": 0.4])
-        let outcome = await run("photo.filters.apply('kyoto')", state: start)
+        let outcome = await run("photo.styles.apply('kyoto')", state: start)
         XCTAssertNil(outcome.error)
         XCTAssertFalse(outcome.state.isIdentityCurve("blue"), "the style's curves are in place")
         XCTAssertEqual(outcome.state.value("exposureEV"), 0.4, "the photo keeps its own exposure")
@@ -316,30 +317,30 @@ final class ScriptRuntimeTests: XCTestCase {
         XCTAssertTrue(outcome.error?.message.contains("could not be rendered") ?? false)
     }
 
-    // MARK: Filters
+    // MARK: Styles
 
-    func testFiltersCanBeSavedListedAppliedAndDeleted() async {
+    func testStylesCanBeSavedListedAppliedAndDeleted() async {
         let saved = await run(
             """
             photo.current.adjust({ contrast: 25, temperature: 5700 });
             photo.current.grading.set("shadows", { hue: 220, saturation: 0.1 });
-            photo.filters.save("Warm film");
-            photo.filters.list();
+            photo.styles.save("Warm film");
+            photo.styles.list();
             """)
         XCTAssertNil(saved.error)
         XCTAssertEqual(saved.returnValue, "[\"Warm film\"]")
 
         var other = EditingState(defaults: info.defaults)
         try! other.setCrop(["rotation": 180])
-        let applied = await run("photo.filters.apply('warm FILM'); photo.current.getState().global.contrast", state: other)
+        let applied = await run("photo.styles.apply('warm FILM'); photo.current.getState().global.contrast", state: other)
         XCTAssertEqual(applied.returnValue, "25")
         XCTAssertEqual(applied.state.value("temperature"), 5700)
         XCTAssertEqual(applied.state.grading.shadows["hue"], 220)
         XCTAssertEqual(applied.state.crop.rotation, 180)
 
-        let missing = await run("photo.filters.apply('Nope')")
-        XCTAssertTrue(missing.error?.message.contains("Saved filters: Warm film") ?? false)
-        let deleted = await run("photo.filters.delete('Warm film'); photo.filters.list().length")
+        let missing = await run("photo.styles.apply('Nope')")
+        XCTAssertTrue(missing.error?.message.contains("Saved styles: Warm film") ?? false)
+        let deleted = await run("photo.styles.delete('Warm film'); photo.styles.list().length")
         XCTAssertEqual(deleted.returnValue, "0")
     }
 
@@ -365,7 +366,7 @@ final class ScriptRuntimeTests: XCTestCase {
             [typeof fetch, typeof XMLHttpRequest, typeof require, typeof process, typeof setTimeout, typeof __oscuruNative, typeof importScripts]
             """)
         XCTAssertEqual(outcome.returnValue, "[\"undefined\",\"undefined\",\"undefined\",\"undefined\",\"undefined\",\"undefined\",\"undefined\"]")
-        let frozen = await run("photo.current.adjust = 1; photo.filters.list = 2; [typeof photo.current.adjust, typeof photo.filters.list]")
+        let frozen = await run("photo.current.adjust = 1; photo.styles.list = 2; [typeof photo.current.adjust, typeof photo.styles.list]")
         XCTAssertEqual(frozen.returnValue, "[\"function\",\"function\"]")
         let rebound = await run("photo = null; typeof photo.current.adjust")
         XCTAssertEqual(rebound.returnValue, "\"function\"")

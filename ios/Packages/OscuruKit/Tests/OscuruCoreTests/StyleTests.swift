@@ -145,62 +145,62 @@ final class FilterTests: XCTestCase {
     // MARK: Collection
 
     func testSaveAddsAFilterAndReturnsIt() throws {
-        var collection = FilterCollection()
-        XCTAssertEqual(collection.filters, [])
-        let saved = collection.save(name: "Warm film", look: try makeLook(), id: "f1", now: referenceDate)
-        XCTAssertEqual(saved, SavedFilter(id: "f1", name: "Warm film", createdAt: referenceDate, look: try makeLook()))
-        XCTAssertEqual(collection.filters, [try XCTUnwrap(saved)])
+        var collection = StyleCollection()
+        XCTAssertEqual(collection.styles, [])
+        let saved = collection.save(name: "Warm film", recipe: .look(try makeLook()), id: "f1", now: referenceDate)
+        XCTAssertEqual(saved, Style(id: "f1", name: "Warm film", createdAt: referenceDate, recipe: .look(try makeLook())))
+        XCTAssertEqual(collection.styles, [try XCTUnwrap(saved)])
 
-        collection.save(name: "Cool night", look: try makeLook(), id: "f2", now: referenceDate.addingTimeInterval(60))
-        XCTAssertEqual(collection.filters.map(\.name), ["Warm film", "Cool night"])
-        XCTAssertEqual(collection.filters.map(\.id), ["f1", "f2"])
+        collection.save(name: "Cool night", recipe: .look(try makeLook()), id: "f2", now: referenceDate.addingTimeInterval(60))
+        XCTAssertEqual(collection.styles.map(\.name), ["Warm film", "Cool night"])
+        XCTAssertEqual(collection.styles.map(\.id), ["f1", "f2"])
     }
 
     func testSaveUnderAnExistingNameReplacesTheLookWhateverTheCase() throws {
-        var collection = FilterCollection()
+        var collection = StyleCollection()
         let first = try makeLook()
         var second = first
         second.global["contrast"] = 40
-        collection.save(name: "Warm film", look: first, id: "f1", now: referenceDate)
-        let replaced = collection.save(name: "WARM FILM", look: second, id: "f2", now: referenceDate.addingTimeInterval(3600))
+        collection.save(name: "Warm film", recipe: .look(first), id: "f1", now: referenceDate)
+        let replaced = collection.save(name: "WARM FILM", recipe: .look(second), id: "f2", now: referenceDate.addingTimeInterval(3600))
 
-        XCTAssertEqual(collection.filters.count, 1)
+        XCTAssertEqual(collection.styles.count, 1)
         XCTAssertEqual(replaced?.id, "f1", "the filter keeps its identity")
         XCTAssertEqual(replaced?.createdAt, referenceDate, "and the day it was made")
         XCTAssertEqual(replaced?.name, "WARM FILM", "the name takes the new spelling")
-        XCTAssertEqual(replaced?.look, second)
-        XCTAssertEqual(collection.filters.first, replaced)
+        XCTAssertEqual(replaced?.recipe, .look(second))
+        XCTAssertEqual(collection.styles.first, replaced)
     }
 
     func testSaveCleansTheName() throws {
-        var collection = FilterCollection()
-        XCTAssertEqual(collection.save(name: "  Warm film \n", look: try makeLook(), id: "f1", now: referenceDate)?.name, "Warm film")
+        var collection = StyleCollection()
+        XCTAssertEqual(collection.save(name: "  Warm film \n", recipe: .look(try makeLook()), id: "f1", now: referenceDate)?.name, "Warm film")
         let long = String(repeating: "a", count: 75)
-        XCTAssertEqual(collection.save(name: long, look: try makeLook(), id: "f2", now: referenceDate)?.name, String(repeating: "a", count: 60))
+        XCTAssertEqual(collection.save(name: long, recipe: .look(try makeLook()), id: "f2", now: referenceDate)?.name, String(repeating: "a", count: 60))
         // The padded spelling of an existing name is the same filter.
-        collection.save(name: "\twarm FILM  ", look: try makeLook(), id: "f3", now: referenceDate)
-        XCTAssertEqual(collection.filters.map(\.id), ["f1", "f2"])
-        XCTAssertEqual(collection.filters.first?.name, "warm FILM")
+        collection.save(name: "\twarm FILM  ", recipe: .look(try makeLook()), id: "f3", now: referenceDate)
+        XCTAssertEqual(collection.styles.map(\.id), ["f1", "f2"])
+        XCTAssertEqual(collection.styles.first?.name, "warm FILM")
     }
 
     func testSaveRefusesAnEmptyName() throws {
-        var collection = FilterCollection()
-        XCTAssertNil(collection.save(name: "", look: try makeLook(), id: "f1", now: referenceDate))
-        XCTAssertNil(collection.save(name: "  \n\t ", look: try makeLook(), id: "f2", now: referenceDate))
-        XCTAssertEqual(collection.filters, [])
+        var collection = StyleCollection()
+        XCTAssertNil(collection.save(name: "", recipe: .look(try makeLook()), id: "f1", now: referenceDate))
+        XCTAssertNil(collection.save(name: "  \n\t ", recipe: .look(try makeLook()), id: "f2", now: referenceDate))
+        XCTAssertEqual(collection.styles, [])
     }
 
     func testCleanNameTrimsAndLimitsLength() {
-        XCTAssertEqual(FilterCollection.cleanName("  Portra  "), "Portra")
-        XCTAssertEqual(FilterCollection.cleanName("Two  words"), "Two  words")
-        XCTAssertEqual(FilterCollection.cleanName(" \n "), "")
-        XCTAssertEqual(FilterCollection.cleanName(String(repeating: "é", count: 61)).count, 60)
-        XCTAssertEqual(FilterCollection.cleanName(String(repeating: "x", count: 60)).count, 60)
+        XCTAssertEqual(StyleCollection.cleanName("  Portra  "), "Portra")
+        XCTAssertEqual(StyleCollection.cleanName("Two  words"), "Two  words")
+        XCTAssertEqual(StyleCollection.cleanName(" \n "), "")
+        XCTAssertEqual(StyleCollection.cleanName(String(repeating: "é", count: 61)).count, 60)
+        XCTAssertEqual(StyleCollection.cleanName(String(repeating: "x", count: 60)).count, 60)
     }
 
     func testNamedFindsAFilterWithoutRegardToCaseOrPadding() throws {
-        var collection = FilterCollection()
-        collection.save(name: "Warm film", look: try makeLook(), id: "f1", now: referenceDate)
+        var collection = StyleCollection()
+        collection.save(name: "Warm film", recipe: .look(try makeLook()), id: "f1", now: referenceDate)
         XCTAssertEqual(collection.named("Warm film")?.id, "f1")
         XCTAssertEqual(collection.named("warm FILM")?.id, "f1")
         XCTAssertEqual(collection.named("  Warm film ")?.id, "f1")
@@ -209,56 +209,56 @@ final class FilterTests: XCTestCase {
     }
 
     func testRenameChangesTheNameUnlessItBelongsToAnotherFilter() throws {
-        var collection = FilterCollection()
-        collection.save(name: "Warm film", look: try makeLook(), id: "f1", now: referenceDate)
-        collection.save(name: "Cool night", look: try makeLook(), id: "f2", now: referenceDate)
+        var collection = StyleCollection()
+        collection.save(name: "Warm film", recipe: .look(try makeLook()), id: "f1", now: referenceDate)
+        collection.save(name: "Cool night", recipe: .look(try makeLook()), id: "f2", now: referenceDate)
 
         XCTAssertTrue(collection.rename(id: "f1", to: "  Golden hour "))
-        XCTAssertEqual(collection.filters.map(\.name), ["Golden hour", "Cool night"])
+        XCTAssertEqual(collection.styles.map(\.name), ["Golden hour", "Cool night"])
         XCTAssertNil(collection.named("Warm film"))
 
         XCTAssertFalse(collection.rename(id: "f1", to: "cool NIGHT"), "the name belongs to another filter")
         XCTAssertFalse(collection.rename(id: "f1", to: "   "), "an empty name is refused")
         XCTAssertFalse(collection.rename(id: "missing", to: "Anything"), "there is no such filter")
-        XCTAssertEqual(collection.filters.map(\.name), ["Golden hour", "Cool night"])
+        XCTAssertEqual(collection.styles.map(\.name), ["Golden hour", "Cool night"])
 
         XCTAssertTrue(collection.rename(id: "f1", to: "GOLDEN HOUR"), "a filter may change the spelling of its own name")
-        XCTAssertEqual(collection.filters.first?.name, "GOLDEN HOUR")
-        XCTAssertEqual(collection.filters.first?.id, "f1")
+        XCTAssertEqual(collection.styles.first?.name, "GOLDEN HOUR")
+        XCTAssertEqual(collection.styles.first?.id, "f1")
     }
 
     func testDeleteRemovesOnlyThatFilter() throws {
-        var collection = FilterCollection()
-        collection.save(name: "Warm film", look: try makeLook(), id: "f1", now: referenceDate)
-        collection.save(name: "Cool night", look: try makeLook(), id: "f2", now: referenceDate)
+        var collection = StyleCollection()
+        collection.save(name: "Warm film", recipe: .look(try makeLook()), id: "f1", now: referenceDate)
+        collection.save(name: "Cool night", recipe: .look(try makeLook()), id: "f2", now: referenceDate)
         collection.delete(id: "f1")
-        XCTAssertEqual(collection.filters.map(\.id), ["f2"])
+        XCTAssertEqual(collection.styles.map(\.id), ["f2"])
         collection.delete(id: "missing")
-        XCTAssertEqual(collection.filters.map(\.id), ["f2"])
+        XCTAssertEqual(collection.styles.map(\.id), ["f2"])
         // The name is free again.
-        XCTAssertEqual(collection.save(name: "Warm film", look: try makeLook(), id: "f3", now: referenceDate)?.id, "f3")
+        XCTAssertEqual(collection.save(name: "Warm film", recipe: .look(try makeLook()), id: "f3", now: referenceDate)?.id, "f3")
         collection.delete(id: "f2")
         collection.delete(id: "f3")
-        XCTAssertEqual(collection, FilterCollection())
+        XCTAssertEqual(collection, StyleCollection())
     }
 
     func testACollectionRoundTripsThroughCodable() throws {
-        var collection = FilterCollection()
-        collection.save(name: "Warm film", look: try makeLook(), id: "f1", now: referenceDate)
-        collection.save(name: "Plain", look: Look(state: EditingState(), defaults: PhotoDefaults()), id: "f2", now: referenceDate.addingTimeInterval(day))
+        var collection = StyleCollection()
+        collection.save(name: "Warm film", recipe: .look(try makeLook()), id: "f1", now: referenceDate)
+        collection.save(name: "Plain", recipe: .look(Look(state: EditingState(), defaults: PhotoDefaults())), id: "f2", now: referenceDate.addingTimeInterval(day))
         let data = try JSONEncoder().encode(collection)
-        let restored = try JSONDecoder().decode(FilterCollection.self, from: data)
+        let restored = try JSONDecoder().decode(StyleCollection.self, from: data)
         XCTAssertEqual(restored, collection)
-        XCTAssertEqual(restored.filters.map(\.createdAt), [referenceDate, referenceDate.addingTimeInterval(day)])
-        XCTAssertEqual(try JSONDecoder().decode(FilterCollection.self, from: try JSONEncoder().encode(FilterCollection())), FilterCollection())
+        XCTAssertEqual(restored.styles.map(\.createdAt), [referenceDate, referenceDate.addingTimeInterval(day)])
+        XCTAssertEqual(try JSONDecoder().decode(StyleCollection.self, from: try JSONEncoder().encode(StyleCollection())), StyleCollection())
     }
 
     func testAFilterAppliedToAnotherPhotoKeepsThatPhotosFrame() throws {
-        var collection = FilterCollection()
-        collection.save(name: "Warm film", look: try makeLook(), id: "f1", now: referenceDate)
-        let filter = try XCTUnwrap(collection.named("warm film"))
+        var collection = StyleCollection()
+        collection.save(name: "Warm film", recipe: .look(try makeLook()), id: "f1", now: referenceDate)
+        let style = try XCTUnwrap(collection.named("warm film"))
         let target = try edited(EditingState(defaults: targetDefaults)) { try $0.setCrop(["rotation": 180]) }
-        let result = filter.look.applied(to: target, defaults: targetDefaults)
+        let result = try style.applied(to: target, defaults: targetDefaults) { _ in XCTFail("a look needs no measuring"); return nil }
         XCTAssertEqual(result.crop.rotation, 180)
         XCTAssertEqual(result.value("contrast"), 15)
         XCTAssertEqual(result.changes(from: target).map(\.path).filter { $0.hasPrefix("crop") || $0.hasPrefix("detail") }, [])

@@ -131,37 +131,43 @@ final class LookFittingTests: XCTestCase {
         let fingerprint = LookFitting.fingerprint(of: scene { (0.1 + $0.0 * 0.8, 0.08 + $0.1 * 0.75, 0.05 + $0.2 * 0.65) })
 
         // A style from a pair: its curves, the photo's own exposure and white balance.
-        let pair = SavedFilter(id: "p", name: "Pair", createdAt: Date(), look: classicLook, fit: fit)
-        let fromPair = try pair.applied(to: state, defaults: PhotoDefaults(temperature: 5200)) { XCTFail("a fitted style needs no measuring"); return nil }
+        let pair = Style(id: "p", name: "Pair", createdAt: Date(), recipe: .fit(fit))
+        let fromPair = try pair.applied(to: state, defaults: PhotoDefaults(temperature: 5200)) { _ in XCTFail("a fitted style needs no measuring"); return nil }
         XCTAssertEqual(fromPair.value("exposureEV"), 0.5)
         XCTAssertEqual(fromPair.value("contrast"), 0)
         XCTAssertEqual(fromPair.curves["blue"], fit.curves["blue"])
 
-        // A style from one picture is matched on the photo it goes on.
-        var measured = 0
-        let single = SavedFilter(id: "s", name: "Single", createdAt: Date(), look: classicLook, match: fingerprint)
+        // A style from one picture is matched on the photo it goes on, measured without its own tone and colour.
+        var measured: [EditingState] = []
+        let single = Style(id: "s", name: "Single", createdAt: Date(), recipe: .match(fingerprint))
         let fromSingle = try single.applied(to: state, defaults: PhotoDefaults()) {
-            measured += 1
+            measured.append($0)
             return scene()
         }
-        XCTAssertEqual(measured, 1)
+        XCTAssertEqual(measured, [LookFit.base(state, wholeFrame: false)])
         XCTAssertFalse(fromSingle.isIdentityCurve("blue"))
         XCTAssertEqual(fromSingle.value("exposureEV"), 0.5)
+        XCTAssertThrowsError(try single.applied(to: state, defaults: PhotoDefaults()) { _ in nil }, "a photo that cannot be rendered cannot be matched")
 
-        // A classic style is the whole look, as before.
-        let classic = SavedFilter(id: "c", name: "Classic", createdAt: Date(), look: classicLook)
-        XCTAssertEqual(try classic.applied(to: state, defaults: PhotoDefaults()) { nil }, classicLook.applied(to: state, defaults: PhotoDefaults()))
+        // A style from an edit in Oscuru is the whole look.
+        let classic = Style(id: "c", name: "Classic", createdAt: Date(), recipe: .look(classicLook))
+        XCTAssertEqual(try classic.applied(to: state, defaults: PhotoDefaults()) { _ in nil }, classicLook.applied(to: state, defaults: PhotoDefaults()))
 
-        // Styles saved before pictures existed load, as classic styles.
-        var json = try JSONDecoder().decode(JSONValue.self, from: JSONEncoder().encode(classic))
+        // Each kind saves and loads as itself.
+        for style in [pair, single, classic] {
+            XCTAssertEqual(try JSONDecoder().decode(Style.self, from: JSONEncoder().encode(style)), style)
+        }
+        // Earlier versions saved a placeholder look beside a fit or a match: the fit or match is what counts.
+        var json = try JSONDecoder().decode(JSONValue.self, from: JSONEncoder().encode(single))
         guard var members = json.objectValue else { return XCTFail("not an object") }
-        members["fit"] = nil
-        members["match"] = nil
+        members["look"] = try JSONDecoder().decode(JSONValue.self, from: JSONEncoder().encode(classicLook))
         json = .object(members)
-        let old = try JSONDecoder().decode(SavedFilter.self, from: JSONEncoder().encode(json))
-        XCTAssertFalse(old.isFromPictures)
-        // And new ones round-trip.
-        XCTAssertEqual(try JSONDecoder().decode(SavedFilter.self, from: JSONEncoder().encode(single)), single)
+        XCTAssertEqual(try JSONDecoder().decode(Style.self, from: JSONEncoder().encode(json)), single)
+        // And the list is read from the file it always was.
+        var collection = StyleCollection()
+        collection.save(name: "Classic", recipe: .look(classicLook), id: "c", now: Date(timeIntervalSince1970: 0))
+        let saved = try JSONDecoder().decode(JSONValue.self, from: JSONEncoder().encode(collection))
+        XCTAssertEqual(saved["filters"]?.arrayValue?.count, 1)
     }
 
     private func edited() throws -> EditingState {

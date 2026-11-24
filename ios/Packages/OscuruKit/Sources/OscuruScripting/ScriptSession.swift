@@ -42,10 +42,7 @@ final class ScriptSession {
         if isCancelled() { throw Cancelled() }
         func argument(_ index: Int) -> JSONValue { index < arguments.count ? arguments[index] : .null }
         switch name {
-        case "getState":
-            var state = draft.json.objectValue ?? [:]
-            state["revision"] = .number(Double(request.revision))
-            return .object(state)
+        case "getState": return draft.json
         case "getMetadata": return request.info.json
         case "getHistogram": return try analysis().histogram.json
         case "getStatistics": return try analysis().statistics
@@ -80,23 +77,21 @@ final class ScriptSession {
         case "crop": try draft.setCrop(argument(0))
         case "reset": try draft.reset(section: argument(0) == .null ? "all" : argument(0), defaults: defaults)
         case "revert": draft = request.state
-        case "commit": break
         case "show": try show(which: argument(0), options: argument(1))
-        case "filters.list": return .array(host.filterNames().map { .string($0) })
-        case "filters.apply":
-            let wanted = try filterName(argument(0))
-            guard let filter = host.filter(named: wanted) else {
-                let names = host.filterNames()
-                throw Failure(message: "There is no saved filter named \"\(wanted)\". " + (names.isEmpty ? "No filters are saved yet." : "Saved filters: \(names.joined(separator: ", "))."))
+        case "styles.list": return .array(host.styleNames().map { .string($0) })
+        case "styles.apply":
+            let wanted = try styleName(argument(0))
+            guard let style = host.style(named: wanted) else {
+                let names = host.styleNames()
+                throw Failure(message: "There is no saved style named \"\(wanted)\". " + (names.isEmpty ? "No styles are saved yet." : "Saved styles: \(names.joined(separator: ", "))."))
             }
-            let current = draft
-            draft = try filter.applied(to: current, defaults: defaults) { host.pixels(of: LookFit.base(current, wholeFrame: false)) }
-        case "filters.save":
-            let wanted = try filterName(argument(0))
-            guard host.saveFilter(name: wanted, look: Look(state: draft, defaults: defaults), state: draft) else { throw Failure(message: "The filter could not be saved under the name \"\(wanted)\".") }
-        case "filters.delete":
-            let wanted = try filterName(argument(0))
-            guard host.deleteFilter(name: wanted) else { throw Failure(message: "There is no saved filter named \"\(wanted)\".") }
+            draft = try style.applied(to: draft, defaults: defaults, render: host.pixels(of:))
+        case "styles.save":
+            let wanted = try styleName(argument(0))
+            guard host.saveStyle(name: wanted, state: draft) else { throw Failure(message: "The style could not be saved under the name \"\(wanted)\".") }
+        case "styles.delete":
+            let wanted = try styleName(argument(0))
+            guard host.deleteStyle(name: wanted) else { throw Failure(message: "There is no saved style named \"\(wanted)\".") }
         case "log":
             if logs.count < ScriptSession.maxLogLines {
                 logs.append(String((argument(0).stringValue ?? argument(0).text()).prefix(ScriptSession.maxLogLineLength)))
@@ -116,11 +111,11 @@ final class ScriptSession {
         return text
     }
 
-    private func filterName(_ value: JSONValue) throws -> String {
-        guard let text = value.stringValue, !FilterCollection.cleanName(text).isEmpty else {
-            throw StateError("a filter name must be a non-empty string, got \(value.described)")
+    private func styleName(_ value: JSONValue) throws -> String {
+        guard let text = value.stringValue, !StyleCollection.cleanName(text).isEmpty else {
+            throw StateError("a style name must be a non-empty string, got \(value.described)")
         }
-        return FilterCollection.cleanName(text)
+        return StyleCollection.cleanName(text)
     }
 
     private func show(which: JSONValue, options: JSONValue) throws {

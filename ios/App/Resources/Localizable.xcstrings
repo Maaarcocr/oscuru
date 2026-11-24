@@ -481,22 +481,6 @@
         }
       }
     },
-    "common.more": {
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "More"
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Altro"
-          }
-        }
-      }
-    },
     "common.ok": {
       "localizations": {
         "en": {
@@ -509,22 +493,6 @@
           "stringUnit": {
             "state": "translated",
             "value": "OK"
-          }
-        }
-      }
-    },
-    "common.open": {
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Open"
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Apri"
           }
         }
       }
@@ -817,54 +785,6 @@
         }
       }
     },
-    "filters.empty": {
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Save this photo's look below as a style for other photos. You can also make a style from any picture in the library."
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Salva qui sotto il look di questa foto come stile per le altre. Puoi anche creare uno stile da qualsiasi foto nella libreria."
-          }
-        }
-      }
-    },
-    "filters.name": {
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Name this style"
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Dai un nome a questo stile"
-          }
-        }
-      }
-    },
-    "filters.title": {
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Styles"
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Stili"
-          }
-        }
-      }
-    },
     "library.add": {
       "localizations": {
         "en": {
@@ -893,54 +813,6 @@
           "stringUnit": {
             "state": "translated",
             "value": "Applica"
-          }
-        }
-      }
-    },
-    "library.applyStyle": {
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Apply a Style"
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Applica uno stile"
-          }
-        }
-      }
-    },
-    "library.applyToPhotos": {
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Apply to Photos…"
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Applica alle foto…"
-          }
-        }
-      }
-    },
-    "library.chooseFor %@": {
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Choose photos for “%@”"
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Scegli le foto per «%@»"
           }
         }
       }
@@ -1014,13 +886,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Take a photo: Oscuru keeps exactly what the sensor saw, with no processing. Or add one you already have. Then say how you want it to look."
+            "value": "Take a photo: Oscuru keeps exactly what the sensor saw, with no processing. Or add photos you already have with +. Then say how you want them to look."
           }
         },
         "it": {
           "stringUnit": {
             "state": "translated",
-            "value": "Scatta una foto: Oscuru tiene esattamente ciò che ha visto il sensore, senza elaborazioni. Oppure aggiungine una che hai già. Poi di’ come la vuoi."
+            "value": "Scatta una foto: Oscuru tiene esattamente ciò che ha visto il sensore, senza elaborazioni. Oppure aggiungi con + le foto che hai già. Poi di’ come le vuoi."
           }
         }
       }
@@ -1085,22 +957,6 @@
           "stringUnit": {
             "state": "translated",
             "value": "Impossibile aggiungere questa foto"
-          }
-        }
-      }
-    },
-    "library.photos": {
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Photos"
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Foto"
           }
         }
       }
@@ -1181,54 +1037,6 @@
           "stringUnit": {
             "state": "translated",
             "value": "1 foto selezionata"
-          }
-        }
-      }
-    },
-    "library.share": {
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Share"
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Condividi"
-          }
-        }
-      }
-    },
-    "library.share.originals": {
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Original Files"
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "File originali"
-          }
-        }
-      }
-    },
-    "library.share.originals.footer": {
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "As they were taken: RAW stays RAW."
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Come sono stati scattati: il RAW resta RAW."
           }
         }
       }
@@ -1553,150 +1361,6 @@
         }
       }
     },
-    "photo.share": {
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Share Photo"
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Condividi foto"
-          }
-        }
-      }
-    },
-    "photo.share.failed": {
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Could not prepare the photo"
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Impossibile preparare la foto"
-          }
-        }
-      }
-    },
-    "photo.share.heic": {
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "HEIC"
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "HEIC"
-          }
-        }
-      }
-    },
-    "photo.share.jpeg": {
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "JPEG"
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "JPEG"
-          }
-        }
-      }
-    },
-    "photo.share.raw": {
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Original RAW"
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "RAW originale"
-          }
-        }
-      }
-    },
-    "photo.share.raw.footer": {
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "The file as it was taken, without edits."
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Il file come è stato scattato, senza modifiche."
-          }
-        }
-      }
-    },
-    "photo.startOver": {
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Start Over"
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Ricomincia"
-          }
-        }
-      }
-    },
-    "photo.startOver.message": {
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Every version stays in the conversation, so you can bring any of them back."
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Ogni versione resta nella conversazione: puoi riprenderne qualsiasi."
-          }
-        }
-      }
-    },
-    "photo.startOver.title": {
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Start over from the original?"
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Ricominciare dall’originale?"
-          }
-        }
-      }
-    },
     "photo.unreadable": {
       "localizations": {
         "en": {
@@ -1997,22 +1661,6 @@
           "stringUnit": {
             "state": "translated",
             "value": "Sto eseguendo uno script…"
-          }
-        }
-      }
-    },
-    "script.stale": {
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Skipped: the photo changed meanwhile"
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Saltato: nel frattempo la foto è cambiata"
           }
         }
       }
@@ -2385,6 +2033,102 @@
         }
       }
     },
+    "share.developed": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "JPEG"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "JPEG"
+          }
+        }
+      }
+    },
+    "share.developed.footer": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "With your edits, at full size."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Con le tue modifiche, a piena risoluzione."
+          }
+        }
+      }
+    },
+    "share.failed": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Could not prepare the photos"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Impossibile preparare le foto"
+          }
+        }
+      }
+    },
+    "share.original": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Original"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Originale"
+          }
+        }
+      }
+    },
+    "share.original.footer": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "As taken or added: a RAW stays RAW."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Come scattato o aggiunto: un RAW resta RAW."
+          }
+        }
+      }
+    },
+    "share.title": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Share"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Condividi"
+          }
+        }
+      }
+    },
     "step.title %@": {
       "localizations": {
         "en": {
@@ -2705,6 +2449,70 @@
         }
       }
     },
+    "styles.empty": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Save a look you like, then put it on any photo."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Salva un look che ti piace, poi mettilo su qualsiasi foto."
+          }
+        }
+      }
+    },
+    "styles.name": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Name this style"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dai un nome a questo stile"
+          }
+        }
+      }
+    },
+    "styles.saveLook": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Save Look"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Salva look"
+          }
+        }
+      }
+    },
+    "styles.title": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Styles"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Stili"
+          }
+        }
+      }
+    },
     "suggest.cinematic": {
       "localizations": {
         "en": {
@@ -2865,22 +2673,6 @@
         }
       }
     },
-    "thread.filter %@": {
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Applied “%@”"
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Applicato «%@»"
-          }
-        }
-      }
-    },
     "thread.looking": {
       "localizations": {
         "en": {
@@ -2977,22 +2769,6 @@
         }
       }
     },
-    "thread.restoreVersion": {
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Bring Back This Version"
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Riprendi questa versione"
-          }
-        }
-      }
-    },
     "thread.script": {
       "localizations": {
         "en": {
@@ -3069,6 +2845,22 @@
           "stringUnit": {
             "state": "translated",
             "value": "Impossibile salvare la conversazione: %@"
+          }
+        }
+      }
+    },
+    "thread.style %@": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Applied “%@”"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Applicato «%@»"
           }
         }
       }

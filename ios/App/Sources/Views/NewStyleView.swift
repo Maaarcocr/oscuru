@@ -78,7 +78,7 @@ struct NewStyleView: View {
                     slot(edited, item: $editedItem, title: L10n.styleEdited, hint: L10n.styleEditedHint, identifier: "style.edited") { edited = nil }
                     slot(original, item: $originalItem, title: L10n.styleOriginal, hint: L10n.styleOriginalHint, identifier: "style.original") { original = nil }
                 }
-                TextField(L10n.filterNamePlaceholder, text: $name)
+                TextField(L10n.styleNamePlaceholder, text: $name)
                     .focused($naming)
                     .submitLabel(.done)
                     .padding(.horizontal, 16)
@@ -101,7 +101,7 @@ struct NewStyleView: View {
             }
             .buttonStyle(.glassProminent)
             .controlSize(.large)
-            .disabled(edited == nil || FilterCollection.cleanName(name).isEmpty || creating)
+            .disabled(edited == nil || StyleCollection.cleanName(name).isEmpty || creating)
             .padding(.horizontal, 20)
             .padding(.bottom, 8)
             .accessibilityIdentifier("style.create")

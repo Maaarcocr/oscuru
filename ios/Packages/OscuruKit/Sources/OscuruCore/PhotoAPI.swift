@@ -57,15 +57,15 @@ public enum PhotoAPI {
           show(which?: "current" | "before" | "original" | "mask", options?: { region?: Region; maxEdge?: number; mask?: string }): void;
 
           /**
-           * The person's saved styles (filters): looks they can apply to any photo. Some were learned from
-           * pictures in the app; applying one of those adapts it to this photo and changes only tone and colour.
+           * The person's saved styles: looks they can put on any photo. Some were learned from pictures
+           * in the app; applying one of those adapts it to this photo and changes only tone and colour.
            */
-          readonly filters: {
-            /** Names of the saved filters. */
+          readonly styles: {
+            /** Names of the saved styles. */
             list(): string[];
-            /** Applies a saved filter to this photo: its look replaces the current tone and colour settings. Crop and detail stay. */
+            /** Applies a saved style to this photo: its look replaces the current tone and colour settings. Crop and detail stay. */
             apply(name: string): void;
-            /** Saves the photo's current look as a filter. Saving under an existing name replaces it. */
+            /** Saves the photo's current look as a style. Saving under an existing name replaces it. */
             save(name: string): void;
             delete(name: string): void;
           };
@@ -73,7 +73,7 @@ public enum PhotoAPI {
 
         interface PhotoDocument {
           /** A copy of the settings as they are now, including changes made earlier in this script. */
-          getState(): EditingState & { revision: number };
+          getState(): EditingState;
           /** Facts about the file and how it was shot. */
           getMetadata(): ImageMetadata;
           /** Histogram of the photo rendered with the settings as they are now. */
@@ -162,9 +162,6 @@ public enum PhotoAPI {
 
           /** Discards the changes this script has made so far. */
           revert(): void;
-
-          /** Optional. Changes are kept automatically when the script ends without an error. */
-          commit(): void;
         }
 
         type CurveChannel = \(union(Specs.curveChannels));

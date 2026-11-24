@@ -26,32 +26,22 @@ public struct ToolExecution: Sendable {
     }
 }
 
+/// What the model is told about the photo when an instruction starts.
 public struct AgentContext: Sendable {
-    public var sessionID: String
-    public var revision: Int
     public var state: EditingState
     public var metadata: JSONValue
     public var statistics: JSONValue?
-    public var filters: [String]
+    public var styles: [String]
 
-    public init(sessionID: String, revision: Int, state: EditingState, metadata: JSONValue, statistics: JSONValue?, filters: [String]) {
-        self.sessionID = sessionID
-        self.revision = revision
+    public init(state: EditingState, metadata: JSONValue, statistics: JSONValue?, styles: [String]) {
         self.state = state
         self.metadata = metadata
         self.statistics = statistics
-        self.filters = filters
+        self.styles = styles
     }
 
     var json: JSONValue {
-        [
-            "sessionId": .string(sessionID),
-            "revision": .number(Double(revision)),
-            "state": state.json,
-            "metadata": metadata,
-            "statistics": statistics ?? .null,
-            "savedFilters": .array(filters.map { .string($0) }),
-        ]
+        ["state": state.json, "metadata": metadata, "statistics": statistics ?? .null, "savedStyles": .array(styles.map { .string($0) })]
     }
 }
 

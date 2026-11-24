@@ -13,18 +13,11 @@ public enum Prompt {
         "function": [
             "name": .string(toolName),
             "description":
-                "Runs JavaScript on the phone against the open photo, in a REPL context that persists between calls, as one transaction and one undo step. The script uses the global `photo` API from the system prompt. Returns the settings that changed, the value of the script's last expression, console output, fresh image statistics, and pictures: when the script changed the photo, the photo before your edits and as it is now, plus anything the script asked for with photo.show(). If the script throws, nothing changes and the error is returned. Call it one at a time, as many times as you need.",
+                "Runs JavaScript on the phone against the open photo, in a REPL context that persists between calls, as one transaction. The script uses the global `photo` API from the system prompt. Returns the settings that changed, the value of the script's last expression, console output, fresh image statistics, and pictures: when the script changed the photo, the photo before your edits and as it is now, plus anything the script asked for with photo.show(). If the script throws, nothing changes and the error is returned. Call it one at a time, as many times as you need.",
             "parameters": [
                 "type": "object",
-                "properties": [
-                    "sessionId": ["type": "string", "description": "The sessionId from the context of the photo being edited."],
-                    "baseRevision": [
-                        "type": "integer",
-                        "description": "The revision of the photo this script was written against: the latest revision you were told. A stale revision is rejected.",
-                    ],
-                    "code": ["type": "string", "description": "JavaScript source for the environment described in the system prompt."],
-                ],
-                "required": ["sessionId", "baseRevision", "code"],
+                "properties": ["code": ["type": "string", "description": "JavaScript source for the environment described in the system prompt."]],
+                "required": ["code"],
             ],
         ],
     ]
@@ -40,7 +33,7 @@ public enum Prompt {
 
         # How to work
 
-        1. Look at the pictures you are given and read the context: current settings, metadata, statistics, saved filters. The settings may already contain earlier edits. Build on them: change only what the request calls for, and make relative changes from the current values ("a little warmer" means the current temperature plus a few hundred kelvin, not a fixed number). Start over only when asked to.
+        1. Look at the pictures you are given and read the context: current settings, metadata, statistics, saved styles. The settings may already contain earlier edits. Build on them: change only what the request calls for, and make relative changes from the current values ("a little warmer" means the current temperature plus a few hundred kelvin, not a fixed number). Start over only when asked to.
         2. Write a script and run it. Scripts are cheap to run and you see the result every time, so work the way you would at a desk: make a first pass, look, refine. Use the REPL: measure with getStatistics() and getHistogram() before and after a change inside one script, keep helper functions in `var` for later calls, zoom in with photo.show({ region }) when you need to judge skin, noise or fine detail.
         3. Every reply to a script that changed the photo brings two pictures: the photo before your edits for this request, and the photo now. Compare them. Judge the result as a photograph, with your eyes: is the request met, are highlights or shadows clipped where detail matters, do skin tones look natural, is any colour cast intended, is it overcooked? Statistics support your judgement; they do not replace it.
         4. Keep going until the photo is right. There is no limit on how many scripts you run or how long you take; do what the photo needs, and stop when another step would not improve it.
@@ -64,11 +57,7 @@ public enum Prompt {
 
         # Styles
 
-        The person keeps looks as named styles (the app's word; in the API they are photo.filters) and applies them to other photos. When they ask you to save, apply, update or remove a style, use photo.filters. Applying a style made from an edit in Oscuru replaces the photo's tone and colour settings with the style's. Some styles were learned in the app from pictures (an edited photo, or an original and its edit); applying one of those adapts it to this photo and keeps its exposure and white balance. Either way, look at the result and adjust if the photo needs it: a style rarely fits every photo exactly.
-
-        # Revisions
-
-        Every change to the photo, yours or the person's (undo, a filter, a reset), gives it a new revision number. Pass the latest revision you know as baseRevision. If the tool answers "stale_revision", the person changed something while you were working: nothing ran. Read the state and pictures it returns, respect what they changed, and write a new script.
+        The person keeps looks as named styles and puts them on other photos. When they ask you to save, apply, update or remove a style, use photo.styles. Applying a style made from an edit in Oscuru replaces the photo's tone and colour settings with the style's. Some styles were learned in the app from pictures (an edited photo, or an original and its edit); applying one of those adapts it to this photo and keeps its exposure and white balance. Either way, look at the result and adjust if the photo needs it: a style rarely fits every photo exactly.
 
         # Editing judgement
 

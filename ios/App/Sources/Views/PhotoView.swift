@@ -1,5 +1,4 @@
 import OscuruCore
-import OscuruEngine
 import SwiftUI
 
 /// A photo, as a conversation: the original, what you asked for, and every version since.
@@ -40,39 +39,20 @@ struct PhotoView: View {
     }
 }
 
-/// A version of the photo opened full screen.
-struct Viewed: Identifiable {
-    let id = UUID()
-    let state: EditingState
-    /// The version before it, for comparing; nil for the original.
-    let before: EditingState?
-    let isCurrent: Bool
-}
-
+/// The thread, with the composer below it and Share above. Tapping a version opens it full screen.
 private struct ThreadView: View {
-    @Environment(AppModel.self) private var model
     let editor: PhotoEditor
-
-    enum Sheet: String, Identifiable {
-        case filters, settings
-        var id: String { rawValue }
-    }
-
-    @State private var draft = ""
-    @State private var sheet: Sheet?
     @State private var viewing: Viewed?
-    @State private var shared: SharedFiles?
-    @State private var exporting = false
-    @State private var problem: String?
-    @State private var confirmingStartOver = false
     @FocusState private var composing: Bool
+
+    private static let end = "end"
 
     var body: some View {
         ScrollViewReader { proxy in
             ScrollView {
                 LazyVStack(alignment: .leading, spacing: 22) {
                     ForEach(editor.turns) { turn in
-                        TurnView(turn: turn, editor: editor, open: open, share: share) { id in
+                        TurnView(turn: turn, editor: editor, open: open) { id in
                             withAnimation(.snappy) { proxy.scrollTo(id) }
                         }
                         .id(turn.id)
@@ -117,189 +97,28 @@ private struct ThreadView: View {
                     withAnimation(.snappy) { proxy.scrollTo(ThreadView.end, anchor: .bottom) }
                 }
             }
-            .safeAreaInset(edge: .bottom, spacing: 0) { composer }
+            .safeAreaInset(edge: .bottom, spacing: 0) {
+                Composer(editor: editor, focused: $composing)
+            }
             // Kept clear of the top edge so the thread stops at the title bar instead of sliding under it.
             .padding(.top, 1)
         }
         .background(Color.black)
-        .toolbar { menu }
-        .sensoryFeedback(.success, trigger: editor.completedRuns)
-        .sheet(item: $sheet) { sheet in
-            switch sheet {
-            case .filters: FiltersView(editor: editor)
-            case .settings: SettingsView()
+        .toolbar {
+            ToolbarItem(placement: .topBarTrailing) {
+                ShareButton(photos: [editor.document.id])
             }
         }
+        .sensoryFeedback(.success, trigger: editor.completedRuns)
         .fullScreenCover(item: $viewing) { item in
             PhotoViewer(editor: editor, item: item)
         }
-        .sheet(item: $shared) { files in
-            ShareSheet(urls: files.urls).presentationDetents([.medium, .large])
-        }
-        .alert(L10n.exportFailed, isPresented: Binding(get: { problem != nil }, set: { if !$0 { problem = nil } })) {
-            Button(L10n.ok, role: .cancel) {}
-        } message: {
-            Text(problem ?? "")
-        }
     }
-
-    private static let end = "end"
 
     private func open(_ turn: Turn) {
         guard let state = turn.result else { return }
         composing = false
         viewing = Viewed(state: state, before: editor.resultBefore(turn), isCurrent: state == editor.state)
-    }
-
-    private func share(_ state: EditingState, _ format: ExportFormat) {
-        guard !exporting else { return }
-        exporting = true
-        Task {
-            defer { exporting = false }
-            do {
-                shared = SharedFiles([try await editor.export(state, as: format)])
-            } catch {
-                problem = String(describing: error)
-            }
-        }
-    }
-
-    /// The untouched RAW file, as it was taken or added.
-    private func shareOriginal() {
-        guard !exporting else { return }
-        exporting = true
-        Task {
-            defer { exporting = false }
-            do {
-                shared = SharedFiles([try await editor.exportOriginal()])
-            } catch {
-                problem = String(describing: error)
-            }
-        }
-    }
-
-    // MARK: Menu
-
-    @ToolbarContentBuilder
-    private var menu: some ToolbarContent {
-        ToolbarItem(placement: .topBarTrailing) {
-            if exporting {
-                ProgressView()
-            } else {
-                Menu(L10n.more, systemImage: "ellipsis") {
-                    Button(L10n.filters, systemImage: "camera.filters") { sheet = .filters }
-                        .disabled(editor.isWorking)
-                        .accessibilityIdentifier("menu.filters")
-                    Menu(L10n.sharePhoto, systemImage: "square.and.arrow.up") {
-                        Button(L10n.shareJPEG) { share(editor.state, .jpeg) }
-                        Button(L10n.shareHEIC) { share(editor.state, .heic) }
-                        if editor.info.isRaw {
-                            Divider()
-                            Button {
-                                shareOriginal()
-                            } label: {
-                                Text(L10n.shareRAW)
-                                Text(L10n.shareRAWFooter)
-                            }
-                        }
-                    }
-                    Button(L10n.startOver, systemImage: "arrow.counterclockwise") { confirmingStartOver = true }
-                        .disabled(editor.isWorking || editor.state == editor.original)
-                    Divider()
-                    Button(L10n.settings, systemImage: "gearshape") { sheet = .settings }
-                }
-                .accessibilityIdentifier("photo.menu")
-                .alert(L10n.startOverTitle, isPresented: $confirmingStartOver) {
-                    Button(L10n.startOver) { editor.startOver() }
-                    Button(L10n.cancel, role: .cancel) {}
-                } message: {
-                    Text(L10n.startOverMessage)
-                }
-            }
-        }
-    }
-
-    // MARK: Composer
-
-    private var composer: some View {
-        VStack(spacing: 10) {
-            if model.account.isConnected, !editor.hasInstructions, !editor.isWorking {
-                ScrollView(.horizontal, showsIndicators: false) {
-                    HStack(spacing: 8) {
-                        ForEach(L10n.suggestions, id: \.self) { suggestion in
-                            Button(suggestion.label) { send(suggestion.instruction) }
-                                .font(.subheadline)
-                                .buttonStyle(.bordered)
-                                .buttonBorderShape(.capsule)
-                                .tint(.white)
-                        }
-                    }
-                    .padding(.horizontal, 16)
-                }
-            }
-            if model.account.isConnected {
-                HStack(alignment: .bottom, spacing: 8) {
-                    TextField(editor.isWorking ? L10n.composerWhileWorking : L10n.composerPlaceholder, text: $draft, axis: .vertical)
-                        .lineLimit(1...6)
-                        .focused($composing)
-                        .padding(.horizontal, 16)
-                        .padding(.vertical, 10)
-                        .background(Color(white: 0.15), in: RoundedRectangle(cornerRadius: 21, style: .continuous))
-                        .accessibilityIdentifier("composer.field")
-                    action
-                }
-                .padding(.horizontal, 12)
-            } else {
-                Button {
-                    sheet = .settings
-                } label: {
-                    Text(L10n.composerConnect).frame(maxWidth: .infinity)
-                }
-                .buttonStyle(.borderedProminent)
-                .controlSize(.large)
-                .padding(.horizontal, 16)
-                .accessibilityIdentifier("composer.connect")
-            }
-        }
-        .padding(.top, 10)
-        .padding(.bottom, 8)
-        .background(Color.black)
-    }
-
-    /// Send, or stop while the assistant is working and there is nothing to send. Words sent while
-    /// it works join its work between two steps.
-    @ViewBuilder
-    private var action: some View {
-        if editor.isWorking, draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-            Button {
-                editor.stop()
-            } label: {
-                Image(systemName: "stop.circle.fill")
-                    .font(.system(size: 34))
-                    .symbolRenderingMode(.hierarchical)
-                    .foregroundStyle(.white)
-            }
-            .accessibilityLabel(L10n.stop)
-            .accessibilityIdentifier("composer.stop")
-        } else {
-            let empty = draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-            Button {
-                send(draft)
-            } label: {
-                Image(systemName: "arrow.up.circle.fill")
-                    .font(.system(size: 34))
-                    .foregroundStyle(empty ? Color(white: 0.3) : Color.accentColor)
-            }
-            .disabled(empty)
-            .accessibilityLabel(L10n.send)
-            .accessibilityIdentifier("composer.send")
-        }
-    }
-
-    private func send(_ text: String) {
-        draft = ""
-        composing = false
-        editor.send(text)
     }
 }
 
@@ -309,7 +128,6 @@ private struct TurnView: View {
     let turn: Turn
     let editor: PhotoEditor
     let open: (Turn) -> Void
-    let share: (EditingState, ExportFormat) -> Void
     /// Scrolls just enough to bring the view with this id fully onto the screen.
     let reveal: (String) -> Void
 
@@ -322,14 +140,11 @@ private struct TurnView: View {
             case .instruction(let text):
                 Bubble(text: text)
                 reply
-            case .filter(let name):
-                Caption(text: L10n.appliedFilter(name))
+            case .style(let name):
+                Caption(text: L10n.appliedStyle(name))
                 card
-            case .restore:
-                Caption(text: L10n.restored)
-                card
-            case .startOver:
-                Caption(text: L10n.backToOriginal)
+            case .restore, .startOver:
+                Caption(text: turn.result == editor.original ? L10n.backToOriginal : L10n.restored)
                 card
             case .earlier:
                 Caption(text: L10n.earlierEdits)
@@ -352,7 +167,11 @@ private struct TurnView: View {
                     .animation(.easeInOut(duration: 0.3), value: note)
                     .accessibilityIdentifier("thread.message")
             }
-            WorkingCard(editor: editor, steps: turn.steps.count)
+            // The photo as it is now: it changes as each step lands.
+            PhotoCard(editor: editor, state: editor.state)
+                .overlay(alignment: .bottomLeading) { progress }
+                .accessibilityElement(children: .combine)
+                .accessibilityIdentifier("thread.working")
             if let retry = editor.retry {
                 Text(retry.message)
                     .font(.caption)
@@ -367,7 +186,7 @@ private struct TurnView: View {
                     .textSelection(.enabled)
                     .accessibilityIdentifier("thread.reply")
             }
-            if turn.result != nil { card }
+            card
             switch turn.status {
             case .stopped: Caption(text: L10n.stopped)
             case .failed(let message):
@@ -392,20 +211,26 @@ private struct TurnView: View {
         }
     }
 
+    /// What the assistant is doing now, over the photo it is doing it to.
+    private var progress: some View {
+        HStack(spacing: 8) {
+            ProgressView().controlSize(.small).tint(.white)
+            Text(editor.retry != nil ? L10n.reconnecting : editor.summarizing ? L10n.summarizing : turn.steps.isEmpty ? L10n.looking : L10n.step(turn.steps.count))
+                .font(.footnote.weight(.medium))
+                .monospacedDigit()
+        }
+        .padding(.horizontal, 12)
+        .padding(.vertical, 7)
+        .glassEffect(.regular, in: .capsule)
+        .padding(10)
+    }
+
+    /// The version this turn left: tap it to look closely, compare, or bring it back.
     @ViewBuilder
     private var card: some View {
         if let state = turn.result {
-            let isCurrent = state == editor.state
             PhotoCard(editor: editor, state: state)
                 .onTapGesture { open(turn) }
-                .contextMenu {
-                    Button(L10n.open, systemImage: "arrow.up.left.and.arrow.down.right") { open(turn) }
-                    if !isCurrent {
-                        Button(L10n.restoreVersion, systemImage: "clock.arrow.circlepath") { editor.restore(state) }
-                            .disabled(editor.isWorking)
-                    }
-                    Button(L10n.sharePhoto, systemImage: "square.and.arrow.up") { share(state, .jpeg) }
-                }
                 .accessibilityAddTraits(.isButton)
                 .accessibilityIdentifier(turn.kind == .original ? "thread.original" : "thread.version")
         }
@@ -441,67 +266,32 @@ private struct Caption: View {
     }
 }
 
-/// One version of the photo in the thread.
+/// One version of the photo in the thread. When the version changes, the new picture fades in
+/// over the old one.
 private struct PhotoCard: View {
     let editor: PhotoEditor
     let state: EditingState
     @State private var image: CGImage?
 
     var body: some View {
-        Group {
+        ZStack {
             if let image {
                 Image(decorative: image, scale: 1)
                     .resizable()
                     .aspectRatio(contentMode: .fit)
+                    .id(ObjectIdentifier(image))
                     .transition(.opacity)
             } else {
                 Color(white: 0.1)
                     .aspectRatio(CGFloat(editor.info.width) / CGFloat(max(1, editor.info.height)), contentMode: .fit)
             }
         }
+        .animation(.easeInOut(duration: 0.35), value: image.map(ObjectIdentifier.init))
         .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
         .frame(maxWidth: .infinity)
-        .animation(.easeOut(duration: 0.25), value: image != nil)
         .task(id: state) {
-            image = await editor.picture(of: state)
+            if let picture = await editor.picture(of: state) { image = picture }
         }
-    }
-}
-
-/// The photo while the assistant works on it: it changes as each step lands.
-private struct WorkingCard: View {
-    let editor: PhotoEditor
-    let steps: Int
-
-    var body: some View {
-        ZStack {
-            if let image = editor.image {
-                Image(decorative: image, scale: 1)
-                    .resizable()
-                    .aspectRatio(contentMode: .fit)
-                    .id(editor.imageVersion)
-                    .transition(.opacity)
-            } else {
-                Color(white: 0.1).aspectRatio(4 / 3, contentMode: .fit)
-            }
-        }
-        .animation(.easeInOut(duration: 0.45), value: editor.imageVersion)
-        .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
-        .overlay(alignment: .bottomLeading) {
-            HStack(spacing: 8) {
-                ProgressView().controlSize(.small).tint(.white)
-                Text(editor.retry != nil ? L10n.reconnecting : editor.summarizing ? L10n.summarizing : steps == 0 ? L10n.looking : L10n.step(steps))
-                    .font(.footnote.weight(.medium))
-                    .monospacedDigit()
-            }
-            .padding(.horizontal, 12)
-            .padding(.vertical, 7)
-            .glassEffect(.regular, in: .capsule)
-            .padding(10)
-        }
-        .frame(maxWidth: .infinity)
-        .accessibilityElement(children: .combine)
-        .accessibilityIdentifier("thread.working")
     }
 }
 
@@ -604,8 +394,7 @@ private struct StepView: View {
         case .running: return "hourglass"
         case .applied: return "checkmark.circle.fill"
         case .unchanged: return "eye"
-        case .failed: return "exclamationmark.triangle.fill"
-        case .stale: return "arrow.triangle.2.circlepath"
+        case .failed, .stale: return "exclamationmark.triangle.fill"
         case .stopped: return "stop.circle"
         }
     }
@@ -613,158 +402,8 @@ private struct StepView: View {
     private var tint: Color {
         switch step.outcome {
         case .applied: return .green
-        case .failed: return .orange
+        case .failed, .stale: return .orange
         default: return .secondary
         }
-    }
-}
-
-// MARK: - Full screen
-
-/// One version, filling the screen: zoom in, hold Before to compare, share it, or bring it back.
-private struct PhotoViewer: View {
-    @Environment(\.dismiss) private var dismiss
-    let editor: PhotoEditor
-    let item: Viewed
-    @State private var image: CGImage?
-    @State private var beforeImage: CGImage?
-    @State private var comparing = false
-    @State private var shared: SharedFiles?
-    @State private var exporting = false
-
-    var body: some View {
-        ZStack {
-            Color.black.ignoresSafeArea()
-            if let shown = comparing ? (beforeImage ?? image) : image {
-                ZoomablePhoto(image: shown)
-            } else {
-                ProgressView().tint(.white)
-            }
-        }
-        .overlay(alignment: .top) {
-            HStack {
-                Button {
-                    dismiss()
-                } label: {
-                    Image(systemName: "xmark").font(.body.weight(.semibold)).frame(width: 30, height: 30)
-                }
-                .buttonStyle(.glass)
-                .buttonBorderShape(.circle)
-                .accessibilityLabel(L10n.close)
-                .accessibilityIdentifier("viewer.close")
-                Spacer()
-                if comparing {
-                    Text(L10n.before)
-                        .font(.footnote.weight(.semibold))
-                        .padding(.horizontal, 14)
-                        .padding(.vertical, 8)
-                        .glassEffect(.regular, in: .capsule)
-                }
-                Spacer()
-                if exporting {
-                    ProgressView().frame(width: 44, height: 44)
-                } else {
-                    Menu {
-                        Button(L10n.shareJPEG) { share(.jpeg) }
-                        Button(L10n.shareHEIC) { share(.heic) }
-                    } label: {
-                        Image(systemName: "square.and.arrow.up").font(.body.weight(.semibold)).frame(width: 30, height: 30)
-                    }
-                    .buttonStyle(.glass)
-                    .buttonBorderShape(.circle)
-                    .accessibilityLabel(L10n.sharePhoto)
-                    .accessibilityIdentifier("viewer.share")
-                }
-            }
-            .padding(.horizontal, 16)
-        }
-        .overlay(alignment: .bottom) {
-            HStack {
-                if item.before != nil {
-                    Text(L10n.before)
-                        .font(.subheadline.weight(.semibold))
-                        .padding(.horizontal, 18)
-                        .padding(.vertical, 12)
-                        .glassEffect(.regular.interactive(), in: .capsule)
-                        .onLongPressGesture(minimumDuration: 0, maximumDistance: 60, perform: {}, onPressingChanged: { comparing = $0 })
-                        .accessibilityAddTraits(.isButton)
-                        .accessibilityHint(L10n.beforeHint)
-                        .accessibilityIdentifier("viewer.compare")
-                }
-                Spacer()
-                if !item.isCurrent {
-                    Button(L10n.restore) {
-                        editor.restore(item.state)
-                        dismiss()
-                    }
-                    .font(.subheadline.weight(.semibold))
-                    .buttonStyle(.glassProminent)
-                    .controlSize(.large)
-                    .disabled(editor.isWorking)
-                    .accessibilityIdentifier("viewer.restore")
-                }
-            }
-            .padding(.horizontal, 16)
-            .padding(.bottom, 8)
-        }
-        .statusBarHidden()
-        .task {
-            image = await editor.fullPicture(of: item.state)
-            if let before = item.before { beforeImage = await editor.fullPicture(of: before) }
-        }
-        .sheet(item: $shared) { files in
-            ShareSheet(urls: files.urls).presentationDetents([.medium, .large])
-        }
-    }
-
-    private func share(_ format: ExportFormat) {
-        guard !exporting else { return }
-        exporting = true
-        Task {
-            defer { exporting = false }
-            shared = (try? await editor.export(item.state, as: format)).map { SharedFiles([$0]) }
-        }
-    }
-}
-
-/// The photo, fitted to the screen. Pinch to zoom, drag to move while zoomed, double-tap to fit again.
-private struct ZoomablePhoto: View {
-    let image: CGImage
-    @State private var zoom: CGFloat = 1
-    @State private var settledZoom: CGFloat = 1
-    @State private var offset: CGSize = .zero
-    @State private var settledOffset: CGSize = .zero
-
-    var body: some View {
-        Image(decorative: image, scale: 1)
-            .resizable()
-            .scaledToFit()
-            .scaleEffect(zoom)
-            .offset(offset)
-            .gesture(
-                MagnifyGesture()
-                    .onChanged { value in zoom = min(8, max(1, settledZoom * value.magnification)) }
-                    .onEnded { _ in
-                        settledZoom = zoom
-                        if zoom == 1 { reset() }
-                    }
-            )
-            .simultaneousGesture(
-                DragGesture()
-                    .onChanged { value in
-                        guard zoom > 1 else { return }
-                        offset = CGSize(width: settledOffset.width + value.translation.width, height: settledOffset.height + value.translation.height)
-                    }
-                    .onEnded { _ in settledOffset = offset }
-            )
-            .onTapGesture(count: 2) { withAnimation(.snappy) { reset() } }
-            .accessibilityIdentifier("viewer.photo")
-    }
-
-    private func reset() {
-        zoom = 1
-        settledZoom = 1
-        offset = .zero
-        settledOffset = .zero
     }
 }

@@ -31,6 +31,11 @@ public struct Conversation: Sendable {
     public let halt: Halt?
     /// The record that started the latest run.
     public let runStart: String?
+    /// The photo's settings now: the latest the transcript recorded. The transcript is the photo's
+    /// history; anything else that holds its settings is a copy of this.
+    public let state: EditingState?
+    /// The photo's settings when the latest run started.
+    public let stateBeforeRun: EditingState?
     /// How many times the run picked itself up after the app closed, since a step last landed.
     public let automaticResumes: Int
     /// Prompt tokens of the latest request since the latest summary.
@@ -68,10 +73,15 @@ public struct Conversation: Sendable {
         var resumes = 0
         var lastPrompt: Int?
         var summaryIndex: Int?
+        var state: EditingState?
+        var stateBeforeRun: EditingState?
         for (index, entry) in placed.enumerated() {
             switch entry.body {
             case .user:
-                if !open { runStart = entry.id }
+                if !open {
+                    runStart = entry.id
+                    stateBeforeRun = state
+                }
                 open = true
                 halt = nil
                 pending = []
@@ -87,6 +97,7 @@ public struct Conversation: Sendable {
                 pending.removeAll { $0.id == result.call }
                 need = pending.isEmpty ? .answer : .tools(pending)
                 resumes = 0
+                state = result.state ?? state
             case .failure(let failure):
                 guard !failure.retrying else { continue }
                 halt = .failed(failure)
@@ -101,10 +112,16 @@ public struct Conversation: Sendable {
             case .compaction:
                 summaryIndex = index
                 lastPrompt = nil
-            case .edit, .imported, .placed:
+            case .edit(let edit):
+                state = edit.state
+            case .imported(let thread):
+                state = thread.turns.last { $0.result != nil }?.result ?? state
+            case .placed:
                 break
             }
         }
+        self.state = state
+        self.stateBeforeRun = stateBeforeRun
         self.need = need
         self.halt = halt
         self.runStart = runStart

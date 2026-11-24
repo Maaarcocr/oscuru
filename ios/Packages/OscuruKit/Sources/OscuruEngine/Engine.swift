@@ -67,6 +67,15 @@ public final class Engine: @unchecked Sendable {
     locked { sessions[id] = nil }
   }
 
+  /// Opens a file for as long as `work` runs, under an id of its own: for a look at a photo that
+  /// is not otherwise open.
+  public func with<T>(_ url: URL, _ work: (String, PhotoInfo) throws -> T) throws -> T {
+    let id = "temporary-\(UUID().uuidString)"
+    let info = try open(id: id, url: url)
+    defer { close(id: id) }
+    return try work(id, info)
+  }
+
   /// The photo for the screen, in Display P3.
   public func image(id: String, recipe: RenderRecipe, options: RenderOptions) throws -> CGImage {
     try locked {
@@ -143,8 +152,8 @@ public final class Engine: @unchecked Sendable {
     return Double(min(1, max(0, pixel[0])))
   }
 
-  /// Develops the photo at full resolution into a file, in Display P3, carrying the capture details over.
-  public func export(id: String, recipe: RenderRecipe, format: ExportFormat, to url: URL, quality: Double = 0.95) throws -> (width: Int, height: Int) {
+  /// Develops the photo at full resolution into a JPEG file, in Display P3, carrying the capture details over.
+  public func export(id: String, recipe: RenderRecipe, to url: URL, quality: Double = 0.95) throws -> (width: Int, height: Int) {
     try locked {
       let session = try session(id)
       let image = try buildImage(session: session, recipe: recipe, options: RenderOptions())
@@ -162,12 +171,7 @@ public final class Engine: @unchecked Sendable {
         CIImageRepresentationOption(rawValue: kCGImageDestinationLossyCompressionQuality as String): min(1, max(0.1, quality))
       ]
       do {
-        switch format {
-        case .heic:
-          try context.writeHEIFRepresentation(of: output, to: url, format: .RGBA8, colorSpace: tableColorSpace, options: writeOptions)
-        case .jpeg:
-          try context.writeJPEGRepresentation(of: output, to: url, colorSpace: tableColorSpace, options: writeOptions)
-        }
+        try context.writeJPEGRepresentation(of: output, to: url, colorSpace: tableColorSpace, options: writeOptions)
       } catch {
         throw EngineError.renderFailed(error.localizedDescription)
       }

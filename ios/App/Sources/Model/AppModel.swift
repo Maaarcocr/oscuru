@@ -4,34 +4,19 @@ import Observation
 import OscuruCore
 import OscuruEngine
 
-/// The app's composition root: the library, the account, the saved filters and the engine.
+/// The app's composition root: the library, the account, the styles and the engine, and the one
+/// place photos are opened, exported and deleted.
 @MainActor
 @Observable
 final class AppModel {
     let engine: Engine
     let library: Library
     let account: Account
-    let filterStore: FilterStore
-    /// The saved filters, mirrored here so views update when a script saves or deletes one.
-    private(set) var filters: [SavedFilter]
+    let styleStore: StyleStore
+    /// The styles, mirrored here so views update when a script saves or deletes one.
+    private(set) var styles: [Style]
     /// Set in UI tests to play back a prepared conversation instead of calling OpenRouter.
     private let scriptedModel: ModelClient?
-
-    init(root: URL, secrets: SecretStore, transport: @escaping HTTPTransport, scriptedModel: ModelClient? = nil) {
-        try? FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
-        engine = Engine(models: Bundle.main.url(forResource: "Models", withExtension: nil))
-        library = Library(root: root.appending(path: "photos", directoryHint: .isDirectory), engine: engine)
-        account = Account(secrets: secrets, folder: root, transport: transport)
-        filterStore = FilterStore(file: root.appending(path: "filters.json"))
-        filters = filterStore.filters
-        self.scriptedModel = scriptedModel
-        filterStore.onChange = { [weak self] in
-            Task { @MainActor in
-                guard let self else { return }
-                self.filters = self.filterStore.filters
-            }
-        }
-    }
 
     /// Photos open in an editor: on screen, or closed while the assistant still works on them.
     private var editors: [String: PhotoEditor] = [:]
@@ -39,6 +24,24 @@ final class AppModel {
     private var viewers: [String: Int] = [:]
     /// Each photo's conversation, opened once: a transcript has one writer.
     private var transcripts: [String: Task<Transcript, Error>] = [:]
+
+    init(root: URL, secrets: SecretStore, transport: @escaping HTTPTransport, scriptedModel: ModelClient? = nil) {
+        try? FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        engine = Engine(models: Bundle.main.url(forResource: "Models", withExtension: nil))
+        library = Library(root: root.appending(path: "photos", directoryHint: .isDirectory), engine: engine)
+        account = Account(secrets: secrets, folder: root, transport: transport)
+        styleStore = StyleStore(file: root.appending(path: "filters.json"))
+        styles = styleStore.styles
+        self.scriptedModel = scriptedModel
+        styleStore.onChange = { [weak self] in
+            Task { @MainActor in
+                guard let self else { return }
+                self.styles = self.styleStore.styles
+            }
+        }
+    }
+
+    // MARK: Photos
 
     /// Opens a photo for editing, or the editor it already has (the assistant may still be at
     /// work on it). Work the app was closed during carries on. The engine keeps the photo open
@@ -59,13 +62,13 @@ final class AppModel {
                 engine.close(id: id)
                 return editor
             }
-            let renderer = PhotoRenderer(engine: engine, id: id, info: info, filters: filterStore)
+            let renderer = PhotoRenderer(engine: engine, id: id, info: info, styles: styleStore)
             let account = account
             let scripted = scriptedModel
             let (entries, updates) = await transcript.observe()
-            let current = library.document(document.id) ?? document
             let editor = PhotoEditor(
-                document: current, info: info, renderer: renderer, transcript: transcript, entries: entries, updates: updates, library: library, account: account
+                document: library.document(document.id) ?? document, renderer: renderer, transcript: transcript, entries: entries, updates: updates,
+                library: library, account: account
             ) {
                 scripted ?? account.client()
             }
@@ -102,9 +105,9 @@ final class AppModel {
     /// Whether the assistant is working on this photo now.
     func isWorking(on id: String) -> Bool { editors[id]?.isWorking ?? false }
 
-    /// The photo's conversation. The first time, it starts from the thread an earlier version
-    /// saved, or from the original photo (and the edits it already had). Opened once, however
-    /// many ask at the same time.
+    /// The photo's conversation. A new one starts from the original photo, or from the thread an
+    /// earlier version saved, and takes in any edits it has not heard of. After that the
+    /// conversation is the photo's history. Opened once, however many ask at the same time.
     private func openTranscript(for document: PhotoDocument, original: EditingState) async throws -> Transcript {
         if let opening = transcripts[document.id] { return try await opening.value }
         let folder = library.conversationFolder(document.id)
@@ -114,10 +117,12 @@ final class AppModel {
             let transcript = try Transcript(folder: folder)
             guard await transcript.isEmpty else { return transcript }
             if let saved {
-                try await transcript.append(.imported(.init(turns: saved.turns, conversation: saved.conversation)))
+                try await transcript.append(.imported(saved))
             } else {
                 try await transcript.append(.edit(.init(kind: .original, state: original)))
-                if state != original { try await transcript.append(.edit(.init(kind: .earlier, state: state))) }
+            }
+            if Conversation(await transcript.entries).state != state {
+                try await transcript.append(.edit(.init(kind: .earlier, state: state)))
             }
             return transcript
         }
@@ -146,16 +151,29 @@ final class AppModel {
         }
     }
 
-    /// Files for the share sheet, one per photo: developed at full resolution in `format`, or the
-    /// original files untouched when `format` is nil (a RAW stays RAW). Photos are opened one at a time.
-    func exportFiles(_ documents: [PhotoDocument], format: ExportFormat?) async throws -> [URL] {
+    /// Runs `work` with a renderer for a photo: its editor's while it is open, otherwise one
+    /// opened for the occasion.
+    private func render<T: Sendable>(_ document: PhotoDocument, _ work: @escaping @Sendable (PhotoRenderer) throws -> T) async throws -> T {
+        let open = editors[document.id]?.renderer
+        let engine = engine
+        let styles = styleStore
+        let url = library.originalURL(document)
+        return try await Task.detached(priority: .userInitiated) {
+            if let open { return try work(open) }
+            return try PhotoRenderer.with(url, engine: engine, styles: styles, work)
+        }.value
+    }
+
+    /// Files for the share sheet, one per photo, in the order given: each developed at full
+    /// resolution as a JPEG, or, for `original`, the file as it was taken or added (a RAW stays RAW).
+    func export(_ ids: [String], original: Bool) async throws -> [URL] {
         let folder = FileManager.default.temporaryDirectory.appending(path: "Export \(UUID().uuidString)", directoryHint: .isDirectory)
         try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
         var used: Set<String> = []
         var urls: [URL] = []
-        for document in documents {
+        for document in ids.compactMap({ library.document($0) }) {
             let source = library.originalURL(document)
-            let fileExtension = format.map { $0 == .heic ? "heic" : "jpg" } ?? source.pathExtension
+            let fileExtension = original ? source.pathExtension : "jpg"
             // Two photos with the same name get " 2", " 3", … rather than replacing each other.
             var name = document.fileName
             var number = 2
@@ -165,18 +183,12 @@ final class AppModel {
             }
             used.insert("\(name).\(fileExtension)".lowercased())
             let url = folder.appending(path: "\(name).\(fileExtension)")
-            let engine = engine
-            let state = document.state
-            try await Task.detached(priority: .userInitiated) {
-                guard let format else {
-                    try FileManager.default.copyItem(at: source, to: url)
-                    return
-                }
-                let id = "export-\(UUID().uuidString)"
-                let info = try engine.open(id: id, url: source)
-                defer { engine.close(id: id) }
-                _ = try engine.export(id: id, recipe: RenderRecipe(state: state, defaults: info.defaults), format: format, to: url)
-            }.value
+            if original {
+                try await Task.detached(priority: .userInitiated) { try FileManager.default.copyItem(at: source, to: url) }.value
+            } else {
+                let state = document.state
+                try await render(document) { try $0.export(state, to: url) }
+            }
             urls.append(url)
         }
         return urls
@@ -184,8 +196,18 @@ final class AppModel {
 
     // MARK: Styles
 
-    struct StyleResult {
-        let style: SavedFilter
+    /// Puts a style on photos, one at a time, each as a step in its own conversation: through the
+    /// photo's editor, like every other change.
+    func apply(_ style: Style, to ids: [String]) async {
+        for document in ids.compactMap({ library.document($0) }) {
+            guard let editor = try? await open(document) else { continue }
+            await editor.apply(style)
+            close(editor)
+        }
+    }
+
+    struct StyleResult: Sendable {
+        let style: Style
         /// The original with the new style, or one of the person's photos for a style from one picture.
         let styled: CGImage?
         /// The picture the style was learned from.
@@ -198,78 +220,41 @@ final class AppModel {
         case unnamed
     }
 
-    /// Learns a style: exactly from an original and its edit, or as a fingerprint of one picture
-    /// that is matched on each photo it goes on. Saves it and returns a preview to show it worked.
+    /// Learns a style from pictures: exactly, from an original and its edit, or as a fingerprint
+    /// of one picture that is matched on each photo it goes on. Saves it and returns pictures
+    /// that show it at work.
     func createStyle(name: String, edited: URL, original: URL?) async throws -> StyleResult {
+        guard !StyleCollection.cleanName(name).isEmpty else { throw StyleError.unnamed }
         let engine = engine
+        let styles = styleStore
         let latest = library.photos.first.map { (url: library.originalURL($0), state: $0.state) }
-        let made = try await Task.detached(priority: .userInitiated) { () throws -> (LookFit?, StyleFingerprint?, CGImage?, CGImage?, Data?) in
-            let editedID = "style-\(UUID().uuidString)"
-            _ = try engine.open(id: editedID, url: edited)
-            defer { engine.close(id: editedID) }
-            let editedPixels = try engine.displayPixels(id: editedID, recipe: RenderRecipe())
-            let reference = try? engine.image(id: editedID, recipe: RenderRecipe(), options: RenderOptions(maxEdge: 900))
-            let picture = try? engine.jpeg(id: editedID, recipe: RenderRecipe(), options: RenderOptions(maxEdge: 360), quality: 0.85)
-            if let original {
-                let originalID = "style-\(UUID().uuidString)"
-                let info = try engine.open(id: originalID, url: original)
-                defer { engine.close(id: originalID) }
-                // A RAW original is developed Oscuru's neutral way, so the style is learned in Oscuru's terms.
-                let base = try engine.displayPixels(id: originalID, recipe: RenderRecipe())
-                let fit = try LookFitting.fit(original: base, edited: editedPixels)
-                let state = try fit.applied(to: EditingState(defaults: info.defaults))
-                let styled = try? engine.image(id: originalID, recipe: RenderRecipe(state: state, defaults: info.defaults), options: RenderOptions(maxEdge: 900))
-                return (fit, nil, styled, reference, picture)
-            }
-            let fingerprint = LookFitting.fingerprint(of: editedPixels)
-            var styled: CGImage?
-            if let latest {
-                let photoID = "style-\(UUID().uuidString)"
-                if let info = try? engine.open(id: photoID, url: latest.url) {
-                    defer { engine.close(id: photoID) }
-                    let base = RenderRecipe(state: LookFit.base(latest.state, wholeFrame: false), defaults: info.defaults)
-                    if let source = try? engine.displayPixels(id: photoID, recipe: base),
-                        let state = try? LookFitting.match(source: source, fingerprint: fingerprint).applied(to: latest.state)
-                    {
-                        styled = try? engine.image(id: photoID, recipe: RenderRecipe(state: state, defaults: info.defaults), options: RenderOptions(maxEdge: 900))
+        let preview = 900.0
+        return try await Task.detached(priority: .userInitiated) {
+            try PhotoRenderer.with(edited, engine: engine, styles: styles) { look in
+                guard let wanted = look.pixels(of: look.original) else { throw LookFitting.Failure.empty }
+                var recipe = Style.Recipe.match(LookFitting.fingerprint(of: wanted))
+                var styled: CGImage?
+                var error: Double?
+                if let original {
+                    // A RAW original is developed Oscuru's neutral way, so the style is learned in Oscuru's terms.
+                    try PhotoRenderer.with(original, engine: engine, styles: styles) { source in
+                        guard let base = source.pixels(of: source.original) else { throw LookFitting.Failure.empty }
+                        let fit = try LookFitting.fit(original: base, edited: wanted)
+                        recipe = .fit(fit)
+                        error = fit.error
+                        styled = try? source.picture(of: fit.applied(to: source.original), edge: preview)
                     }
                 }
-            }
-            return (nil, fingerprint, styled, reference, picture)
-        }.value
-        let (fit, fingerprint, styled, reference, picture) = made
-        let look = Look(state: try fit?.applied(to: EditingState()) ?? EditingState(), defaults: PhotoDefaults())
-        guard let style = filterStore.saveStyle(name: name, look: look, fit: fit, match: fingerprint, picture: picture) else { throw StyleError.unnamed }
-        return StyleResult(style: style, styled: styled, reference: reference, error: fit?.error)
-    }
-
-    /// Puts a style on photos in the library, one at a time, as a step in each one's conversation.
-    func applyStyle(_ style: SavedFilter, to documents: [PhotoDocument]) async {
-        for document in documents {
-            // A photo open in an editor changes there, so there is one editing path.
-            if let editor = editors[document.id] {
-                editor.apply(style)
-                continue
-            }
-            let engine = engine
-            let url = library.originalURL(document)
-            let current = document.state
-            let outcome = await Task.detached(priority: .userInitiated) { () -> (state: EditingState, original: EditingState, thumbnail: Data?)? in
-                let id = "style-\(UUID().uuidString)"
-                guard let info = try? engine.open(id: id, url: url) else { return nil }
-                defer { engine.close(id: id) }
-                let measured = RenderRecipe(state: LookFit.base(current, wholeFrame: false), defaults: info.defaults)
-                guard let state = try? style.applied(to: current, defaults: info.defaults, source: { try? engine.displayPixels(id: id, recipe: measured) }) else {
-                    return nil
+                guard let style = styles.save(name: name, recipe: recipe, picture: look.jpeg(of: look.original, edge: PhotoRenderer.styleEdge)) else {
+                    throw StyleError.unnamed
                 }
-                let thumbnail = try? engine.jpeg(id: id, recipe: RenderRecipe(state: state, defaults: info.defaults), options: RenderOptions(maxEdge: 480), quality: 0.8)
-                return (state, EditingState(defaults: info.defaults), thumbnail)
-            }.value
-            guard let outcome, outcome.state != current, editors[document.id] == nil else { continue }
-            guard let transcript = try? await openTranscript(for: document, original: outcome.original) else { continue }
-            guard (try? await transcript.append(.edit(.init(kind: .filter(style.name), state: outcome.state)))) != nil else { continue }
-            library.save(id: document.id, state: outcome.state, revision: document.revision + 1)
-            if let thumbnail = outcome.thumbnail { library.saveThumbnail(id: document.id, jpeg: thumbnail) }
-        }
+                if styled == nil, let latest {
+                    styled = try? PhotoRenderer.with(latest.url, engine: engine, styles: styles) { photo in
+                        try photo.picture(of: photo.apply(style, to: latest.state), edge: preview)
+                    }
+                }
+                return StyleResult(style: style, styled: styled, reference: try? look.picture(of: look.original, edge: preview), error: error)
+            }
+        }.value
     }
 }

@@ -30,8 +30,8 @@ private final class FakeModel: ModelClient, @unchecked Sendable {
     }
 }
 
-private func toolCall(_ id: String, code: String, revision: Int = 1, name: String = Prompt.toolName, arguments: String? = nil) -> JSONValue {
-    let args = arguments ?? JSONValue.object(["sessionId": "photo-1", "baseRevision": .number(Double(revision)), "code": .string(code)]).text()
+private func toolCall(_ id: String, code: String, name: String = Prompt.toolName, arguments: String? = nil) -> JSONValue {
+    let args = arguments ?? JSONValue.object(["code": .string(code)]).text()
     return [
         "role": "assistant", "content": "Working on it.",
         "tool_calls": [["id": .string(id), "type": "function", "function": ["name": .string(name), "arguments": .string(args)]]],
@@ -51,7 +51,7 @@ private actor FakePort: AgentPort {
         try? state.adjust(["contrast": .number(state.value("contrast") + 1)])
         revision += 1
         return ToolExecution(
-            payload: ["status": "ok", "applied": true, "revision": .number(Double(revision)), "changes": [["path": "global.contrast", "from": 0, "to": 1]]],
+            payload: ["status": "ok", "applied": true, "changes": [["path": "global.contrast", "from": 0, "to": 1]]],
             images: [LabeledImage(label: "Before:", jpeg: Data([1])), LabeledImage(label: "After:", jpeg: Data([2]))], state: state)
     }
 
@@ -76,8 +76,7 @@ final class AgentTests: XCTestCase {
         try? FileManager.default.removeItem(at: folder)
     }
 
-    private let context = AgentContext(
-        sessionID: "photo-1", revision: 1, state: EditingState(), metadata: ["isRaw": true], statistics: ["meanLuminance": 0.4], filters: ["Dusk"])
+    private let context = AgentContext(state: EditingState(), metadata: ["isRaw": true], statistics: ["meanLuminance": 0.4], styles: ["Dusk"])
 
     /// Writes an instruction the way the editor does: the words, the photo's context, its picture.
     @discardableResult
@@ -111,7 +110,7 @@ final class AgentTests: XCTestCase {
         let opening = parts(first.messages[1])
         let text = opening[0]["text"]?.stringValue ?? ""
         XCTAssertTrue(text.hasPrefix("Make it cinematic\n\n[Photo context]\n"))
-        XCTAssertTrue(text.contains("\"savedFilters\":[\"Dusk\"]"))
+        XCTAssertTrue(text.contains("\"savedStyles\":[\"Dusk\"]"))
         XCTAssertEqual(opening[1]["text"], "The photo as it is now:")
         XCTAssertEqual(opening[2]["image_url"]?["url"]?.stringValue, "data:image/jpeg;base64,\(Data([0xFF, 0xD8, 1]).base64EncodedString())")
 
@@ -383,10 +382,36 @@ final class AgentTests: XCTestCase {
         XCTAssertEqual(images(messages), 1, "only the new opening picture")
     }
 
+    func testTheTranscriptIsThePhotosHistory() async throws {
+        let transcript = try Transcript(folder: folder)
+        var styled = EditingState()
+        try styled.adjust(["saturation": -20])
+        try await transcript.append(.edit(.init(kind: .original, state: EditingState())))
+        try await transcript.append(.edit(.init(kind: .style("Dusk"), state: styled)))
+        var conversation = Conversation(await transcript.entries)
+        XCTAssertEqual(conversation.state, styled)
+        XCTAssertNil(conversation.stateBeforeRun, "no run yet")
+
+        try await instruct(transcript)
+        let port = FakePort()
+        try await run(transcript, FakeModel([{ _ in toolCall("c1", code: "1") }, { _ in toolCall("c2", code: "1") }, { _ in note("Done.") }]), port)
+        conversation = Conversation(await transcript.entries)
+        XCTAssertEqual(conversation.state?.value("contrast"), 2, "what the last script left")
+        XCTAssertEqual(conversation.stateBeforeRun, styled, "what the photo was when the instruction came")
+
+        // A script cut off before its report leaves the photo as the transcript last recorded it.
+        try await instruct(transcript, "More")
+        try await transcript.append(.assistant(.init(message: toolCall("c3", code: "1"), model: "m", usage: nil)))
+        conversation = Conversation(await transcript.entries)
+        XCTAssertEqual(conversation.state?.value("contrast"), 2)
+        XCTAssertEqual(conversation.stateBeforeRun?.value("contrast"), 2)
+        XCTAssertEqual(conversation.pendingCalls.map(\.id), ["c3"])
+    }
+
     func testRecordsReadBackAsTheyWereWritten() async throws {
         let transcript = try Transcript(folder: folder)
         try await instruct(transcript)
-        try await transcript.append(.edit(.init(kind: .filter("Dusk"), state: EditingState())))
+        try await transcript.append(.edit(.init(kind: .style("Dusk"), state: EditingState())))
         try await transcript.append(.failure(.init(kind: .rateLimit, message: "Slow down", status: 429, retrying: true, delay: 2)))
         try await transcript.append(.placed(["a"]))
         try await transcript.append(.stop)
@@ -546,7 +571,8 @@ final class PhotoAPITests: XCTestCase {
         XCTAssertTrue(text.contains(#"type ColorRange = "red" | "orange" | "yellow" | "green" | "aqua" | "blue" | "purple" | "magenta";"#))
         XCTAssertTrue(text.contains("2 to 16 points"))
         XCTAssertTrue(text.contains("show(which?:"))
-        XCTAssertTrue(text.contains("readonly filters:"))
+        XCTAssertTrue(text.contains("readonly styles:"))
+        XCTAssertEqual(Prompt.tool["function"]?["parameters"]?["required"], ["code"], "the script is all the tool takes")
         XCTAssertTrue(Prompt.system.contains(text))
         XCTAssertTrue(Prompt.system.contains(Prompt.toolName))
         XCTAssertFalse(Prompt.system.lowercased().contains("maxscripts"))

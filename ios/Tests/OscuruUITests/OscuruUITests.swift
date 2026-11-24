@@ -52,29 +52,42 @@ final class OscuruUITests: XCTestCase {
         capture("07-viewer")
         element(app, "viewer.close").tap()
 
-        // Save the look as a filter.
-        element(app, "photo.menu").tap()
-        element(app, "menu.filters").tap()
-        let name = element(app, "filters.name")
-        XCTAssertTrue(name.waitForExistence(timeout: 30))
+        // Styles, beside the composer: save this look as one, and see it tried on the photo.
+        element(app, "composer.styles").tap()
+        XCTAssertTrue(element(app, "styles.save").waitForExistence(timeout: 30))
+        element(app, "styles.save").tap()
+        let naming = app.alerts.firstMatch
+        XCTAssertTrue(naming.waitForExistence(timeout: 30))
+        let name = naming.textFields.firstMatch
         name.tap()
         name.typeText("Dusk")
-        element(app, "filters.save").tap()
-        XCTAssertTrue(element(app, "filters.item").waitForExistence(timeout: 30), "the filter is saved")
-        capture("08-filters")
-        element(app, "filters.done").tap()
+        for label in ["Save", "Salva"] where naming.buttons[label].exists {
+            naming.buttons[label].tap()
+            break
+        }
+        XCTAssertTrue(element(app, "styles.item").waitForExistence(timeout: 30), "the style is saved")
+        sleep(1)
+        capture("08-styles")
+        element(app, "composer.styles").tap()
 
-        // The camera, from the library: shoot, then go straight to the new photo's conversation.
+        // Home: the style is there, with the way to make one from pictures.
         app.navigationBars.buttons.element(boundBy: 0).tap()
         XCTAssertTrue(photo.waitForExistence(timeout: 30))
+        XCTAssertTrue(element(app, "library.style").waitForExistence(timeout: 30))
         capture("09-library")
-
-        // A new style, from the library: an edited photo, and its original for an exact copy.
         element(app, "library.newStyle").tap()
         XCTAssertTrue(element(app, "style.create").waitForExistence(timeout: 30))
         sleep(1)
         capture("09-new-style")
         element(app, "style.cancel").tap()
+
+        // A style goes on photos by tapping it, then them.
+        element(app, "library.style").tap()
+        XCTAssertTrue(element(app, "library.applyStyle").waitForExistence(timeout: 30))
+        photo.tap()
+        capture("09-style-photos")
+        element(app, "library.applyStyle").tap()
+        XCTAssertTrue(element(app, "library.select").waitForExistence(timeout: 60), "applied, and back to the library")
 
         // Selecting, as in Photos: choose photos to share or delete.
         element(app, "library.select").tap()

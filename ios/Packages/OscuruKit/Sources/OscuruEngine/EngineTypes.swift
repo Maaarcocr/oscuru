@@ -19,11 +19,6 @@ public struct RenderOptions {
     }
 }
 
-public enum ExportFormat: String, Sendable {
-    case jpeg
-    case heic
-}
-
 public enum EngineError: Error, CustomStringConvertible {
     case cannotOpen(String)
     case unknownPhoto(String)

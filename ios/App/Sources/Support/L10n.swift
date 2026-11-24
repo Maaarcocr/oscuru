@@ -12,8 +12,6 @@ enum L10n {
     static var delete: String { String(localized: "common.delete") }
     static var rename: String { String(localized: "common.rename") }
     static var close: String { String(localized: "common.close") }
-    static var open: String { String(localized: "common.open") }
-    static var more: String { String(localized: "common.more") }
     static var settings: String { String(localized: "common.settings") }
 
     // MARK: Library
@@ -32,20 +30,25 @@ enum L10n {
         let text = String(count)
         return String(localized: "library.selected \(text)")
     }
-    static var share: String { String(localized: "library.share") }
-    static var shareOriginals: String { String(localized: "library.share.originals") }
-    static var shareOriginalsFooter: String { String(localized: "library.share.originals.footer") }
+    static var share: String { String(localized: "share.title") }
+    static var shareDeveloped: String { String(localized: "share.developed") }
+    static var shareDevelopedFooter: String { String(localized: "share.developed.footer") }
+    static var shareOriginal: String { String(localized: "share.original") }
+    static var shareOriginalFooter: String { String(localized: "share.original.footer") }
+    static var exportFailed: String { String(localized: "share.failed") }
     static func deleteTitle(_ count: Int) -> String {
         if count == 1 { return String(localized: "library.deleteOne") }
         let text = String(count)
         return String(localized: "library.delete \(text)")
     }
     static var deleteMessage: String { String(localized: "library.delete.message") }
-    static var applyStyle: String { String(localized: "library.applyStyle") }
-    static var photosHeading: String { String(localized: "library.photos") }
-    static var applyToPhotos: String { String(localized: "library.applyToPhotos") }
     static var apply: String { String(localized: "library.apply") }
-    static func chooseFor(_ name: String) -> String { String(localized: "library.chooseFor \(name)") }
+
+    // MARK: Styles
+    static var styles: String { String(localized: "styles.title") }
+    static var styleNamePlaceholder: String { String(localized: "styles.name") }
+    static var saveLook: String { String(localized: "styles.saveLook") }
+    static var stylesEmpty: String { String(localized: "styles.empty") }
 
     // MARK: New style
     static var newStyle: String { String(localized: "style.new") }
@@ -84,16 +87,6 @@ enum L10n {
 
     // MARK: Photo
     static var photoUnreadable: String { String(localized: "photo.unreadable") }
-    static var filters: String { String(localized: "filters.title") }
-    static var sharePhoto: String { String(localized: "photo.share") }
-    static var shareJPEG: String { String(localized: "photo.share.jpeg") }
-    static var shareHEIC: String { String(localized: "photo.share.heic") }
-    static var shareRAW: String { String(localized: "photo.share.raw") }
-    static var shareRAWFooter: String { String(localized: "photo.share.raw.footer") }
-    static var exportFailed: String { String(localized: "photo.share.failed") }
-    static var startOver: String { String(localized: "photo.startOver") }
-    static var startOverTitle: String { String(localized: "photo.startOver.title") }
-    static var startOverMessage: String { String(localized: "photo.startOver.message") }
 
     // MARK: Composer
     static var composerPlaceholder: String { String(localized: "composer.placeholder") }
@@ -123,7 +116,7 @@ enum L10n {
         if info.isRaw { parts.append("RAW") }
         return parts.joined(separator: " · ")
     }
-    static func appliedFilter(_ name: String) -> String { String(localized: "thread.filter \(name)") }
+    static func appliedStyle(_ name: String) -> String { String(localized: "thread.style \(name)") }
     static var restored: String { String(localized: "thread.restore") }
     static var backToOriginal: String { String(localized: "thread.startOver") }
     static var earlierEdits: String { String(localized: "thread.earlier") }
@@ -135,7 +128,6 @@ enum L10n {
     static var reconnecting: String { String(localized: "thread.reconnecting") }
     static var summarizing: String { String(localized: "thread.summarizing") }
     static func storageProblem(_ detail: String) -> String { String(localized: "thread.storageProblem \(detail)") }
-    static var restoreVersion: String { String(localized: "thread.restoreVersion") }
     static var script: String { String(localized: "thread.script") }
     static func step(_ number: Int) -> String {
         let text = String(number)
@@ -152,8 +144,7 @@ enum L10n {
         case .applied: return title
         case .running: return "\(title) · \(String(localized: "script.running"))"
         case .unchanged: return "\(title) · \(String(localized: "script.unchanged"))"
-        case .failed: return "\(title) · \(String(localized: "script.failed"))"
-        case .stale: return "\(title) · \(String(localized: "script.stale"))"
+        case .failed, .stale: return "\(title) · \(String(localized: "script.failed"))"
         case .stopped: return "\(title) · \(String(localized: "script.cutOff"))"
         }
     }
@@ -296,10 +287,6 @@ enum L10n {
         default: return String(localized: "property.threshold")
         }
     }
-
-    // MARK: Filters
-    static var filtersEmpty: String { String(localized: "filters.empty") }
-    static var filterNamePlaceholder: String { String(localized: "filters.name") }
 
     // MARK: Settings
     static var settingsAccount: String { String(localized: "settings.account") }

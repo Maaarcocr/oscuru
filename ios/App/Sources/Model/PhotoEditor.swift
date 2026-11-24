@@ -5,24 +5,20 @@ import OscuruCore
 import OscuruEngine
 import OscuruScripting
 
-/// A thread saved by versions before the transcript: what the person saw, and what the model had
-/// been told. Read once, into the photo's transcript.
-struct SavedThread: Codable {
-    var turns: [Turn]
-    var conversation: [JSONValue]
-}
-
-/// One photo open on screen, as a conversation: its turns, its settings over time, and the photo
-/// as it is now. Everything that changes the photo goes through `history`, so there is one
-/// editing path, and is written to the photo's transcript, so the thread is the whole story and
-/// survives anything. The turns on screen are read from the transcript, never kept beside it.
+/// One photo and its conversation: the thread, the photo's settings now, and the assistant at
+/// work on it. The transcript is the photo's history. Everything on screen is read from it, and
+/// every change to the photo, the person's or the assistant's, goes through `set` and is written
+/// to it, so there is one editing path and nothing is kept beside it.
 @MainActor
 @Observable
 final class PhotoEditor {
+    /// The photo as it was opened: its id, name and file. Its settings now are `state`.
     nonisolated let document: PhotoDocument
-    nonisolated let info: PhotoInfo
     nonisolated let renderer: PhotoRenderer
-    private(set) var history: EditHistory
+    /// The photo's settings now.
+    private(set) var state: EditingState
+    /// Goes up each time the settings change.
+    private(set) var stateVersion = 0
     /// The thread, as the transcript says it is.
     private(set) var turns: [Turn] = []
     /// Messages sent while the assistant works, read between its steps.
@@ -37,11 +33,6 @@ final class PhotoEditor {
     private(set) var canContinue = false
     /// Why the thread could not be written, if it could not.
     private(set) var storageProblem: String?
-    /// The photo as it is now.
-    private(set) var image: CGImage?
-    /// Goes up with every new picture, so the screen can cross-fade between them.
-    private(set) var imageVersion = 0
-    private(set) var renderError: String?
     /// Goes up each time the assistant answers an instruction.
     private(set) var completedRuns = 0
     /// Goes up whenever the thread changes, so the screen can follow it.
@@ -59,30 +50,33 @@ final class PhotoEditor {
     private let library: Library
     private let account: Account
     private let modelClient: @MainActor () -> ModelClient
-    let transcript: Transcript
-    private(set) var conversation: Conversation
+    private let transcript: Transcript
+    private var conversation: Conversation
     private var task: Task<Void, Never>?
     private var following: Task<Void, Never>?
     private let background = BackgroundWork()
-    private var renderGeneration = 0
-    private var pictures: [String: CGImage] = [:]
-    private var pictureOrder: [String] = []
+    /// Pictures of versions shown in the thread, kept for a while.
+    private var pictures: [(state: EditingState, image: CGImage)] = []
+    /// The settings the library's thumbnail shows.
+    private var thumbnailState: EditingState
 
     /// `entries` and `updates` come from one `transcript.observe()`, so nothing falls between them.
     init(
-        document: PhotoDocument, info: PhotoInfo, renderer: PhotoRenderer, transcript: Transcript, entries: [TranscriptEntry],
-        updates: AsyncStream<TranscriptEntry>, library: Library, account: Account, modelClient: @escaping @MainActor () -> ModelClient
+        document: PhotoDocument, renderer: PhotoRenderer, transcript: Transcript, entries: [TranscriptEntry], updates: AsyncStream<TranscriptEntry>,
+        library: Library, account: Account, modelClient: @escaping @MainActor () -> ModelClient
     ) {
         self.document = document
-        self.info = info
         self.renderer = renderer
         self.transcript = transcript
         self.library = library
         self.account = account
         self.modelClient = modelClient
         runtime = ScriptRuntime(host: renderer)
-        history = EditHistory(state: document.state, revision: document.revision)
         conversation = Conversation(entries)
+        // The transcript says what the photo's settings are; the library keeps a copy.
+        state = conversation.state ?? document.state
+        thumbnailState = document.state
+        library.save(id: document.id, state: state)
         reproject()
         following = Task { [weak self] in
             for await entry in updates {
@@ -90,7 +84,6 @@ final class PhotoEditor {
                 self.received(entry)
             }
         }
-        refreshImage()
     }
 
     /// Stops following the transcript, once the editor is no longer needed.
@@ -99,9 +92,9 @@ final class PhotoEditor {
         following = nil
     }
 
-    var state: EditingState { history.state }
+    nonisolated var info: PhotoInfo { renderer.info }
+    var original: EditingState { renderer.original }
     var isWorking: Bool { task != nil }
-    var original: EditingState { EditingState(defaults: info.defaults) }
 
     /// The photo before this turn: the result of the latest earlier turn that had one.
     func resultBefore(_ turn: Turn) -> EditingState? {
@@ -158,113 +151,74 @@ final class PhotoEditor {
         }
     }
 
-    // MARK: Changing the photo yourself
+    // MARK: Changing the photo
 
-    /// Called after every change to `history`: saves and redraws.
-    private func changed() {
-        library.save(id: document.id, state: history.state, revision: history.revision)
-        refreshImage()
+    /// The one place the photo's settings change.
+    fileprivate func set(_ next: EditingState) {
+        guard next != state else { return }
+        state = next
+        stateVersion += 1
+        library.save(id: document.id, state: next)
     }
 
-    func apply(_ filter: SavedFilter) {
+    /// A change the person makes, as a step of its own in the thread.
+    private func change(to next: EditingState, as kind: Turn.Kind) {
+        guard !isWorking, next != state else { return }
+        set(next)
+        write(.edit(.init(kind: kind, state: next)))
+    }
+
+    func apply(_ style: Style) async {
         guard !isWorking else { return }
-        let current = history.state
+        let current = state
         let renderer = renderer
-        guard let state = try? filter.applied(to: current, defaults: info.defaults, source: { renderer.pixels(of: LookFit.base(current, wholeFrame: false)) }) else { return }
-        guard history.push(state, source: .filter(name: filter.name)) else { return }
-        changed()
-        write(.edit(.init(kind: .filter(filter.name), state: state)))
+        let styled = await Task.detached(priority: .userInitiated) { try? renderer.apply(style, to: current) }.value
+        guard let styled, state == current else { return }
+        change(to: styled, as: .style(style.name))
     }
 
-    /// Makes an earlier version the current one again, as a new turn.
-    func restore(_ state: EditingState) {
-        guard !isWorking, history.push(state, source: .reverted) else { return }
-        changed()
-        write(.edit(.init(kind: .restore, state: state)))
+    /// Makes an earlier version the current one again.
+    func restore(_ version: EditingState) {
+        change(to: version, as: .restore)
     }
 
-    func startOver() {
-        guard !isWorking, history.push(original, source: .reset) else { return }
-        changed()
-        write(.edit(.init(kind: .startOver, state: original)))
+    /// Saves the photo's look as a style. False when the name is unusable.
+    func saveStyle(named name: String) async -> Bool {
+        let current = state
+        let renderer = renderer
+        return await Task.detached { renderer.saveStyle(name: name, state: current) }.value
     }
-
-    var currentLook: Look { Look(state: history.state, defaults: info.defaults) }
 
     // MARK: Pictures
 
-    private func key(_ state: EditingState) -> String { state.json.text() }
-
-    private func remember(_ image: CGImage, for state: EditingState) {
-        let key = key(state)
-        if pictures[key] == nil { pictureOrder.append(key) }
-        pictures[key] = image
-        if pictureOrder.count > 16 { pictures[pictureOrder.removeFirst()] = nil }
-    }
-
-    private func refreshImage() {
-        renderGeneration += 1
-        let generation = renderGeneration
-        let state = history.state
+    /// A version of the photo for the screen: sized for the thread, or `filling` the screen to zoom into.
+    func picture(of version: EditingState, filling: Bool = false) async -> CGImage? {
+        if !filling, let kept = pictures.first(where: { $0.state == version }) { return kept.image }
         let renderer = renderer
-        Task.detached(priority: .userInitiated) {
-            let result = Result { try renderer.cardImage(of: state) }
-            await MainActor.run {
-                // A newer change is already on its way: its picture wins.
-                guard generation == self.renderGeneration else { return }
-                switch result {
-                case .success(let image):
-                    self.image = image
-                    self.imageVersion += 1
-                    self.renderError = nil
-                    self.remember(image, for: state)
-                case .failure(let error):
-                    self.renderError = String(describing: error)
-                }
-            }
+        let edge = filling ? PhotoRenderer.screenEdge : PhotoRenderer.cardEdge
+        guard let image = await Task.detached(priority: .userInitiated, operation: { try? renderer.picture(of: version, edge: edge) }).value else { return nil }
+        if !filling, !pictures.contains(where: { $0.state == version }) {
+            pictures.append((version, image))
+            if pictures.count > 16 { pictures.removeFirst() }
         }
-    }
-
-    /// The photo with these settings, sized for the thread. Kept for a while once rendered.
-    func picture(of state: EditingState) async -> CGImage? {
-        if let image = pictures[key(state)] { return image }
-        let renderer = renderer
-        guard let image = await Task.detached(priority: .userInitiated, operation: { try? renderer.cardImage(of: state) }).value else { return nil }
-        remember(image, for: state)
         return image
     }
 
-    /// The photo with these settings, large enough to fill the screen and zoom into.
-    func fullPicture(of state: EditingState) async -> CGImage? {
+    /// The photo as it is now with a style tried on, small: what a style's tile shows.
+    func preview(of style: Style) async -> CGImage? {
+        let current = state
         let renderer = renderer
-        return await Task.detached(priority: .userInitiated) { try? renderer.screenImage(of: state) }.value
+        return await Task.detached { try? renderer.picture(of: renderer.apply(style, to: current), edge: PhotoRenderer.styleEdge) }.value
     }
 
-    /// Develops a version at full resolution into a temporary file for the share sheet.
-    func export(_ state: EditingState, as format: ExportFormat) async throws -> URL {
-        let url = FileManager.default.temporaryDirectory.appending(path: "\(document.fileName).\(format == .heic ? "heic" : "jpg")")
-        try? FileManager.default.removeItem(at: url)
-        let renderer = renderer
-        try await Task.detached(priority: .userInitiated) { try renderer.export(state, format: format, to: url) }.value
-        return url
-    }
-
-    /// A copy of the original file, untouched (the RAW file for a RAW photo), for the share sheet.
-    func exportOriginal() async throws -> URL {
-        let source = library.originalURL(document)
-        let url = FileManager.default.temporaryDirectory.appending(path: "\(document.fileName).\(source.pathExtension)")
-        try? FileManager.default.removeItem(at: url)
-        try await Task.detached(priority: .userInitiated) { try FileManager.default.copyItem(at: source, to: url) }.value
-        return url
-    }
-
-    /// Redraws the library thumbnail from the current edits.
+    /// Redraws the library thumbnail when the photo has changed since it was drawn.
     func saveThumbnail() async {
-        let state = history.state
+        let current = state
+        guard current != thumbnailState else { return }
         let renderer = renderer
-        if let jpeg = await Task.detached(operation: { renderer.thumbnail(of: state) }).value {
-            library.saveThumbnail(id: document.id, jpeg: jpeg)
-        }
+        guard let jpeg = await Task.detached(operation: { renderer.jpeg(of: current, edge: PhotoRenderer.thumbnailEdge) }).value else { return }
+        library.saveThumbnail(id: document.id, jpeg: jpeg)
+        thumbnailState = current
     }
 
     // MARK: The assistant
@@ -383,24 +337,9 @@ final class PhotoEditor {
 
     // MARK: The assistant's side of the tool
 
-    fileprivate struct Snapshot: Sendable {
-        var state: EditingState
-        var revision: Int
-        var before: EditingState
-        /// The run the scripts belong to: the record of the words that started it.
-        var run: String
-    }
-
-    fileprivate func snapshot() -> Snapshot {
-        let run = conversation.runStart ?? "run"
-        return Snapshot(state: history.state, revision: history.revision, before: history.stateBefore(run: run), run: run)
-    }
-
-    /// Makes a script's result the photo's settings, unless the photo changed while the script ran.
-    fileprivate func commit(_ state: EditingState, expecting revision: Int, run: String, script: String) -> Bool {
-        guard history.revision == revision else { return false }
-        if history.push(state, source: .assistant(run: run, script: script)) { changed() }
-        return true
+    /// The photo's settings now, and when the person gave the instruction being carried out.
+    fileprivate func snapshot() -> (state: EditingState, before: EditingState) {
+        (state, conversation.stateBeforeRun ?? state)
     }
 
     fileprivate func run(_ request: ScriptRequest, isCancelled: @escaping @Sendable () -> Bool) async -> ScriptOutcome {
@@ -408,66 +347,39 @@ final class PhotoEditor {
     }
 }
 
-/// What the agent can learn about the open photo and do to it: the phone's side of `execute_edit_script`.
+/// What the agent can learn about the photo and do to it: the phone's side of `execute_edit_script`.
 private struct EditorPort: AgentPort {
     let editor: PhotoEditor
 
-    func context() async -> AgentContext {
-        let snapshot = await editor.snapshot()
+    private func picture(_ state: EditingState, _ label: String) async -> [LabeledImage] {
         let renderer = editor.renderer
-        let statistics = await Task.detached { renderer.analysis(of: snapshot.state)?.statistics }.value
-        return AgentContext(
-            sessionID: editor.document.id, revision: snapshot.revision, state: snapshot.state, metadata: renderer.info.json, statistics: statistics,
-            filters: renderer.filterNames())
+        return await Task.detached { renderer.image(of: state, region: nil, maxEdge: Prompt.defaultImageEdge).map { [LabeledImage(label: label, jpeg: $0)] } ?? [] }.value
     }
 
-    func openingImages() async -> [LabeledImage] {
-        let snapshot = await editor.snapshot()
+    func context() async -> AgentContext {
+        let state = await editor.state
         let renderer = editor.renderer
-        return await Task.detached {
-            var images: [LabeledImage] = []
-            let original = renderer.original(framedLike: snapshot.state)
-            if snapshot.state != original, let jpeg = renderer.image(of: original, region: nil, maxEdge: Prompt.defaultImageEdge) {
-                images.append(LabeledImage(label: "The original photo, with no edits:", jpeg: jpeg))
-            }
-            if let jpeg = renderer.image(of: snapshot.state, region: nil, maxEdge: Prompt.defaultImageEdge) {
-                images.append(LabeledImage(label: snapshot.state == original ? "The photo (not edited yet):" : "The photo as it is now:", jpeg: jpeg))
-            }
-            return images
-        }.value
+        let statistics = await Task.detached { renderer.analysis(of: state)?.statistics }.value
+        return AgentContext(state: state, metadata: renderer.info.json, statistics: statistics, styles: renderer.styleNames())
+    }
+
+    /// The pictures that open an instruction: the original when the photo has been edited, and the photo as it is.
+    func openingImages() async -> [LabeledImage] {
+        let state = await editor.state
+        let original = editor.renderer.original(framedLike: state)
+        guard state != original else { return await picture(state, "The photo (not edited yet):") }
+        return await picture(original, "The original photo, with no edits:") + picture(state, "The photo as it is now:")
     }
 
     func execute(arguments: JSONValue) async -> ToolExecution {
-        let snapshot = await editor.snapshot()
-        let renderer = editor.renderer
-        func picture(_ state: EditingState, _ label: String) async -> [LabeledImage] {
-            await Task.detached { renderer.image(of: state, region: nil, maxEdge: Prompt.defaultImageEdge).map { [LabeledImage(label: label, jpeg: $0)] } ?? [] }.value
-        }
-        func refused(_ status: String, _ message: String) -> JSONValue {
-            ["status": .string(status), "applied": false, "revision": .number(Double(snapshot.revision)), "error": ["message": .string(message)]]
-        }
-        func stale(_ current: PhotoEditor.Snapshot, said: JSONValue) async -> ToolExecution {
-            var payload = refused(
-                "stale_revision",
-                "The photo is at revision \(current.revision), not \(said.described): it changed since you last saw it (the person may have undone something or applied a filter). Nothing was applied. Look at the current state and picture, then send a script based on revision \(current.revision)."
-            ).objectValue ?? [:]
-            payload["revision"] = .number(Double(current.revision))
-            payload["state"] = current.state.json
-            return ToolExecution(payload: .object(payload), images: await picture(current.state, "The photo as it is now (revision \(current.revision)):"))
-        }
-
         guard let code = arguments["code"]?.stringValue, !code.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
-            return ToolExecution(payload: refused("invalid_request", "code must be a non-empty string of JavaScript"), images: [])
-        }
-        guard arguments["sessionId"]?.stringValue == editor.document.id else {
             return ToolExecution(
-                payload: refused("wrong_session", "sessionId \((arguments["sessionId"] ?? .null).described) is not the photo open in the editor (\(editor.document.id))"), images: [])
+                payload: ["status": "invalid_request", "applied": false, "error": ["message": "code must be a non-empty string of JavaScript"]], images: [])
         }
-        let said = arguments["baseRevision"] ?? .null
-        guard said.doubleValue == Double(snapshot.revision) else { return await stale(snapshot, said: said) }
-
+        let renderer = editor.renderer
+        let (state, before) = await editor.snapshot()
         let cancel = CancelFlag()
-        let request = ScriptRequest(code: code, state: snapshot.state, revision: snapshot.revision, info: renderer.info, before: snapshot.before)
+        let request = ScriptRequest(code: code, state: state, info: renderer.info, before: before)
         let outcome = await withTaskCancellationHandler {
             await editor.run(request, isCancelled: { cancel.isSet })
         } onCancel: {
@@ -479,34 +391,27 @@ private struct EditorPort: AgentPort {
             "durationMs": .number(Double(outcome.durationMs)),
         ]
         if let value = outcome.returnValue { payload["returnValue"] = .string(value) }
-        var images = outcome.shown
-
         if let error = outcome.error {
             payload["status"] = "error"
             payload["applied"] = false
-            payload["revision"] = .number(Double(snapshot.revision))
             payload["error"] = error.json
             payload["changes"] = []
-            return ToolExecution(payload: .object(payload), images: images)
+            return ToolExecution(payload: .object(payload), images: outcome.shown)
         }
-        let changed = outcome.state != snapshot.state
-        if changed {
-            guard await editor.commit(outcome.state, expecting: snapshot.revision, run: snapshot.run, script: code) else {
-                return await stale(await editor.snapshot(), said: said)
-            }
-        }
-        let after = await editor.snapshot()
+        let after = outcome.state
+        let changed = after != state
+        if changed { await editor.set(after) }
         payload["status"] = "ok"
         payload["applied"] = .bool(changed)
-        payload["revision"] = .number(Double(after.revision))
         payload["changes"] = .array(outcome.changes.map(\.json))
-        payload["statistics"] = await Task.detached { renderer.analysis(of: after.state)?.statistics }.value ?? .null
+        payload["statistics"] = await Task.detached { renderer.analysis(of: after)?.statistics }.value ?? .null
+        var images = outcome.shown
         if changed {
             // Always both: the photo before this request's edits, and as it is now.
-            images += await picture(after.before, "Before your edits for this request:")
-            images += await picture(after.state, "After, as the photo is now (revision \(after.revision)):")
+            images += await picture(before, "Before your edits for this request:")
+            images += await picture(after, "After, as the photo is now:")
         }
-        return ToolExecution(payload: .object(payload), images: images, state: changed ? after.state : nil)
+        return ToolExecution(payload: .object(payload), images: images, state: changed ? after : nil)
     }
 }
 

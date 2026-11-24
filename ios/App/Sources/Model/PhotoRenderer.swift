@@ -4,46 +4,63 @@ import OscuruCore
 import OscuruEngine
 import OscuruScripting
 
-/// Renders one open photo with the engine: for the screen, for measuring, and for the model.
-/// Also what scripts see of the app (`ScriptHost`). Usable from any thread.
+/// One photo open in the engine: every picture of it the app shows, saves or sends comes from
+/// here, and so does what scripts see of the app (`ScriptHost`). Usable from any thread.
 final class PhotoRenderer: ScriptHost, @unchecked Sendable {
     let engine: Engine
     /// The id the photo is open under in the engine.
     let id: String
     let info: PhotoInfo
-    let filters: FilterStore
+    let styles: StyleStore
 
-    init(engine: Engine, id: String, info: PhotoInfo, filters: FilterStore) {
+    /// Long edges, in pixels: filling the screen, in the thread, in the library, on a style's tile.
+    static let screenEdge = 2048.0
+    static let cardEdge = 1400.0
+    static let thumbnailEdge = 480.0
+    static let styleEdge = 360.0
+
+    init(engine: Engine, id: String, info: PhotoInfo, styles: StyleStore) {
         self.engine = engine
         self.id = id
         self.info = info
-        self.filters = filters
+        self.styles = styles
+    }
+
+    /// Opens a file for as long as `work` runs: a renderer for a photo no editor has open.
+    static func with<T>(_ url: URL, engine: Engine, styles: StyleStore, _ work: (PhotoRenderer) throws -> T) throws -> T {
+        try engine.with(url) { id, info in try work(PhotoRenderer(engine: engine, id: id, info: info, styles: styles)) }
     }
 
     private func recipe(_ state: EditingState) -> RenderRecipe { RenderRecipe(state: state, defaults: info.defaults) }
 
+    /// The photo as opened.
+    var original: EditingState { EditingState(defaults: info.defaults) }
+
     /// The photo as opened, framed like `state`, for comparing before and after.
     func original(framedLike state: EditingState) -> EditingState {
-        var original = EditingState(defaults: info.defaults)
+        var original = original
         original.crop = state.crop
         return original
     }
 
-    func screenImage(of state: EditingState) throws -> CGImage {
-        try engine.image(id: id, recipe: recipe(state), options: RenderOptions(maxEdge: 2048))
+    /// The photo with these settings, for the screen.
+    func picture(of state: EditingState, edge: Double) throws -> CGImage {
+        try engine.image(id: id, recipe: recipe(state), options: RenderOptions(maxEdge: edge))
     }
 
-    /// The photo for the conversation: sharp on any iPhone at the width of the screen.
-    func cardImage(of state: EditingState) throws -> CGImage {
-        try engine.image(id: id, recipe: recipe(state), options: RenderOptions(maxEdge: 1400))
+    /// The photo with these settings as a small JPEG, to keep: a library thumbnail, a style's picture.
+    func jpeg(of state: EditingState, edge: Double) -> Data? {
+        try? engine.jpeg(id: id, recipe: recipe(state), options: RenderOptions(maxEdge: edge), quality: 0.8)
     }
 
-    func thumbnail(of state: EditingState, maxEdge: Double = 480) -> Data? {
-        try? engine.jpeg(id: id, recipe: recipe(state), options: RenderOptions(maxEdge: maxEdge), quality: 0.8)
+    /// Develops the photo at full resolution into a JPEG file.
+    func export(_ state: EditingState, to url: URL) throws {
+        _ = try engine.export(id: id, recipe: recipe(state), to: url)
     }
 
-    func export(_ state: EditingState, format: ExportFormat, to url: URL) throws {
-        _ = try engine.export(id: id, recipe: recipe(state), format: format, to: url)
+    /// The photo's settings with a style in place.
+    func apply(_ style: Style, to state: EditingState) throws -> EditingState {
+        try style.applied(to: state, defaults: info.defaults, render: pixels(of:))
     }
 
     // MARK: ScriptHost
@@ -67,10 +84,17 @@ final class PhotoRenderer: ScriptHost, @unchecked Sendable {
         try? engine.displayPixels(id: id, recipe: recipe(state))
     }
 
-    func filterNames() -> [String] { filters.filters.map(\.name) }
-    func filter(named name: String) -> SavedFilter? { filters.named(name) }
-    func saveFilter(name: String, look: Look, state: EditingState) -> Bool {
-        filters.save(name: name, look: look, picture: thumbnail(of: state, maxEdge: 360))
+    func styleNames() -> [String] { styles.styles.map(\.name) }
+    func style(named name: String) -> Style? { styles.named(name) }
+
+    /// The one way a photo's look becomes a style, for the person and the assistant alike.
+    func saveStyle(name: String, state: EditingState) -> Bool {
+        styles.save(name: name, recipe: .look(Look(state: state, defaults: info.defaults)), picture: jpeg(of: state, edge: PhotoRenderer.styleEdge)) != nil
     }
-    func deleteFilter(name: String) -> Bool { filters.delete(named: name) }
+
+    func deleteStyle(name: String) -> Bool {
+        guard let style = styles.named(name) else { return false }
+        styles.delete(id: style.id)
+        return true
+    }
 }

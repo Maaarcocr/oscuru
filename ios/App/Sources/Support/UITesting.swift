@@ -76,37 +76,26 @@ enum UITesting {
 }
 
 /// A model that edits like a colourist would, from a script: one look at the photo, two scripts
-/// (the second refines the first), then a closing note. It reads the revision it was last told,
-/// as a real model does.
+/// (the second refines the first), then a closing note.
 struct ScriptedModel: ModelClient {
     func chat(_ request: ChatRequest) async throws -> ChatResponse {
         try await Task.sleep(for: .milliseconds(600))
-        var session = ""
-        var revision = 1
+        // The latest instruction: its words come before the photo's context.
         var turnStart = 0
         var instruction = ""
         for (index, message) in request.messages.enumerated() {
-            if message["role"] == "tool", let reported = JSONValue(text: message["content"]?.stringValue ?? "")?["revision"]?.doubleValue {
-                revision = Int(reported)
-            }
-            // The instruction and context are the first text part; picture labels follow it.
             let text = message["content"]?.arrayValue?.first?["text"]?.stringValue ?? ""
             guard message["role"] == "user", let marker = text.range(of: "[Photo context]\n") else { continue }
-            var json = String(text[marker.upperBound...])
-            if let extra = json.range(of: "\n\n[") { json = String(json[..<extra.lowerBound]) }
-            let context = JSONValue(text: json)
-            session = context?["sessionId"]?.stringValue ?? session
-            revision = Int(context?["revision"]?.doubleValue ?? Double(revision))
             turnStart = index
             instruction = String(text[..<marker.lowerBound])
         }
         let callsSoFar = request.messages[turnStart...].filter { $0["role"] == "tool" }.count
 
         func call(_ code: String, saying: String) -> ChatResponse {
-            let arguments: JSONValue = ["sessionId": .string(session), "baseRevision": .number(Double(revision)), "code": .string(code)]
+            let arguments: JSONValue = ["code": .string(code)]
             let message: JSONValue = [
                 "role": "assistant", "content": .string(saying),
-                "tool_calls": [["id": .string("call-\(revision)-\(callsSoFar)"), "type": "function", "function": ["name": .string(Prompt.toolName), "arguments": .string(arguments.text())]]],
+                "tool_calls": [["id": .string("call-\(turnStart)-\(callsSoFar)"), "type": "function", "function": ["name": .string(Prompt.toolName), "arguments": .string(arguments.text())]]],
             ]
             return ChatResponse(id: "scripted", model: request.model, message: message, usage: Usage(promptTokens: 6200, completionTokens: 310, cost: 0.0154))
         }
@@ -114,9 +103,9 @@ struct ScriptedModel: ModelClient {
             ChatResponse(id: "scripted", model: request.model, message: ["role": "assistant", "content": .string(text)], usage: Usage(promptTokens: 8100, completionTokens: 90, cost: 0.0171))
         }
 
-        if instruction.lowercased().contains("filter") {
-            if callsSoFar == 0 { return call("photo.filters.save(\"Dusk\");\nphoto.filters.list();", saying: "") }
-            return note("Saved this look as the filter “Dusk”. You can apply it to any photo from Filters.")
+        if instruction.lowercased().contains("style") {
+            if callsSoFar == 0 { return call("photo.styles.save(\"Dusk\");\nphoto.styles.list();", saying: "") }
+            return note("Saved this look as the style “Dusk”. You can put it on any photo.")
         }
         switch callsSoFar {
         case 0:

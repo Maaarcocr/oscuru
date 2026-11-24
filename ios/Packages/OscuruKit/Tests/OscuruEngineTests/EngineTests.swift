@@ -164,7 +164,7 @@ final class EngineTests: XCTestCase {
     var recipe = RenderRecipe()
     recipe.rotation = 90
     let target = directory.appendingPathComponent("export.jpg")
-    let size = try engine.export(id: "a", recipe: recipe, format: .jpeg, to: target)
+    let size = try engine.export(id: "a", recipe: recipe, to: target)
     XCTAssertEqual(size.width, 200)
     XCTAssertEqual(size.height, 400)
     let written = try XCTUnwrap(CGImageSourceCreateWithURL(target as CFURL, nil))
@@ -173,18 +173,6 @@ final class EngineTests: XCTestCase {
     XCTAssertEqual(image.height, 400)
     // The original is only ever read.
     XCTAssertEqual(try Data(contentsOf: url), original)
-  }
-
-  func testHEICExport() throws {
-    let url = try makePNG("plain.png", width: 64, height: 64, paint: grey(0.5))
-    _ = try engine.open(id: "a", url: url)
-    let target = directory.appendingPathComponent("export.heic")
-    do {
-      _ = try engine.export(id: "a", recipe: RenderRecipe(), format: .heic, to: target)
-      XCTAssertTrue(FileManager.default.fileExists(atPath: target.path))
-    } catch {
-      throw XCTSkip("No HEVC encoder on this machine: \(error)")
-    }
   }
 
   func testThePictureForTheModelIsAJPEGOfTheRequestedSize() throws {

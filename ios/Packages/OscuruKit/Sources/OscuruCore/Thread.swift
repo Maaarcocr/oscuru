@@ -20,9 +20,10 @@ public struct Step: Codable, Equatable, Sendable {
         case applied
         case unchanged
         case failed(String)
-        case stale
         /// It never finished: the person stopped the assistant or the app closed first.
         case stopped
+        /// Only in threads saved by earlier versions: refused because the photo had changed.
+        case stale
     }
 
     public var code: String
@@ -50,11 +51,19 @@ public struct Turn: Codable, Identifiable, Equatable, Sendable {
     public enum Kind: Codable, Equatable, Sendable {
         case original
         case instruction(String)
-        case filter(String)
+        /// A style was put on the photo.
+        case style(String)
+        /// An earlier version was made current again.
         case restore
-        case startOver
         /// Edits made before the photo had a thread.
         case earlier
+        /// Only in threads saved by earlier versions: back to the original, now a restore like any other.
+        case startOver
+
+        // A style keeps the name it was first saved under.
+        private enum CodingKeys: String, CodingKey {
+            case original, instruction, style = "filter", restore, earlier, startOver
+        }
     }
 
     public enum Status: Codable, Equatable, Sendable {
@@ -94,7 +103,6 @@ extension Step {
         logs = (payload["logs"]?.arrayValue ?? []).compactMap(\.stringValue)
         switch payload["status"]?.stringValue {
         case "ok": outcome = payload["applied"] == true ? .applied : .unchanged
-        case "stale_revision": outcome = .stale
         default: outcome = .failed(payload["error"]?["message"]?.stringValue ?? "")
         }
     }

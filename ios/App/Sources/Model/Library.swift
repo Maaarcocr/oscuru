@@ -6,7 +6,7 @@ import OscuruEngine
 /// A photo kept in the app. Its folder in the documents directory holds:
 ///
 ///     original.<ext>   a copy of the imported file, never written again
-///     doc.json         this record: what the engine reported, the editing state and its revision
+///     doc.json         this record: what the engine reported, and a copy of the photo's settings now
 ///     thumb.jpg        the library thumbnail
 ///     conversation/    the thread with the assistant: transcript.jsonl and the pictures it was sent
 struct PhotoDocument: Codable, Identifiable, Equatable {
@@ -15,8 +15,9 @@ struct PhotoDocument: Codable, Identifiable, Equatable {
     var addedAt: Date
     var originalFile: String
     var info: PhotoInfo
+    /// The photo's settings now: a copy of what its conversation last recorded, kept here so the
+    /// library can show and export photos without opening their conversations.
     var state: EditingState
-    var revision: Int
     /// Changes when the thumbnail is redrawn, so views showing it reload.
     var thumbnailStamp = 0
 }
@@ -81,16 +82,15 @@ final class Library {
         do {
             try FileManager.default.copyItem(at: source, to: original)
             let (info, thumbnail) = try await Task.detached(priority: .userInitiated) {
-                var info = try engine.open(id: id, url: original)
-                defer { engine.close(id: id) }
-                info.fileName = name
-                let state = EditingState(defaults: info.defaults)
-                let thumbnail = try engine.jpeg(id: id, recipe: RenderRecipe(state: state, defaults: info.defaults), options: RenderOptions(maxEdge: 480), quality: 0.8)
-                return (info, thumbnail)
+                try engine.with(original) { session, opened in
+                    var info = opened
+                    info.fileName = name
+                    let recipe = RenderRecipe(state: EditingState(defaults: info.defaults), defaults: info.defaults)
+                    return (info, try engine.jpeg(id: session, recipe: recipe, options: RenderOptions(maxEdge: PhotoRenderer.thumbnailEdge), quality: 0.8))
+                }
             }.value
             try thumbnail.write(to: thumbnailURL(id), options: .atomic)
-            let document = PhotoDocument(
-                id: id, name: name, addedAt: Date(), originalFile: originalFile, info: info, state: EditingState(defaults: info.defaults), revision: 1)
+            let document = PhotoDocument(id: id, name: name, addedAt: Date(), originalFile: originalFile, info: info, state: EditingState(defaults: info.defaults))
             write(document)
             return document
         } catch {
@@ -99,11 +99,10 @@ final class Library {
         }
     }
 
-    /// Saves the editing state after a change.
-    func save(id: String, state: EditingState, revision: Int) {
-        guard var document = document(id) else { return }
+    /// Keeps the photo's settings after a change.
+    func save(id: String, state: EditingState) {
+        guard var document = document(id), document.state != state else { return }
         document.state = state
-        document.revision = revision
         write(document)
     }
 
@@ -114,10 +113,11 @@ final class Library {
         write(document)
     }
 
-    /// The thread saved by versions before the transcript, if there is one.
-    func loadThread(_ id: String) -> SavedThread? {
+    /// The thread saved by versions before the transcript, if there is one: what the person saw
+    /// and what the model had been told.
+    func loadThread(_ id: String) -> TranscriptEntry.Imported? {
         guard let data = try? Data(contentsOf: folder(id).appending(path: "thread.json")) else { return nil }
-        return try? JSONDecoder().decode(SavedThread.self, from: data)
+        return try? JSONDecoder().decode(TranscriptEntry.Imported.self, from: data)
     }
 
     /// Where the photo's conversation with the assistant is kept (see `Transcript`).

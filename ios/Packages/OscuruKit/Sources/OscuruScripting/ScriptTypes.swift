@@ -15,12 +15,12 @@ public protocol ScriptHost: AnyObject {
     /// The open photo with these settings as a small Display P3 bitmap: what a style learned from
     /// one picture is matched on.
     func pixels(of state: EditingState) -> PixelBuffer?
-    func filterNames() -> [String]
-    func filter(named name: String) -> SavedFilter?
-    /// Saves a look under a name, replacing a filter of the same name; `state` is the photo it was
-    /// made on, for a picture of it. False when the name is unusable.
-    func saveFilter(name: String, look: Look, state: EditingState) -> Bool
-    func deleteFilter(name: String) -> Bool
+    func styleNames() -> [String]
+    func style(named name: String) -> Style?
+    /// Saves the look of the photo with these settings as a style, replacing one of the same name.
+    /// False when the name is unusable.
+    func saveStyle(name: String, state: EditingState) -> Bool
+    func deleteStyle(name: String) -> Bool
 }
 
 public struct ScriptRegion: Equatable, Sendable {
@@ -41,15 +41,13 @@ public struct ScriptRequest: Sendable {
     public var code: String
     /// The photo's settings when the script starts.
     public var state: EditingState
-    public var revision: Int
     public var info: PhotoInfo
     /// The photo's settings when the person gave the instruction this script belongs to.
     public var before: EditingState
 
-    public init(code: String, state: EditingState, revision: Int, info: PhotoInfo, before: EditingState) {
+    public init(code: String, state: EditingState, info: PhotoInfo, before: EditingState) {
         self.code = code
         self.state = state
-        self.revision = revision
         self.info = info
         self.before = before
     }
