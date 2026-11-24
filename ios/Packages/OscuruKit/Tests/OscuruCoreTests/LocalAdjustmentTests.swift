@@ -126,6 +126,58 @@ final class LocalAdjustmentTests: XCTestCase {
         XCTAssertEqual(decoded, EditingState())
     }
 
+    func testMasksJoinCutAndDrawByHand() throws {
+        var state = EditingState()
+        // Tap the tower, join its spire, cut the tree in front out with a brush, snap to the edges.
+        try state.setLocal(
+            name: "tower",
+            settings: [
+                "mask": [
+                    "area": [
+                        ["type": "object", "points": [[0.72, 0.36], [0.71, 0.08]], "exclude": [[0.48, 0.31]]],
+                        ["type": "outline", "points": [[0.7, 0.0], [0.73, 0.0], [0.73, 0.12], [0.7, 0.12]]],
+                    ],
+                    "subtract": ["type": "brush", "strokes": [[[0.6, 0.5], [0.62, 0.55]], [[0.5, 0.4]]], "size": 0.02],
+                    "intersect": [["type": "frame"]],
+                    "luminance": ["from": 0, "to": 0.6], "measure": "original", "grow": 0.002, "refine": 0.5,
+                ],
+                "adjust": ["dehaze": 20],
+            ])
+        let mask = try state.localAdjustment(named: "tower").mask
+        XCTAssertEqual(mask.areas.map(\.type), ["object", "outline"])
+        XCTAssertEqual(mask.area.exclude, [[0.48, 0.31]])
+        XCTAssertEqual(mask.subtract.first?.strokes.count, 2)
+        XCTAssertEqual(mask.subtract.first?.feather ?? 0, 0.005, accuracy: 1e-9, "a brush's edge is a quarter of its size unless given")
+        XCTAssertEqual(mask.add.first?.feather ?? 0, 0.003, accuracy: 1e-9)
+        XCTAssertEqual(mask.measure, "original")
+        XCTAssertEqual(mask.refine, 0.5)
+        // It reads back the way scripts write it, and saves and opens unchanged.
+        let json = state.json["local"]?.arrayValue?.first?["mask"]
+        XCTAssertEqual(json?["area"]?.arrayValue?.count, 2)
+        XCTAssertEqual(json?["subtract"]?.arrayValue?.first?["type"], "brush")
+        XCTAssertEqual(try EditingState(json: state.json), state)
+        XCTAssertEqual(try JSONDecoder().decode(EditingState.self, from: JSONEncoder().encode(state)), state)
+
+        // Mistakes say what to do.
+        func set(_ mask: JSONValue) throws { try state.setLocal(name: "x", settings: ["mask": mask]) }
+        assertError(try set(["area": ["type": "object"]]), contains: "points must be a list of 1 to 16")
+        assertError(try set(["area": ["type": "object", "points": [[1.2, 0.5]]]]), contains: "points[0][0]")
+        assertError(try set(["area": ["type": "outline", "points": [[0, 0], [1, 1]]]]), contains: "3 to 400")
+        assertError(try set(["area": ["type": "brush", "strokes": []]]), contains: "1 to 40 strokes")
+        assertError(try set(["area": .array([])]), contains: "1 to 8 areas")
+        assertError(try set(["area": ["type": "frame"], "measure": "before"]), contains: "\"current\" or \"original\"")
+        assertError(try set(["area": ["type": "frame"], "grow": 0.2]), contains: "grow")
+
+        // A mask saved before any of this opens as it was.
+        var old = try JSONDecoder().decode(JSONValue.self, from: JSONEncoder().encode(Mask(area: MaskArea(type: "linear"))))
+        guard var members = old.objectValue, var area = members["area"]?.objectValue else { return XCTFail("not an object") }
+        for key in ["add", "subtract", "intersect", "measure", "grow", "refine"] { members[key] = nil }
+        for key in ["points", "exclude", "strokes", "size"] { area[key] = nil }
+        members["area"] = .object(area)
+        old = .object(members)
+        XCTAssertEqual(try JSONDecoder().decode(Mask.self, from: JSONEncoder().encode(old)), Mask(area: MaskArea(type: "linear")))
+    }
+
     // MARK: Filters
 
     func testALookCarriesGrainAndHalationButNotLocalAdjustments() throws {

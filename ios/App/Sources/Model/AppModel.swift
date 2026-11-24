@@ -19,7 +19,7 @@ final class AppModel {
 
     init(root: URL, secrets: SecretStore, transport: @escaping HTTPTransport, scriptedModel: ModelClient? = nil) {
         try? FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
-        engine = Engine()
+        engine = Engine(models: Bundle.main.url(forResource: "Models", withExtension: nil))
         library = Library(root: root.appending(path: "photos", directoryHint: .isDirectory), engine: engine)
         account = Account(secrets: secrets, folder: root, transport: transport)
         filterStore = FilterStore(file: root.appending(path: "filters.json"))

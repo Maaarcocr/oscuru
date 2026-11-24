@@ -29,6 +29,10 @@ public final class PhotoSession {
   private var searched: Set<String> = []
   /// The photo as Vision sees it: developed as opened, small.
   private var analysisPicture: CGImage?
+  /// The segmentation model's reading of the photo as framed (`key`), kept for further selections.
+  private var selectionEncoding: (key: String, encoding: Segmenter.Encoding)?
+  /// Objects selected so far, by framing and points.
+  private var selections: [String: Segmenter.Logits] = [:]
 
   private static let previewLongEdge: CGFloat = 2560
   private static let rawExtensions: Set<String> = [
@@ -199,7 +203,27 @@ public final class PhotoSession {
     return mask.transformed(by: transform).cropped(to: extent)
   }
 
-  private func analysisImage(context: CIContext) -> CGImage? {
+  /// The object at `points` (without what is at `exclude`) in the photo framed as `framing` says,
+  /// as the model's logits. The picture is read once per framing; each selection is kept. Nil when
+  /// the model cannot run.
+  func selection(points: [[Double]], exclude: [[Double]], framing: String, segmenter: Segmenter, picture: () -> CGImage?) -> Segmenter.Logits? {
+    let key = "\(framing)|\(points)|\(exclude)"
+    if let logits = selections[key] { return logits }
+    let encoding: Segmenter.Encoding
+    if let saved = selectionEncoding, saved.key == framing {
+      encoding = saved.encoding
+    } else {
+      guard let image = picture(), let encoded = try? segmenter.encode(image) else { return nil }
+      selectionEncoding = (framing, encoded)
+      encoding = encoded
+    }
+    guard let logits = try? segmenter.select(encoding, points: points, exclude: exclude) else { return nil }
+    if selections.count > 32 { selections.removeAll() }
+    selections[key] = logits
+    return logits
+  }
+
+  func analysisImage(context: CIContext) -> CGImage? {
     if let analysisPicture { return analysisPicture }
     let scale = min(1, 1024 / max(size.width, size.height))
     guard let image = try? developed(recipe: RenderRecipe(), scale: scale, cache: false, context: context),

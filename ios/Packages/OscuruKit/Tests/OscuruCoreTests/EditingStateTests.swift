@@ -36,7 +36,7 @@ final class EditingStateTests: XCTestCase {
         XCTAssertEqual(Specs.resetSections, ["all", "light", "color", "curves", "hsl", "grading", "detail", "effects", "local", "crop"])
         XCTAssertEqual(Specs.grain.map(\.name), ["amount", "size", "roughness"])
         XCTAssertEqual(Specs.halation.map(\.name), ["amount", "radius", "threshold"])
-        XCTAssertEqual(Specs.maskAreas, ["radial", "linear", "subject", "people", "frame"])
+        XCTAssertEqual(Specs.maskAreas, ["object", "subject", "people", "radial", "linear", "frame", "outline", "brush"])
     }
 
     func testEverySpecHasADefaultInsideItsRangeAndADescription() {

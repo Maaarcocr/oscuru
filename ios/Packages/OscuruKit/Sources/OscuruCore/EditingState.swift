@@ -86,7 +86,7 @@ public enum Specs {
         ParamSpec("dehaze", -100, 100, "Positive removes a veil inside the area, negative adds one."),
     ]
 
-    public static let maskAreas = ["radial", "linear", "subject", "people", "frame"]
+    public static let maskAreas = ["object", "subject", "people", "radial", "linear", "frame", "outline", "brush"]
     public static let maxLocalAdjustments = 8
 
     public static let cropAngle = ParamSpec(

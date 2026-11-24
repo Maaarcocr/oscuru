@@ -39,6 +39,7 @@ print(choices[0][1]["udid"])
 fi
 xcrun simctl boot "$SIMULATOR_UDID" 2>/dev/null || true
 xcrun simctl bootstatus "$SIMULATOR_UDID" -b
+"$ROOT/scripts/fetch-models.sh"
 (cd ios && xcodegen generate)
 mkdir -p ios/build
 STAMP="$(date -u +%Y%m%dT%H%M%SZ)"

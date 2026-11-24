@@ -664,6 +664,120 @@ final class EngineTests: XCTestCase {
     XCTAssertLessThanOrEqual(found.coverage, 1)
   }
 
+  private func coverage(_ id: String, _ mask: JSONValue, recipe: RenderRecipe = RenderRecipe(), engine: Engine? = nil) throws -> Double {
+    try (engine ?? self.engine).maskPreview(id: id, recipe: recipe, mask: try Mask.parse("mask", mask), options: RenderOptions(maxEdge: 400)).coverage
+  }
+
+  func testJoinedAreasNeverDoubleAndCanBeCutOutOrIntersected() throws {
+    _ = try engine.open(id: "j", url: try makePNG("grey.png", width: 400, height: 300, paint: grey(0.4)))
+    let left: JSONValue = ["type": "outline", "points": [[0, 0], [0.6, 0], [0.6, 1], [0, 1]], "feather": 0]
+    let right: JSONValue = ["type": "outline", "points": [[0.4, 0], [1, 0], [1, 1], [0.4, 1]], "feather": 0]
+    XCTAssertEqual(try coverage("j", ["area": left]), 0.6, accuracy: 0.02)
+    XCTAssertEqual(try coverage("j", ["area": [left, right]]), 1, accuracy: 0.02, "joined, the overlap counts once")
+    XCTAssertEqual(try coverage("j", ["area": left, "subtract": right]), 0.4, accuracy: 0.02)
+    XCTAssertEqual(try coverage("j", ["area": left, "intersect": right]), 0.2, accuracy: 0.02)
+
+    // Where two joined areas overlap, the change is the same as where only one is.
+    let joined = try recipe { try $0.setLocal(name: "both", settings: ["mask": ["area": [left, right]], "adjust": ["exposureEV": 1]]) }
+    let (_, result) = try render("j", joined)
+    XCTAssertEqual(Double(result.at(200, 150).g), Double(result.at(40, 150).g), accuracy: 2)
+  }
+
+  func testOutlinesAndBrushStrokesAreDrawnWhereTheySay() throws {
+    _ = try engine.open(id: "d", url: try makePNG("grey.png", width: 400, height: 300, paint: grey(0.4)))
+    let square: JSONValue = ["type": "outline", "points": [[0.25, 0.25], [0.75, 0.25], [0.75, 0.75], [0.25, 0.75]], "feather": 0]
+    XCTAssertEqual(try coverage("d", ["area": square]), 0.25, accuracy: 0.02)
+    let lit = try recipe { try $0.setLocal(name: "square", settings: ["mask": ["area": square], "adjust": ["exposureEV": 1]]) }
+    let (_, plain) = try render("d")
+    let (_, result) = try render("d", lit)
+    XCTAssertGreaterThan(result.at(200, 150).g, plain.at(200, 150).g + 25, "inside")
+    XCTAssertEqual(Double(result.at(40, 40).g), Double(plain.at(40, 40).g), accuracy: 1, "outside, top left")
+    XCTAssertEqual(Double(result.at(200, 30).g), Double(plain.at(200, 30).g), accuracy: 1, "outside, above: measured from the top")
+
+    // A stroke across the middle, a tenth of the long edge thick, and a dot.
+    let stroke: JSONValue = ["type": "brush", "strokes": [[[0.1, 0.5], [0.9, 0.5]]], "size": 0.1, "feather": 0]
+    XCTAssertEqual(try coverage("d", ["area": stroke]), 0.8 * 400 * 40 / (400 * 300) + 0.01, accuracy: 0.02)
+    let dot: JSONValue = ["type": "brush", "strokes": [[[0.5, 0.2]]], "size": 0.1, "feather": 0]
+    XCTAssertEqual(try coverage("d", ["area": dot]), Double.pi * 20 * 20 / (400 * 300), accuracy: 0.005)
+    // A brush cuts what a shape spilled into.
+    XCTAssertEqual(try coverage("d", ["area": square, "subtract": stroke]), 0.25 - 0.5 * 400 * 40 / (400 * 300), accuracy: 0.02)
+  }
+
+  func testRangesCanBeMeasuredOnThePhotoBeforeItsStyle() throws {
+    let url = try makePNG("leaves.png", width: 400, height: 300) { x, _ in x < 200 ? (0.8, 0.15, 0.1) : (0.15, 0.7, 0.2) }
+    _ = try engine.open(id: "o", url: url)
+    // A style that turns everything grey: on the photo as it is now, nothing is red any more.
+    let grey = try recipe { try $0.adjust(["saturation": -100]) }
+    XCTAssertLessThan(try coverage("o", ["area": ["type": "frame"], "color": ["hue": 0, "range": 60]], recipe: grey), 0.05)
+    XCTAssertEqual(try coverage("o", ["area": ["type": "frame"], "color": ["hue": 0, "range": 60], "measure": "original"], recipe: grey), 0.5, accuracy: 0.05)
+  }
+
+  func testMasksGrowShrinkAndSnapToEdges() throws {
+    _ = try engine.open(id: "e", url: try makePNG("grey.png", width: 400, height: 300, paint: grey(0.4)))
+    let square: JSONValue = ["type": "outline", "points": [[0.25, 0.25], [0.75, 0.25], [0.75, 0.75], [0.25, 0.75]], "feather": 0]
+    let base = try coverage("e", ["area": square])
+    XCTAssertGreaterThan(try coverage("e", ["area": square, "grow": 0.02]), base + 0.02)
+    XCTAssertLessThan(try coverage("e", ["area": square, "grow": -0.02]), base - 0.02)
+
+    // A soft gradient across a hard edge in the photo becomes a sharper step at that edge.
+    let photo = CIImage(color: CIColor(red: 0.1, green: 0.1, blue: 0.1)).cropped(to: CGRect(x: 0, y: 0, width: 200, height: 300))
+      .composited(over: CIImage(color: CIColor(red: 0.9, green: 0.9, blue: 0.9)).cropped(to: CGRect(x: 0, y: 0, width: 400, height: 300)))
+    let gradient = try Mask.parse("mask", ["area": ["type": "linear", "from": [0.55, 0.5], "to": [0.45, 0.5]]])
+    var refinedMask = gradient
+    refinedMask.refine = 0.6
+    func value(_ mask: Mask, x: Int) -> Double {
+      let image = Effects.mask(mask, over: photo, original: { photo }, found: { _ in nil })
+      var pixel = [UInt8](repeating: 0, count: 4)
+      engine.context.render(image, toBitmap: &pixel, rowBytes: 4, bounds: CGRect(x: x, y: 150, width: 1, height: 1), format: .RGBA8, colorSpace: nil)
+      return Double(pixel[0]) / 255
+    }
+    XCTAssertLessThan(value(refinedMask, x: 194), value(gradient, x: 194) - 0.08, "darker just left of the photo's edge")
+    XCTAssertGreaterThan(value(refinedMask, x: 206), value(gradient, x: 206) + 0.08, "brighter just right of it")
+  }
+
+  /// The segmentation models, when they have been fetched (scripts/fetch-models.sh).
+  private func segmentationModels() -> URL? {
+    let ios = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
+      .deletingLastPathComponent().deletingLastPathComponent()
+    for folder in ["Models", "ModelSources"] {
+      let url = ios.appendingPathComponent(folder)
+      if FileManager.default.fileExists(atPath: url.appendingPathComponent("\(Segmenter.names.decoder).mlmodelc").path)
+        || FileManager.default.fileExists(atPath: url.appendingPathComponent("\(Segmenter.names.decoder).mlpackage").path)
+      {
+        return url
+      }
+    }
+    return nil
+  }
+
+  func testTappingAnObjectSelectsItAndNothingElse() throws {
+    guard let models = segmentationModels() else { throw XCTSkip("the segmentation models have not been fetched (scripts/fetch-models.sh)") }
+    let tapping = Engine(useSoftwareRenderer: true, models: models)
+    // A dark blue disc on the left and a red square on the right, on light grey.
+    let url = try makePNG("things.png", width: 512, height: 384) { x, y in
+      let dx = Double(x - 154)
+      let dy = Double(y - 192)
+      if dx * dx + dy * dy < 60 * 60 { return (0.1, 0.15, 0.45) }
+      if (330..<430).contains(x), (142..<242).contains(y) { return (0.8, 0.12, 0.1) }
+      return (0.85, 0.85, 0.82)
+    }
+    _ = try tapping.open(id: "t", url: url)
+    let disc = try coverage("t", ["area": ["type": "object", "points": [[0.3, 0.5]]]], engine: tapping)
+    XCTAssertEqual(disc, Double.pi * 60 * 60 / (512 * 384), accuracy: 0.025, "about the disc")
+    let square = try coverage("t", ["area": ["type": "object", "points": [[0.74, 0.5]]]], engine: tapping)
+    XCTAssertEqual(square, 100.0 * 100 / (512 * 384), accuracy: 0.025, "about the square")
+
+    // Through a local adjustment: the disc changes, the square and the background do not.
+    let lit = try recipe { try $0.setLocal(name: "disc", settings: ["mask": ["area": ["type": "object", "points": [[0.3, 0.5]]]], "adjust": ["exposureEV": 1]]) }
+    let plain = try tapping.bitmap(id: "t", recipe: RenderRecipe(), options: RenderOptions(maxEdge: 512), longEdge: 512)
+    let result = try tapping.bitmap(id: "t", recipe: lit, options: RenderOptions(maxEdge: 512), longEdge: 512)
+    let before = Pixels(data: plain.pixels, width: plain.width, height: plain.height)
+    let after = Pixels(data: result.pixels, width: result.width, height: result.height)
+    XCTAssertGreaterThan(after.at(154, 192).b, before.at(154, 192).b + 20, "the disc brightens")
+    XCTAssertEqual(Double(after.at(380, 192).r), Double(before.at(380, 192).r), accuracy: 2, "the square does not")
+    XCTAssertEqual(Double(after.at(20, 20).g), Double(before.at(20, 20).g), accuracy: 2, "nor the background")
+  }
+
   func testDisplayPixelsAreSmallAndInDisplayP3() throws {
     _ = try engine.open(id: "p", url: try makePNG("ramp.png", width: 400, height: 300) { x, _ in (Double(x) / 399, 0.5, 0.5) })
     let pixels = try engine.displayPixels(id: "p", recipe: RenderRecipe(), longEdge: 200)

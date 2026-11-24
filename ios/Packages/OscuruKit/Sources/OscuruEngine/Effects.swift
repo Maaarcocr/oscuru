@@ -151,16 +151,22 @@ enum Effects {
     return (blend.outputImage ?? image).cropped(to: extent)
   }
 
-  /// Where a mask applies, as a grey image over the frame (`base`'s extent): 1 fully, 0 not at all.
-  /// `base` is the photo the ranges are measured on; `found` gives the subject or people mask, in
-  /// the frame's coordinates, when the area needs one.
-  static func mask(_ mask: Mask, over base: CIImage, found: (String) -> CIImage?) -> CIImage {
-    let frame = base.extent
-    var area = self.area(mask.area, frame: frame, found: found)
-    if mask.invert { area = invert(area) }
+  /// Where a mask applies, as a grey image over the frame (`current`'s extent): 1 fully, 0 not at all.
+  /// `current` is the photo before this adjustment; `original` gives it as developed, before tone and
+  /// colour (for ranges measured there); `found` gives the subject, people or a tapped object, in the
+  /// frame's coordinates, when an area needs one.
+  static func mask(_ mask: Mask, over current: CIImage, original: () -> CIImage, found: (MaskArea) -> CIImage?) -> CIImage {
+    let frame = current.extent
+    func area(_ area: MaskArea) -> CIImage { self.area(area, frame: frame, found: found) }
+    // Joined areas are as strong as the strongest where they overlap, never stronger.
+    var result = mask.areas.dropFirst().reduce(area(mask.area)) { combine($0, area($1), CIFilter.maximumCompositing()) }
+    for other in mask.intersect { result = combine(result, area(other), CIFilter.minimumCompositing()) }
+    for other in mask.subtract { result = combine(result, invert(area(other)), CIFilter.multiplyCompositing()) }
+    if mask.invert { result = invert(result) }
+    let measured = mask.measure == "original" ? original() : current
     if let cube = ColorPipeline.rangeMaskCube(luminance: mask.luminance, color: mask.color) {
       let ranges = CIFilter.colorCubeWithColorSpace()
-      ranges.inputImage = base
+      ranges.inputImage = measured
       ranges.cubeDimension = Float(ColorPipeline.cubeSize)
       ranges.cubeData = cube.withUnsafeBufferPointer { Data(buffer: $0) }
       ranges.colorSpace = displayP3
@@ -168,16 +174,59 @@ enum Effects {
       let weights = CIFilter.linearToSRGBToneCurve()
       weights.inputImage = ranges.outputImage
       if let weight = weights.outputImage {
-        let multiply = CIFilter.multiplyCompositing()
-        multiply.inputImage = weight
-        multiply.backgroundImage = area
-        area = multiply.outputImage ?? area
+        result = combine(result, weight, CIFilter.multiplyCompositing())
       }
     }
-    return opaque(area).cropped(to: frame)
+    let longEdge = max(frame.width, frame.height)
+    if mask.grow != 0 {
+      let radius = Float(abs(mask.grow) * Double(longEdge))
+      if mask.grow > 0 {
+        let grow = CIFilter.morphologyMaximum()
+        grow.inputImage = opaque(result).clampedToExtent()
+        grow.radius = radius
+        result = grow.outputImage?.cropped(to: frame) ?? result
+      } else {
+        let shrink = CIFilter.morphologyMinimum()
+        shrink.inputImage = opaque(result).clampedToExtent()
+        shrink.radius = radius
+        result = shrink.outputImage?.cropped(to: frame) ?? result
+      }
+    }
+    if mask.refine > 0 {
+      result = refined(opaque(result).cropped(to: frame), guide: current, strength: mask.refine)
+    }
+    return opaque(result).cropped(to: frame)
   }
 
-  private static func area(_ area: MaskArea, frame: CGRect, found: (String) -> CIImage?) -> CIImage {
+  private static func combine(_ base: CIImage, _ other: CIImage, _ filter: CIFilter & CICompositeOperation) -> CIImage {
+    filter.inputImage = opaque(other)
+    filter.backgroundImage = opaque(base)
+    return filter.outputImage ?? base
+  }
+
+  /// Snaps a mask's edge to the edges in the photo: the mask is made coarse, then brought back to
+  /// full size by a guided filter that follows the photo's own outlines. The stronger, the coarser
+  /// the starting point and the further an edge can move.
+  static func refined(_ mask: CIImage, guide: CIImage, strength: Double) -> CIImage {
+    let frame = mask.extent
+    let factor = CGFloat(2 + 14 * min(1, max(0, strength)))
+    let small = mask.clampedToExtent().samplingLinear()
+      .transformed(by: CGAffineTransform(scaleX: 1 / factor, y: 1 / factor))
+      .cropped(to: CGRect(x: frame.minX / factor, y: frame.minY / factor, width: (frame.width / factor).rounded(.up), height: (frame.height / factor).rounded(.up)))
+    let filter = CIFilter.guidedFilter()
+    filter.inputImage = small
+    filter.guideImage = guide
+    filter.radius = Float(1 + 3 * strength)
+    filter.epsilon = 0.001
+    guard let output = filter.outputImage else { return mask }
+    let clamp = CIFilter.colorClamp()
+    clamp.inputImage = opaque(output)
+    clamp.minComponents = CIVector(x: 0, y: 0, z: 0, w: 1)
+    clamp.maxComponents = CIVector(x: 1, y: 1, z: 1, w: 1)
+    return (clamp.outputImage ?? mask).cropped(to: frame)
+  }
+
+  private static func area(_ area: MaskArea, frame: CGRect, found: (MaskArea) -> CIImage?) -> CIImage {
     let white = CIImage(color: CIColor(red: 1, green: 1, blue: 1)).cropped(to: frame)
     let black = CIImage(color: CIColor(red: 0, green: 0, blue: 0)).cropped(to: frame)
     let width = frame.width
@@ -206,11 +255,69 @@ enum Effects {
       gradient.color0 = CIColor(red: 1, green: 1, blue: 1)
       gradient.color1 = CIColor(red: 0, green: 0, blue: 0)
       return gradient.outputImage?.cropped(to: frame) ?? black
-    case "subject", "people":
-      return found(area.type)?.cropped(to: frame) ?? black
+    case "subject", "people", "object":
+      return found(area)?.cropped(to: frame) ?? black
+    case "outline", "brush":
+      return drawn(area, frame: frame)
     default:
       return white
     }
+  }
+
+  /// An outline or brush strokes, drawn into a grey bitmap (at most 2048 pixels on the long edge),
+  /// stretched over the frame and softened by the area's feather.
+  static func drawn(_ area: MaskArea, frame: CGRect) -> CIImage {
+    let black = CIImage(color: CIColor(red: 0, green: 0, blue: 0)).cropped(to: frame)
+    let longEdge = max(frame.width, frame.height)
+    let scale = min(1, 2048 / longEdge)
+    let width = max(1, Int((frame.width * scale).rounded()))
+    let height = max(1, Int((frame.height * scale).rounded()))
+    guard
+      let context = CGContext(
+        data: nil, width: width, height: height, bitsPerComponent: 8, bytesPerRow: 0, space: CGColorSpaceCreateDeviceGray(),
+        bitmapInfo: CGImageAlphaInfo.none.rawValue)
+    else { return black }
+    context.setFillColor(gray: 0, alpha: 1)
+    context.fill(CGRect(x: 0, y: 0, width: width, height: height))
+    context.setFillColor(gray: 1, alpha: 1)
+    context.setStrokeColor(gray: 1, alpha: 1)
+    context.setShouldAntialias(true)
+    // Positions are measured from the top; the bitmap's y axis points up.
+    func place(_ point: [Double]) -> CGPoint { CGPoint(x: CGFloat(point[0]) * CGFloat(width), y: (1 - CGFloat(point[1])) * CGFloat(height)) }
+    if area.type == "outline", let first = area.points.first {
+      context.move(to: place(first))
+      for point in area.points.dropFirst() { context.addLine(to: place(point)) }
+      context.closePath()
+      context.fillPath()
+    } else if area.type == "brush" {
+      let diameter = CGFloat(area.size) * CGFloat(max(width, height))
+      context.setLineWidth(diameter)
+      context.setLineCap(.round)
+      context.setLineJoin(.round)
+      for stroke in area.strokes {
+        guard let first = stroke.first else { continue }
+        if stroke.count == 1 {
+          let centre = place(first)
+          context.fillEllipse(in: CGRect(x: centre.x - diameter / 2, y: centre.y - diameter / 2, width: diameter, height: diameter))
+        } else {
+          context.move(to: place(first))
+          for point in stroke.dropFirst() { context.addLine(to: place(point)) }
+          context.strokePath()
+        }
+      }
+    }
+    guard let picture = context.makeImage() else { return black }
+    var image = CIImage(cgImage: picture, options: [.colorSpace: NSNull()])
+      .transformed(by: CGAffineTransform(scaleX: frame.width / CGFloat(width), y: frame.height / CGFloat(height)))
+      .transformed(by: CGAffineTransform(translationX: frame.minX, y: frame.minY))
+    let radius = area.feather * Double(longEdge)
+    if radius >= 0.5 {
+      let blur = CIFilter.gaussianBlur()
+      blur.inputImage = image.clampedToExtent()
+      blur.radius = Float(radius / 2)
+      image = blur.outputImage ?? image
+    }
+    return opaque(image).cropped(to: frame)
   }
 
   private static func invert(_ image: CIImage) -> CIImage {

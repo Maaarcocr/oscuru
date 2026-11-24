@@ -39,7 +39,9 @@ jobs:
         run: |
           xcodebuild -version
           swift --version
-      - name: Core, Core Image engine (tables, colour, geometry, RAW decoding) and JavaScriptCore runtime
+      - name: Segmentation model
+        run: ./scripts/fetch-models.sh
+      - name: Core, Core Image engine (tables, colour, geometry, masks, segmentation, RAW decoding) and JavaScriptCore runtime
         run: swift test --package-path ios/Packages/OscuruKit
 
   ios:
@@ -56,6 +58,7 @@ jobs:
           xcodegen --version
       - name: Build Release for a real iOS device (unsigned)
         run: |
+          ./scripts/fetch-models.sh
           (cd ios && xcodegen generate)
           xcodebuild build -project ios/Oscuru.xcodeproj -scheme Oscuru \
             -configuration Release -destination 'generic/platform=iOS' \

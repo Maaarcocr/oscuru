@@ -9,6 +9,9 @@
 ios/Oscuru.xcodeproj/
 ios/DerivedData*/
 ios/build/
+# On-device models, fetched by scripts/fetch-models.sh
+ios/ModelSources/
+ios/Models/
 xcuserdata/
 *.xcresult
 

@@ -22,7 +22,14 @@ public final class Engine: @unchecked Sendable {
   /// Renders up to this long edge share one developed image per photo.
   static let previewEdge: Double = 2048
 
-  public init(useSoftwareRenderer: Bool = false) {
+  /// Where the segmentation models are (see `Segmenter`); nil when this build has none.
+  private let models: URL?
+  /// Loaded on first use; nil when the models are missing or would not load.
+  private lazy var segmenter: Segmenter? = models.flatMap { try? Segmenter(folder: $0) }
+
+  /// `models` is the folder holding the segmentation models that tapping an object needs.
+  public init(useSoftwareRenderer: Bool = false, models: URL? = nil) {
+    self.models = models
     var options: [CIContextOption: Any] = [
       .workingFormat: NSNumber(value: CIFormat.RGBAh.rawValue),
       .cacheIntermediates: true,
@@ -188,6 +195,7 @@ public final class Engine: @unchecked Sendable {
     let cache = options.maxEdge > 0 && options.maxEdge <= Engine.previewEdge && options.region == nil
 
     var image = try session.developed(recipe: recipe, scale: scale, cache: cache, context: context)
+    let developedImage = image
     let extent = image.extent
     let workingEdge = max(extent.width, extent.height)
 
@@ -234,20 +242,41 @@ public final class Engine: @unchecked Sendable {
 
     var maskToShow: CIImage?
     if !recipe.local.isEmpty || options.mask != nil {
+      let frameExtent = image.extent
       // The subject and people masks follow the photo through the same flips, turns and crop.
       var framed: [String: CIImage] = [:]
-      let found: (String) -> CIImage? = { kind in
+      let geometryKey = [
+        recipe.flipHorizontal, recipe.flipVertical, options.fullFrame,
+      ].map { $0 ? "1" : "0" }.joined()
+        + "|\(recipe.rotation)|\(recipe.angle)|\(recipe.cropX)|\(recipe.cropY)|\(recipe.cropWidth)|\(recipe.cropHeight)"
+      let found: (MaskArea) -> CIImage? = { area in
+        if area.type == "object" {
+          guard let segmenter = self.segmenter else { return nil }
+          let logits = session.selection(
+            points: area.points, exclude: area.exclude, framing: geometryKey, segmenter: segmenter,
+            picture: { self.selectionPicture(session: session, recipe: recipe, fullFrame: options.fullFrame) })
+          return logits.map { Effects.objectMask($0, frame: frameExtent) }
+        }
+        let kind = area.type
         if let mask = framed[kind] { return mask }
         guard let mask = session.foundMask(kind, extent: extent, context: self.context) else { return nil }
         let placed = self.geometry(mask, recipe: recipe, fullFrame: options.fullFrame)
         framed[kind] = placed
         return placed
       }
+      // The photo as developed, before tone and colour, for ranges measured there.
+      var originalFrame: CIImage?
+      let original: () -> CIImage = {
+        if let originalFrame { return originalFrame }
+        let placed = self.geometry(developedImage, recipe: recipe, fullFrame: options.fullFrame)
+        originalFrame = placed
+        return placed
+      }
       let frameEdge = max(image.extent.width, image.extent.height)
       for pass in recipe.local {
-        image = Effects.local(pass, to: image, mask: Effects.mask(pass.mask, over: image, found: found), edge: frameEdge)
+        image = Effects.local(pass, to: image, mask: Effects.mask(pass.mask, over: image, original: original, found: found), edge: frameEdge)
       }
-      if let shown = options.mask { maskToShow = Effects.mask(shown, over: image, found: found) }
+      if let shown = options.mask { maskToShow = Effects.mask(shown, over: image, original: original, found: found) }
     }
 
     if recipe.vignette != 0, !options.fullFrame {
@@ -270,6 +299,13 @@ public final class Engine: @unchecked Sendable {
       image = image.cropped(to: rect).atOrigin()
     }
     return image
+  }
+
+  /// What the segmentation model looks at: the photo as opened, small, framed as it is now.
+  private func selectionPicture(session: PhotoSession, recipe: RenderRecipe, fullFrame: Bool) -> CGImage? {
+    guard let picture = session.analysisImage(context: context) else { return nil }
+    let framed = geometry(CIImage(cgImage: picture), recipe: recipe, fullFrame: fullFrame)
+    return context.createCGImage(framed, from: framed.extent, format: .RGBA8, colorSpace: sRGB)
   }
 
   /// Flips, quarter turns, straightening and the crop rectangle. All sizes are relative, so the

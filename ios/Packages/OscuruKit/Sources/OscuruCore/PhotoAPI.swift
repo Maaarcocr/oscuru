@@ -219,14 +219,28 @@ public enum PhotoAPI {
          * Where a local adjustment applies. Positions are fractions of the frame as you see it (after the
          * crop), from its top-left corner: x to the right, y down. Crop first, then place masks: a later
          * crop does not move them with the picture.
+         *
+         * Choose areas in this order, cheapest first: (1) tap the thing with an ObjectArea (or use
+         * SubjectArea or PeopleArea), which the phone segments precisely on its own; (2) shapes and tone or
+         * colour ranges, combined with `subtract` and `intersect` to remove what spills; (3) only for what
+         * those cannot do, or to fix their edges, draw by hand with OutlineArea or BrushArea.
+         *
+         * The mask is built in this order: the areas joined (where they overlap it is as strong as the
+         * strongest, never stronger), `intersect` (kept only inside each of those too), `subtract` (cut out),
+         * `invert`, the `luminance` and `color` ranges, `grow`, `refine`.
          */
         interface Mask {
-          area: RadialArea | LinearArea | SubjectArea | PeopleArea | FrameArea;
-          /** Use everything outside the area instead. Default false. */
+          /** One area, or several joined together. */
+          area: MaskArea | MaskArea[];
+          /** Areas cut out of the mask, e.g. a tree in front of the building you selected. */
+          subtract?: MaskArea | MaskArea[];
+          /** Areas the mask must also be in: keeps only the overlap. */
+          intersect?: MaskArea | MaskArea[];
+          /** Use everything outside the mask instead. Default false. */
           invert?: boolean;
           /**
-           * Keep only these tones, measured on the photo before this adjustment: display luminance from
-           * 0 (black) to 1 (white), with soft edges `feather` wide (0 to 0.5, default 0.1).
+           * Keep only these tones: display luminance from 0 (black) to 1 (white), with soft edges `feather`
+           * wide (0 to 0.5, default 0.1).
            */
           luminance?: { from: number; to: number; feather?: number };
           /**
@@ -234,8 +248,34 @@ public enum PhotoAPI {
            * 300 magenta), fading out beyond ±range/2 degrees (range 10 to 180, default 60). Greys are left out.
            */
           color?: { hue: number; range?: number };
+          /**
+           * What `luminance` and `color` are measured on: "current" (default), the photo as it is before this
+           * adjustment; or "original", the photo as developed before tone and colour. Use "original" when a
+           * style or grade has made different things look alike.
+           */
+          measure?: "current" | "original";
+          /** Grows (above 0) or shrinks (below 0) the mask's edge by this fraction of the frame's long edge, -0.05 to 0.05. Default 0. */
+          grow?: number;
+          /**
+           * Snaps the mask's edge to the edges in the photo, 0 (off, default) to 1 (strongly). 0.3 to 0.6
+           * turns a rough or soft mask into one that follows outlines such as roofs, branches or hair.
+           */
+          refine?: number;
         }
 
+        type MaskArea = ObjectArea | SubjectArea | PeopleArea | RadialArea | LinearArea | FrameArea | OutlineArea | BrushArea;
+
+        /**
+         * The object at these points, segmented by an on-device model: tap one or a few points on the thing
+         * you mean ([x, y], 0 to 1), and points on what must not be part of it in `exclude` (16 points in all).
+         * One point in the middle of a distinct object is usually enough; add a point on a part it missed,
+         * or an exclude point on what it took that it should not. Check the result with photo.show("mask").
+         */
+        interface ObjectArea { type: "object"; points: [number, number][]; exclude?: [number, number][]; }
+        /** The main subject or subjects, found by the phone's on-device image analysis. Empty when it finds none. */
+        interface SubjectArea { type: "subject"; }
+        /** Every person in the photo, found by the phone's on-device image analysis. Empty when there are none. */
+        interface PeopleArea { type: "people"; }
         /**
          * An ellipse. x, y: its centre (-0.5 to 1.5). width, height: its full size as fractions of the
          * frame's width and height (0.02 to 3). angle: degrees clockwise (-180 to 180, default 0).
@@ -244,12 +284,20 @@ public enum PhotoAPI {
         interface RadialArea { type: "radial"; x: number; y: number; width: number; height: number; angle?: number; feather?: number; }
         /** A straight gradient: full strength at `from`, fading to nothing at `to`; [x, y] points (-0.5 to 1.5). A sky: from [0.5, 0] to [0.5, 0.45]. */
         interface LinearArea { type: "linear"; from: [number, number]; to: [number, number]; }
-        /** The main subject or subjects, found by the phone's on-device image analysis. Empty when it finds none. */
-        interface SubjectArea { type: "subject"; }
-        /** Every person in the photo, found by the phone's on-device image analysis. Empty when there are none. */
-        interface PeopleArea { type: "people"; }
         /** The whole frame: use it with `luminance` or `color` to pick tones or colours anywhere. */
         interface FrameArea { type: "frame"; }
+        /**
+         * A shape drawn by hand: its corners in order ([x, y], -0.5 to 1.5; 3 to 400 of them), filled.
+         * feather: how soft its edge is, as a fraction of the frame's long edge (0 to 0.1, default 0.003).
+         */
+        interface OutlineArea { type: "outline"; points: [number, number][]; feather?: number; }
+        /**
+         * Brush strokes painted by hand: each stroke is the [x, y] points the brush passes through (one point
+         * paints a dot; 1 to 40 strokes). size: the brush's diameter as a fraction of the frame's long edge
+         * (0.002 to 0.5, default 0.03). feather: its soft edge, same units (0 to 0.1, default size / 4). Paint
+         * fixes with it: join a stroke to add what a mask missed, or subtract one to remove what it took.
+         */
+        interface BrushArea { type: "brush"; strokes: [number, number][][]; size?: number; feather?: number; }
 
         /**
          * Order of operations: flips, then rotation, then straightening (which trims the frame so no empty

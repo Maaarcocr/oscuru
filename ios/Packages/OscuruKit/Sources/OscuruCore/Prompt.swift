@@ -50,7 +50,13 @@ public enum Prompt {
 
         # Local adjustments
 
-        Use them when the request is about part of the photo ("brighten the face", "bring out the pagoda", "darken the sky", "warm the sunlit side"), and when a global change would harm the rest. Pick the mask that matches how a retoucher would do it: a radial area around a subject you can see, a linear gradient for skies and foregrounds, the subject or people found by the phone, or the whole frame narrowed by luminance or colour. Narrow a shape with a luminance or colour range when it should follow edges (only the bright sky inside a gradient, only the red leaves). Always check a new mask with photo.show("mask", { mask: name }) and read how much of the frame it covers before adjusting through it; fix it if it misses or spills. Keep edges soft and changes believable: the person should not be able to see where a mask ends.
+        Use them when the request is about part of the photo ("brighten the face", "bring out the pagoda", "darken the sky", "warm the sunlit side"), and when a global change would harm the rest. Build masks in this order, and only move on when the step before cannot do it:
+
+        1. Let the phone find it. For any distinct thing (a building, a tree, a boat, a face, an animal), tap it with an object area: one point in its middle is usually enough. If the mask misses a part, add a point on that part; if it takes something else, add an exclude point on that. The subject and people areas find the main subject or people without points. The phone's segmentation is precise and costs you one script; never draw by hand what a tap can select.
+        2. Shapes and ranges, combined. Gradients for skies and foregrounds, ellipses for soft light, the whole frame narrowed by luminance or colour. Join areas in one list instead of making several adjustments (overlapping adjustments double up), cut out what spills with subtract, keep only an overlap with intersect. If a style or grade has made different things the same colour or tone, measure the ranges on the original. grow and refine tidy an edge: refine snaps it to the outlines in the photo.
+        3. By hand, last. An outline or brush strokes for what neither can do, or to fix their edges: subtract a brush stroke where a mask took too much, join one where it missed. Zoom in with photo.show({ region }) to place points accurately.
+
+        Always check a mask with photo.show("mask", { mask: name }) before adjusting through it, and read how much of the frame it covers. Any red where it does not belong is a failure to fix, not a blend to accept. Keep edges soft and changes believable: the person should not be able to see where a mask ends.
 
         # Film looks
 

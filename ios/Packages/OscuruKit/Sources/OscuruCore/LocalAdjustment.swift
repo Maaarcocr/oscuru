@@ -1,7 +1,8 @@
 import Foundation
 
-/// Where a mask starts from: a shape on the frame, something found in the photo, or everything.
-/// Positions are fractions of the frame as it is shown (after the crop), from its top-left corner.
+/// Where a mask starts from: a shape on the frame, something found in the photo, an outline or
+/// brush strokes drawn by hand, or everything. Positions are fractions of the frame as it is shown
+/// (after the crop), from its top-left corner.
 public struct MaskArea: Codable, Equatable, Sendable {
     /// One of `Specs.maskAreas`.
     public var type: String
@@ -12,16 +13,27 @@ public struct MaskArea: Codable, Equatable, Sendable {
     public var width = 0.5
     public var height = 0.5
     public var angle = 0.0
+    /// Radial: 0 to 1 of the ellipse. Outline and brush: the soft edge's width as a fraction of the
+    /// frame's long edge.
     public var feather = 0.5
     /// Linear: full strength at `from`, fading to nothing at `to`; each an [x, y] point.
     public var from = [0.5, 0.0]
     public var to = [0.5, 0.5]
+    /// Object: [x, y] points on the thing to select. Outline: the corners of the shape, in order.
+    public var points: [[Double]] = []
+    /// Object: [x, y] points on things that are not part of it.
+    public var exclude: [[Double]] = []
+    /// Brush: strokes, each a list of [x, y] points the brush passes through (one point is a dab).
+    public var strokes: [[[Double]]] = []
+    /// Brush: its diameter as a fraction of the frame's long edge.
+    public var size = 0.03
 
     public init(type: String) {
         self.type = type
     }
 
     public var json: JSONValue {
+        func points(_ list: [[Double]]) -> JSONValue { .array(list.map { .array($0.map { .number($0) }) }) }
         switch type {
         case "radial":
             return [
@@ -30,9 +42,35 @@ public struct MaskArea: Codable, Equatable, Sendable {
             ]
         case "linear":
             return ["type": "linear", "from": .array(from.map { .number($0) }), "to": .array(to.map { .number($0) })]
+        case "object":
+            return ["type": "object", "points": points(self.points), "exclude": points(exclude)]
+        case "outline":
+            return ["type": "outline", "points": points(self.points), "feather": .number(feather)]
+        case "brush":
+            return ["type": "brush", "strokes": .array(strokes.map(points)), "size": .number(size), "feather": .number(feather)]
         default:
             return ["type": .string(type)]
         }
+    }
+
+    private enum CodingKeys: String, CodingKey { case type, x, y, width, height, angle, feather, from, to, points, exclude, strokes, size }
+
+    // Areas saved before outlines, brushes and objects existed have none of their fields.
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        type = try container.decode(String.self, forKey: .type)
+        x = try container.decodeIfPresent(Double.self, forKey: .x) ?? x
+        y = try container.decodeIfPresent(Double.self, forKey: .y) ?? y
+        width = try container.decodeIfPresent(Double.self, forKey: .width) ?? width
+        height = try container.decodeIfPresent(Double.self, forKey: .height) ?? height
+        angle = try container.decodeIfPresent(Double.self, forKey: .angle) ?? angle
+        feather = try container.decodeIfPresent(Double.self, forKey: .feather) ?? feather
+        from = try container.decodeIfPresent([Double].self, forKey: .from) ?? from
+        to = try container.decodeIfPresent([Double].self, forKey: .to) ?? to
+        points = try container.decodeIfPresent([[Double]].self, forKey: .points) ?? []
+        exclude = try container.decodeIfPresent([[Double]].self, forKey: .exclude) ?? []
+        strokes = try container.decodeIfPresent([[[Double]]].self, forKey: .strokes) ?? []
+        size = try container.decodeIfPresent(Double.self, forKey: .size) ?? size
     }
 }
 
@@ -53,29 +91,82 @@ public struct HueRange: Codable, Equatable, Sendable {
     public var json: JSONValue { ["hue": .number(hue), "range": .number(range)] }
 }
 
-/// Where a local adjustment applies: an area, optionally turned inside out, narrowed to tones and colours.
+/// Where a local adjustment applies: one or more areas joined together, with others cut out or
+/// required, optionally turned inside out, narrowed to tones and colours, grown or shrunk, and
+/// snapped to the edges in the photo. In that order.
 public struct Mask: Codable, Equatable, Sendable {
     public var area: MaskArea
+    /// More areas joined with `area`: where they overlap the mask is as strong as the strongest, never stronger.
+    public var add: [MaskArea] = []
+    /// Areas cut out of it.
+    public var subtract: [MaskArea] = []
+    /// Areas it must also be in: what lies outside any of them is dropped.
+    public var intersect: [MaskArea] = []
     public var invert = false
     public var luminance: LuminanceRange?
     public var color: HueRange?
+    /// Which picture tone and colour ranges are measured on: "current" (the photo as it is before
+    /// this adjustment) or "original" (as developed, before tone and colour: before a style tinted it).
+    public var measure = "current"
+    /// Grows (above 0) or shrinks (below 0) the mask's edge, as a fraction of the frame's long edge.
+    public var grow = 0.0
+    /// How strongly the edge is snapped to edges in the photo, 0 (not at all) to 1.
+    public var refine = 0.0
 
     public init(area: MaskArea) {
         self.area = area
     }
 
+    /// Every area joined into the mask.
+    public var areas: [MaskArea] { [area] + add }
+
     public var json: JSONValue {
-        var members: [String: JSONValue] = ["area": area.json, "invert": .bool(invert)]
+        var members: [String: JSONValue] = [
+            "area": add.isEmpty ? area.json : .array(areas.map(\.json)), "invert": .bool(invert), "measure": .string(measure),
+            "grow": .number(grow), "refine": .number(refine),
+        ]
+        if !subtract.isEmpty { members["subtract"] = .array(subtract.map(\.json)) }
+        if !intersect.isEmpty { members["intersect"] = .array(intersect.map(\.json)) }
         if let luminance { members["luminance"] = luminance.json }
         if let color { members["color"] = color.json }
         return .object(members)
     }
 
+    private enum CodingKeys: String, CodingKey { case area, add, subtract, intersect, invert, luminance, color, measure, grow, refine }
+
+    // Masks saved before areas could be combined have only an area, invert and ranges.
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        area = try container.decode(MaskArea.self, forKey: .area)
+        add = try container.decodeIfPresent([MaskArea].self, forKey: .add) ?? []
+        subtract = try container.decodeIfPresent([MaskArea].self, forKey: .subtract) ?? []
+        intersect = try container.decodeIfPresent([MaskArea].self, forKey: .intersect) ?? []
+        invert = try container.decodeIfPresent(Bool.self, forKey: .invert) ?? false
+        luminance = try container.decodeIfPresent(LuminanceRange.self, forKey: .luminance)
+        color = try container.decodeIfPresent(HueRange.self, forKey: .color)
+        measure = try container.decodeIfPresent(String.self, forKey: .measure) ?? "current"
+        grow = try container.decodeIfPresent(Double.self, forKey: .grow) ?? 0
+        refine = try container.decodeIfPresent(Double.self, forKey: .refine) ?? 0
+    }
+
+    static let maxAreas = 8
+    static let maxObjectPoints = 16
+    static let maxOutlinePoints = 400
+    static let maxStrokes = 40
+    static let maxStrokePoints = 400
+
     /// Checks a mask from a script or a saved document.
     public static func parse(_ path: String, _ value: JSONValue) throws -> Mask {
-        let members = try checkKeys(path, value, ["area", "invert", "luminance", "color"])
-        guard let areaValue = members["area"] else { throw StateError("\(path).area is required: one of \(Specs.maskAreas.joined(separator: ", "))") }
-        var mask = Mask(area: try parseArea("\(path).area", areaValue))
+        let members = try checkKeys(path, value, ["area", "subtract", "intersect", "invert", "luminance", "color", "measure", "grow", "refine"])
+        guard let areaValue = members["area"] else {
+            throw StateError("\(path).area is required: an area, or a list of areas to join (types: \(Specs.maskAreas.joined(separator: ", ")))")
+        }
+        let joined = try parseAreas("\(path).area", areaValue)
+        guard let first = joined.first else { throw StateError("\(path).area must have at least one area") }
+        var mask = Mask(area: first)
+        mask.add = Array(joined.dropFirst())
+        if let value = members["subtract"], value != .null { mask.subtract = try parseAreas("\(path).subtract", value) }
+        if let value = members["intersect"], value != .null { mask.intersect = try parseAreas("\(path).intersect", value) }
         if let value = members["invert"], value != .null {
             guard let flag = value.boolValue else { throw StateError("\(path).invert must be true or false, got \(value.described)") }
             mask.invert = flag
@@ -96,7 +187,22 @@ public struct Mask: Codable, Equatable, Sendable {
             let width = try range["range"].map { try checkNumber("\(path).color.range", $0, (10, 180)) } ?? 60
             mask.color = HueRange(hue: hue, range: width)
         }
+        if let value = members["measure"], value != .null {
+            guard let measure = value.stringValue, ["current", "original"].contains(measure) else {
+                throw StateError("\(path).measure must be \"current\" or \"original\", got \(value.described)")
+            }
+            mask.measure = measure
+        }
+        if let value = members["grow"], value != .null { mask.grow = try checkNumber("\(path).grow", value, (-0.05, 0.05)) }
+        if let value = members["refine"], value != .null { mask.refine = try checkNumber("\(path).refine", value, (0, 1)) }
         return mask
+    }
+
+    /// One area, or a list of them.
+    static func parseAreas(_ path: String, _ value: JSONValue) throws -> [MaskArea] {
+        guard let list = value.arrayValue else { return [try parseArea(path, value)] }
+        guard !list.isEmpty, list.count <= maxAreas else { throw StateError("\(path) must list 1 to \(maxAreas) areas, got \(list.count)") }
+        return try list.enumerated().map { try parseArea("\(path)[\($0.offset)]", $0.element) }
     }
 
     static func parseArea(_ path: String, _ value: JSONValue) throws -> MaskArea {
@@ -106,6 +212,18 @@ public struct Mask: Codable, Equatable, Sendable {
         }
         var area = MaskArea(type: type)
         let position = (min: -0.5, max: 1.5)
+        func point(_ path: String, _ value: JSONValue?, within range: (min: Double, max: Double) = position) throws -> [Double] {
+            guard let pair = value?.arrayValue, pair.count == 2 else {
+                throw StateError("\(path) must be an [x, y] point, got \((value ?? .null).described)")
+            }
+            return [try checkNumber("\(path)[0]", pair[0], range), try checkNumber("\(path)[1]", pair[1], range)]
+        }
+        func points(_ path: String, _ value: JSONValue?, count: ClosedRange<Int>, within range: (min: Double, max: Double) = position) throws -> [[Double]] {
+            guard let list = value?.arrayValue, count.contains(list.count) else {
+                throw StateError("\(path) must be a list of \(count.lowerBound) to \(count.upperBound) [x, y] points, got \((value ?? .null).described)")
+            }
+            return try list.enumerated().map { try point("\(path)[\($0.offset)]", $0.element, within: range) }
+        }
         switch type {
         case "radial":
             let input = try checkKeys(path, value, ["type", "x", "y", "width", "height", "angle", "feather"])
@@ -120,17 +238,32 @@ public struct Mask: Codable, Equatable, Sendable {
             if let value = input["feather"] { area.feather = try checkNumber("\(path).feather", value, (0, 1)) }
         case "linear":
             let input = try checkKeys(path, value, ["type", "from", "to"])
-            func point(_ key: String) throws -> [Double] {
-                guard let pair = input[key]?.arrayValue, pair.count == 2 else {
-                    throw StateError("\(path).\(key) must be an [x, y] point, got \((input[key] ?? .null).described)")
-                }
-                return [try checkNumber("\(path).\(key)[0]", pair[0], position), try checkNumber("\(path).\(key)[1]", pair[1], position)]
-            }
-            area.from = try point("from")
-            area.to = try point("to")
+            area.from = try point("\(path).from", input["from"])
+            area.to = try point("\(path).to", input["to"])
             guard hypot(area.to[0] - area.from[0], area.to[1] - area.from[1]) >= 0.01 else {
                 throw StateError("\(path).from and \(path).to must be at least 0.01 apart")
             }
+        case "object":
+            let input = try checkKeys(path, value, ["type", "points", "exclude"])
+            area.points = try points("\(path).points", input["points"], count: 1...maxObjectPoints, within: (0, 1))
+            if let value = input["exclude"], value != .null {
+                area.exclude = try points("\(path).exclude", value, count: 0...maxObjectPoints, within: (0, 1))
+            }
+            guard area.points.count + area.exclude.count <= maxObjectPoints else {
+                throw StateError("\(path) can have at most \(maxObjectPoints) points and exclude points together, got \(area.points.count + area.exclude.count)")
+            }
+        case "outline":
+            let input = try checkKeys(path, value, ["type", "points", "feather"])
+            area.points = try points("\(path).points", input["points"], count: 3...maxOutlinePoints)
+            area.feather = try input["feather"].map { try checkNumber("\(path).feather", $0, (0, 0.1)) } ?? 0.003
+        case "brush":
+            let input = try checkKeys(path, value, ["type", "strokes", "size", "feather"])
+            guard let strokes = input["strokes"]?.arrayValue, (1...maxStrokes).contains(strokes.count) else {
+                throw StateError("\(path).strokes must be a list of 1 to \(maxStrokes) strokes, each a list of [x, y] points, got \((input["strokes"] ?? .null).described)")
+            }
+            area.strokes = try strokes.enumerated().map { try points("\(path).strokes[\($0.offset)]", $0.element, count: 1...maxStrokePoints) }
+            area.size = try input["size"].map { try checkNumber("\(path).size", $0, (0.002, 0.5)) } ?? 0.03
+            area.feather = try input["feather"].map { try checkNumber("\(path).feather", $0, (0, 0.1)) } ?? area.size / 4
         default:
             _ = try checkKeys(path, value, ["type"])
         }

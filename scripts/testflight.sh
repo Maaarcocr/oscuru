@@ -74,6 +74,7 @@ printf '%s\n' \
   "OSCURU_PROVISIONING_PROFILE = $PROFILE_UUID" \
   "OSCURU_CODE_SIGN_IDENTITY = $IDENTITY" \
   "CURRENT_PROJECT_VERSION = $BUILD_NUMBER" > "$SIGNING_XCCONFIG"
+"$ROOT/scripts/fetch-models.sh"
 (cd "$ROOT/ios" && xcodegen generate >/dev/null)
 if ! xcodebuild archive -project "$ROOT/ios/Oscuru.xcodeproj" -scheme Oscuru -configuration Release \
   -destination 'generic/platform=iOS' -archivePath "$WORK/Oscuru.xcarchive" -derivedDataPath "$WORK/DerivedData" \

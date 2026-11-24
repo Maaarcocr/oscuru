@@ -37,6 +37,7 @@ Status: first prototype (0.1).
 ## Commands
 
 ```sh
+./scripts/fetch-models.sh                               # the segmentation model (77 MB, not in git); builds call it
 swift test --package-path ios/Packages/OscuruKit        # Linux runs OscuruCore; macOS also the engine and scripting
 UPDATE_API_DOCS=1 swift test --package-path ios/Packages/OscuruKit   # after changing the photo API
 python3 scripts/check-strings.py
