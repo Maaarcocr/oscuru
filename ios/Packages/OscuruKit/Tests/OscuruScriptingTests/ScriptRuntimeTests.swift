@@ -10,7 +10,30 @@ private final class FakeHost: ScriptHost, @unchecked Sendable {
     var imageRequests: [(state: EditingState, region: ScriptRegion?, maxEdge: Int)] = []
     var maskRequests: [Mask] = []
     var maskCoverage = 0.25
+    var analysisCount = 0
+    var failRendering = false
     var photoPixelRequests: [EditingState] = []
+
+    func analysis(of state: EditingState) -> ImageAnalysis? {
+        if failRendering { return nil }
+        analysisCount += 1
+        let level = UInt8(max(0, min(255, (100 * pow(2, state.value("exposureEV"))).rounded())))
+        var pixels = Data()
+        for _ in 0..<16 { pixels.append(contentsOf: [level, level, level, 255]) }
+        return ImageAnalysis(pixels: pixels, width: 4, height: 4)
+    }
+
+    func image(of state: EditingState, region: ScriptRegion?, maxEdge: Int) -> Data? {
+        if failRendering { return nil }
+        imageRequests.append((state, region, maxEdge))
+        return Data("jpeg-\(imageRequests.count)".utf8)
+    }
+
+    func maskImage(of state: EditingState, mask: Mask, region: ScriptRegion?, maxEdge: Int) -> (jpeg: Data, coverage: Double)? {
+        if failRendering { return nil }
+        maskRequests.append(mask)
+        return (Data("mask-\(maskRequests.count)".utf8), maskCoverage)
+    }
 
     /// A grey ramp, transformed per pixel.
     static func ramp(_ transform: (Double) -> (Double, Double, Double) = { ($0, $0, $0) }) -> PixelBuffer {
