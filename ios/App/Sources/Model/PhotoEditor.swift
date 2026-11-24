@@ -121,6 +121,9 @@ final class PhotoEditor {
         switch entry.body {
         case .user(let user) where !user.queued:
             sending = nil
+        case .user:
+            // Sent just as the assistant finished: it starts the next run.
+            if !isWorking { followUp() }
         case .assistant(let assistant):
             if let usage = assistant.usage { account.record(usage, model: assistant.model, run: run, photo: document.id) }
         case .compaction(let compaction):
@@ -322,9 +325,12 @@ final class PhotoEditor {
         task = Task {
             do {
                 try await prepare()
-                try await Agent.run(transcript: transcript, client: client, model: model, contextWindow: window, port: port, sessionID: photo) { event in
-                    await self.handle(event)
-                }
+                // Messages that arrive as the loop ends start the next run at once.
+                repeat {
+                    try await Agent.run(transcript: transcript, client: client, model: model, contextWindow: window, port: port, sessionID: photo) { event in
+                        await self.handle(event)
+                    }
+                } while await PhotoEditor.hasFollowUp(transcript) && !Task.isCancelled
             } catch {
                 self.storageProblem = error.localizedDescription
             }
@@ -333,12 +339,25 @@ final class PhotoEditor {
         reproject()
     }
 
+    private nonisolated static func hasFollowUp(_ transcript: Transcript) async -> Bool {
+        let latest = Conversation(await transcript.entries)
+        return latest.halt == nil && !latest.queued.isEmpty
+    }
+
+    /// Answers messages that were sent while the assistant worked but arrived after its last step.
+    private func followUp() {
+        guard !isWorking, account.isConnected, conversation.halt == nil, !conversation.queued.isEmpty else { return }
+        start {}
+    }
+
     private func finish() {
         task = nil
         retry = nil
         summarizing = false
         sending = nil
         reproject()
+        followUp()
+        guard !isWorking else { return }
         if turns.last?.status == .done { completedRuns += 1 }
         background.end()
         let transcript = transcript
