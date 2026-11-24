@@ -309,7 +309,8 @@ interface Mask {
    * depth from the photo alone, so the scale is relative and its edges are soft: look at
    * `photo.show("depth")` to choose from and to, and add `refine` for a crisp edge. For whatever
    * follows distance: haze, mist and atmosphere, a far background, a near foreground. A wide
-   * feather makes a gradual change with distance.
+   * feather makes a gradual change with distance. Water and glass that mirror the sky can read
+   * as far: cut them out with `subtract`.
    */
   depth?: { from: number; to: number; feather?: number };
   /**
