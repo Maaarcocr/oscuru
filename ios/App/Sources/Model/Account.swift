@@ -146,6 +146,16 @@ final class Account {
         return cost
     }
 
+    /// What a request cost: what OpenRouter charged, or its tokens at the model's prices.
+    func price(_ usage: Usage, model: String) -> Double {
+        OpenRouter.cost(of: usage, model: models.first { $0.id == model })
+    }
+
+    /// How many tokens the model takes in one request, when OpenRouter says.
+    func contextLength(of model: String) -> Int? {
+        models.first { $0.id == model }?.contextLength
+    }
+
     func spent(onRun run: String) -> Double { user.map { ledger.spent(by: $0, onRun: run) } ?? 0 }
 
     var spentToday: Double { user.map { ledger.spent(by: $0, since: Calendar.current.startOfDay(for: Date())) } ?? 0 }

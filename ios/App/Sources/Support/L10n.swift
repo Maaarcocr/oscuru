@@ -97,6 +97,7 @@ enum L10n {
 
     // MARK: Composer
     static var composerPlaceholder: String { String(localized: "composer.placeholder") }
+    static var composerWhileWorking: String { String(localized: "composer.working") }
     static var composerConnect: String { String(localized: "composer.connect") }
     static var send: String { String(localized: "composer.send") }
     static var stop: String { String(localized: "composer.stop") }
@@ -128,9 +129,14 @@ enum L10n {
     static var earlierEdits: String { String(localized: "thread.earlier") }
     static var looking: String { String(localized: "thread.looking") }
     static var stopped: String { String(localized: "thread.stopped") }
+    static var continueRun: String { String(localized: "thread.continue") }
+    static var working: String { String(localized: "library.working") }
+    static var queuedNote: String { String(localized: "thread.queued") }
+    static var reconnecting: String { String(localized: "thread.reconnecting") }
+    static var summarizing: String { String(localized: "thread.summarizing") }
+    static func storageProblem(_ detail: String) -> String { String(localized: "thread.storageProblem \(detail)") }
     static var restoreVersion: String { String(localized: "thread.restoreVersion") }
     static var script: String { String(localized: "thread.script") }
-    static var scriptStopped: String { String(localized: "script.stopped") }
     static func step(_ number: Int) -> String {
         let text = String(number)
         return String(localized: "step.title \(text)")
@@ -148,6 +154,7 @@ enum L10n {
         case .unchanged: return "\(title) · \(String(localized: "script.unchanged"))"
         case .failed: return "\(title) · \(String(localized: "script.failed"))"
         case .stale: return "\(title) · \(String(localized: "script.stale"))"
+        case .stopped: return "\(title) · \(String(localized: "script.cutOff"))"
         }
     }
 

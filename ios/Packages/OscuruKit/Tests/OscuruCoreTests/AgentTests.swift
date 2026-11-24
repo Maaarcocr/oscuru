@@ -25,14 +25,8 @@ private final class FakeModel: ModelClient, @unchecked Sendable {
     func chat(_ request: ChatRequest) async throws -> ChatResponse {
         let reply = take(request)
         if delay > .zero { try await Task.sleep(for: delay) }
-        guard let reply else { throw ModelError(.server, "the fake model ran out of replies") }
+        guard let reply else { throw ModelError(.badRequest, "the fake model ran out of replies") }
         return ChatResponse(id: "gen", model: request.model, message: try reply(request), usage: Usage(promptTokens: 1000, completionTokens: 100, cost: 0.01))
-    }
-
-    var requestCount: Int {
-        lock.lock()
-        defer { lock.unlock() }
-        return requests.count
     }
 }
 
@@ -52,128 +46,123 @@ private actor FakePort: AgentPort {
     var revision = 1
     private(set) var executed: [JSONValue] = []
 
-    func context() async -> AgentContext {
-        AgentContext(sessionID: "photo-1", revision: revision, state: state, metadata: ["isRaw": true], statistics: ["meanLuminance": 0.4], filters: ["Dusk"])
-    }
-
-    func openingImages() async -> [LabeledImage] {
-        [LabeledImage(label: "The photo as it is now:", jpeg: Data([0xFF, 0xD8, 1]))]
-    }
-
     func execute(arguments: JSONValue) async -> ToolExecution {
         executed.append(arguments)
         try? state.adjust(["contrast": .number(state.value("contrast") + 1)])
         revision += 1
         return ToolExecution(
-            payload: ["status": "ok", "applied": true, "revision": .number(Double(revision))],
-            images: [LabeledImage(label: "Before:", jpeg: Data([1])), LabeledImage(label: "After:", jpeg: Data([2]))])
+            payload: ["status": "ok", "applied": true, "revision": .number(Double(revision)), "changes": [["path": "global.contrast", "from": 0, "to": 1]]],
+            images: [LabeledImage(label: "Before:", jpeg: Data([1])), LabeledImage(label: "After:", jpeg: Data([2]))], state: state)
     }
 
     func executedCount() -> Int { executed.count }
 }
 
-private final class Events: @unchecked Sendable {
+private final class Sleeps: @unchecked Sendable {
     private let lock = NSLock()
-    private var list: [AgentEvent] = []
-    func add(_ event: AgentEvent) {
-        lock.lock()
-        list.append(event)
-        lock.unlock()
-    }
-    var names: [String] {
-        lock.lock()
-        defer { lock.unlock() }
-        return list.map { event in
-            switch event {
-            case .thinking: return "thinking"
-            case .text: return "text"
-            case .scriptStarted: return "started"
-            case .scriptFinished: return "finished"
-            case .usage: return "usage"
-            }
-        }
-    }
+    private var list: [Double] = []
+    var delays: [Double] { lock.withLock { list } }
+    func add(_ delay: Double) { lock.withLock { list.append(delay) } }
 }
 
 final class AgentTests: XCTestCase {
-    private func run(_ model: FakeModel, _ port: FakePort, conversation: [JSONValue] = [], instruction: String = "Make it cinematic", events: Events = Events()) async throws -> AgentTurn {
-        try await Agent.run(client: model, model: "anthropic/claude-sonnet-5.5", port: port, conversation: conversation, instruction: instruction) { events.add($0) }
+    private var folder: URL!
+
+    override func setUp() {
+        folder = FileManager.default.temporaryDirectory.appending(path: "transcript-\(UUID().uuidString)", directoryHint: .isDirectory)
+    }
+
+    override func tearDown() {
+        try? FileManager.default.removeItem(at: folder)
+    }
+
+    private let context = AgentContext(
+        sessionID: "photo-1", revision: 1, state: EditingState(), metadata: ["isRaw": true], statistics: ["meanLuminance": 0.4], filters: ["Dusk"])
+
+    /// Writes an instruction the way the editor does: the words, the photo's context, its picture.
+    @discardableResult
+    private func instruct(_ transcript: Transcript, _ text: String = "Make it cinematic") async throws -> TranscriptEntry {
+        let picture = try await transcript.store(LabeledImage(label: "The photo as it is now:", jpeg: Data([0xFF, 0xD8, 1])))
+        return try await transcript.append(.user(Agent.instruction(text, context: context, pictures: [picture])))
+    }
+
+    private func run(_ transcript: Transcript, _ model: FakeModel, _ port: FakePort = FakePort(), window: Int? = nil, sleeps: Sleeps = Sleeps()) async throws {
+        try await Agent.run(
+            transcript: transcript, client: model, model: "anthropic/claude-sonnet-5.5", contextWindow: window, port: port, sessionID: "photo-1",
+            sleep: { sleeps.add($0) }, onEvent: { _ in })
     }
 
     private func parts(_ message: JSONValue) -> [JSONValue] { message["content"]?.arrayValue ?? [] }
+    private func images(_ messages: [JSONValue]) -> Int { messages.flatMap(parts).filter { $0["type"] == "image_url" }.count }
+    private func turns(_ transcript: Transcript, working: Bool = false) async -> [Turn] {
+        Conversation(await transcript.entries).turns(working: working, price: { usage, _ in usage.cost ?? 0 }, failure: { $0.message })
+    }
 
     func testTheModelSeesThePhotoRunsAScriptAndSeesBeforeAndAfter() async throws {
+        let transcript = try Transcript(folder: folder)
+        try await instruct(transcript)
         let model = FakeModel([{ _ in toolCall("call-1", code: "photo.current.adjust({ contrast: 1 })") }, { _ in note("Done: a gentle grade.") }])
-        let port = FakePort()
-        let events = Events()
-        let turn = try await run(model, port, events: events)
-
-        XCTAssertEqual(turn.stop, .done)
-        XCTAssertEqual(turn.text, "Done: a gentle grade.")
-        XCTAssertEqual(turn.scripts, 1)
-        XCTAssertEqual(events.names, ["thinking", "usage", "text", "started", "finished", "thinking", "usage", "text"])
+        try await run(transcript, model)
 
         let first = model.requests[0]
         XCTAssertEqual(first.messages[0]["role"], "system")
         XCTAssertTrue(first.messages[0]["content"]?.stringValue?.contains("interface PhotoDocument") ?? false)
         XCTAssertEqual(first.tools.count, 1)
-        XCTAssertEqual(first.tools[0]["function"]?["name"]?.stringValue, Prompt.toolName)
         let opening = parts(first.messages[1])
         let text = opening[0]["text"]?.stringValue ?? ""
-        XCTAssertTrue(text.hasPrefix("Make it cinematic"))
-        XCTAssertTrue(text.contains("\"sessionId\":\"photo-1\""))
+        XCTAssertTrue(text.hasPrefix("Make it cinematic\n\n[Photo context]\n"))
         XCTAssertTrue(text.contains("\"savedFilters\":[\"Dusk\"]"))
         XCTAssertEqual(opening[1]["text"], "The photo as it is now:")
         XCTAssertEqual(opening[2]["image_url"]?["url"]?.stringValue, "data:image/jpeg;base64,\(Data([0xFF, 0xD8, 1]).base64EncodedString())")
 
-        // The tool result, then the pictures before and after.
+        // The report, then the pictures before and after.
         let second = model.requests[1].messages
-        let tool = second[second.count - 2]
-        XCTAssertEqual(tool["role"], "tool")
-        XCTAssertEqual(tool["tool_call_id"], "call-1")
-        XCTAssertEqual(JSONValue(text: tool["content"]?.stringValue ?? "")?["applied"], true)
-        let pictures = parts(second[second.count - 1])
-        XCTAssertEqual(pictures.compactMap { $0["text"]?.stringValue }, ["[Pictures from the phone for the script above.]", "Before:", "After:"])
-        XCTAssertEqual(pictures.filter { $0["type"] == "image_url" }.count, 2)
+        XCTAssertEqual(second[second.count - 2]["tool_call_id"], "call-1")
+        XCTAssertEqual(JSONValue(text: second[second.count - 2]["content"]?.stringValue ?? "")?["applied"], true)
+        XCTAssertEqual(parts(second[second.count - 1]).compactMap { $0["text"]?.stringValue }, ["[Pictures from the phone for the script above.]", "Before:", "After:"])
+
+        // The thread, from the same records.
+        let thread = await turns(transcript)
+        XCTAssertEqual(thread.count, 1)
+        XCTAssertEqual(thread[0].kind, .instruction("Make it cinematic"))
+        XCTAssertEqual(thread[0].steps.map(\.outcome), [.applied])
+        XCTAssertEqual(thread[0].steps[0].note, "Working on it.")
+        XCTAssertEqual(thread[0].messages, ["Done: a gentle grade."])
+        XCTAssertEqual(thread[0].result?.value("contrast"), 1)
+        XCTAssertEqual(thread[0].cost ?? 0, 0.02, accuracy: 1e-9)
+        XCTAssertEqual(thread[0].status, .done)
     }
 
-    func testThereIsNoLimitOnHowManyScriptsATurnRuns() async throws {
-        var replies: [FakeModel.Reply] = (0..<40).map { index in { _ in toolCall("call-\(index)", code: "1") } }
+    func testThereIsNoLimitAndTheAssistantMessageGoesBackUnchanged() async throws {
+        let transcript = try Transcript(folder: folder)
+        try await instruct(transcript)
+        var members = toolCall("call-0", code: "1").objectValue!
+        members["reasoning_details"] = [["type": "reasoning.encrypted", "data": "opaque"]]
+        let first = JSONValue.object(members)
+        var replies: [FakeModel.Reply] = [{ _ in first }]
+        for index in 1..<40 { replies.append { _ in toolCall("call-\(index)", code: "1") } }
         replies.append { _ in note("Finally happy.") }
         let model = FakeModel(replies)
         let port = FakePort()
-        let turn = try await run(model, port)
-        XCTAssertEqual(turn.stop, .done)
-        XCTAssertEqual(turn.scripts, 40)
+        try await run(transcript, model, port)
         let executed = await port.executedCount()
         XCTAssertEqual(executed, 40)
-        // Nothing in the request caps the answer or forces the model to stop.
-        let last = model.requests.last!.json
-        XCTAssertNil(last["max_tokens"])
-        XCTAssertEqual(last["tool_choice"], "auto")
-        // Every picture of the turn is still there for the model to compare.
-        XCTAssertEqual(model.requests.last!.messages.flatMap(parts).filter { $0["type"] == "image_url" }.count, 1 + 40 * 2)
-    }
-
-    func testTheAssistantMessageGoesBackUnchanged() async throws {
-        var members = toolCall("call-1", code: "1").objectValue!
-        members["reasoning_details"] = [["type": "reasoning.encrypted", "data": "opaque"]]
-        let call = JSONValue.object(members)
-        let model = FakeModel([{ _ in call }, { _ in note("ok") }])
-        _ = try await run(model, FakePort())
-        let assistant = model.requests[1].messages.first { $0["role"] == "assistant" }
-        XCTAssertEqual(assistant?["reasoning_details"], [["type": "reasoning.encrypted", "data": "opaque"]])
+        let last = model.requests.last!
+        XCTAssertNil(last.json["max_tokens"])
+        XCTAssertEqual(last.json["tool_choice"], "auto")
+        // Every picture of the run is still there for the model to compare.
+        XCTAssertEqual(images(last.messages), 1 + 40 * 2)
+        XCTAssertEqual(last.messages.first { $0["role"] == "assistant" }?["reasoning_details"], [["type": "reasoning.encrypted", "data": "opaque"]])
     }
 
     func testMalformedToolCallsGetAnErrorTheModelCanRead() async throws {
+        let transcript = try Transcript(folder: folder)
+        try await instruct(transcript)
         let model = FakeModel([
-            { _ in toolCall("c1", code: "", name: "render_preview") },
-            { _ in toolCall("c2", code: "", arguments: "{not json") },
-            { _ in note("Sorry.") },
+            { _ in toolCall("c1", code: "", name: "render_preview") }, { _ in toolCall("c2", code: "", arguments: "{not json") }, { _ in note("Sorry.") },
         ])
         let port = FakePort()
-        let turn = try await run(model, port)
-        XCTAssertEqual(turn.scripts, 0)
+        try await run(transcript, model, port)
         let executed = await port.executedCount()
         XCTAssertEqual(executed, 0)
         let tools = model.requests[2].messages.filter { $0["role"] == "tool" }
@@ -182,54 +171,230 @@ final class AgentTests: XCTestCase {
         XCTAssertTrue(tools[1]["content"]?.stringValue?.contains("not a valid JSON object") ?? false)
     }
 
-    func testAModelErrorPropagatesAndTheConversationStaysUsable() async throws {
-        let model = FakeModel([{ _ in throw ModelError(.unauthorized, "No auth credentials found", status: 401) }])
-        do {
-            _ = try await run(model, FakePort())
-            XCTFail("expected an error")
-        } catch let error as ModelError {
-            XCTAssertEqual(error.kind, .unauthorized)
-        }
-        let retry = FakeModel([{ _ in note("Now it works.") }])
-        let turn = try await run(retry, FakePort())
-        XCTAssertEqual(turn.text, "Now it works.")
+    func testADroppedConnectionIsRetriedAfterAPauseAndTheFailedAttemptsAreLeftOut() async throws {
+        let transcript = try Transcript(folder: folder)
+        try await instruct(transcript)
+        let model = FakeModel([
+            { _ in throw ModelError(.network, "The network connection was lost.") }, { _ in throw ModelError(.server, "Provider returned error", status: 502) },
+            { _ in note("Done.") },
+        ])
+        let sleeps = Sleeps()
+        try await run(transcript, model, sleeps: sleeps)
+        XCTAssertEqual(sleeps.delays, [2, 4])
+        XCTAssertEqual(model.requests.count, 3)
+        XCTAssertEqual(model.requests[2].messages, model.requests[0].messages, "the same request, nothing of the failures in it")
+        let thread = await turns(transcript)
+        XCTAssertEqual(thread[0].status, .done)
+        XCTAssertEqual(thread[0].messages, ["Done."])
     }
 
-    func testCancellingReturnsTheConversationAsItWas() async throws {
-        let model = FakeModel([{ _ in toolCall("c1", code: "1") }, { _ in toolCall("c2", code: "1") }, { _ in note("never") }])
+    func testAFailureThatDoesNotPassEndsTheRunAndContinuePicksItUp() async throws {
+        let transcript = try Transcript(folder: folder)
+        try await instruct(transcript)
+        let sleeps = Sleeps()
+        try await run(transcript, FakeModel([{ _ in throw ModelError(.unauthorized, "No auth credentials found", status: 401) }]), sleeps: sleeps)
+        XCTAssertEqual(sleeps.delays, [], "a bad key is not worth retrying")
+        var conversation = Conversation(await transcript.entries)
+        XCTAssertTrue(conversation.canContinue)
+        XCTAssertFalse(conversation.wasInterrupted)
+        let seen1 = await turns(transcript)
+        XCTAssertEqual(seen1[0].status, .failed("No auth credentials found"))
+
+        // Retries run out too, and then the run waits for Continue.
+        let flaky = FakeModel((0..<4).map { _ in { _ in throw ModelError(.server, "Overloaded", status: 529) } })
+        try await transcript.append(.resume(automatic: false))
+        try await run(transcript, flaky, sleeps: sleeps)
+        XCTAssertEqual(sleeps.delays, [2, 4, 8])
+        XCTAssertEqual(flaky.requests.count, 4)
+
+        try await transcript.append(.resume(automatic: false))
+        let model = FakeModel([{ _ in note("Now it works.") }])
+        try await run(transcript, model)
+        conversation = Conversation(await transcript.entries)
+        XCTAssertFalse(conversation.canContinue)
+        let thread = await turns(transcript)
+        XCTAssertEqual(thread[0].status, .done)
+        XCTAssertEqual(thread[0].messages, ["Now it works."])
+        XCTAssertEqual(model.requests[0].messages.filter { $0["role"] == "user" }.count, 1)
+    }
+
+    func testStoppingKeepsTheConversationAndALaterInstructionCarriesOn() async throws {
+        let transcript = try Transcript(folder: folder)
+        try await instruct(transcript, "Go")
+        let model = FakeModel([{ _ in toolCall("c1", code: "1") }, { _ in note("never") }])
         model.delay = .milliseconds(300)
-        let port = FakePort()
-        let before: [JSONValue] = [["role": "system", "content": "earlier"], ["role": "user", "content": "hello"]]
         let task = Task {
-            try await Agent.run(client: model, model: "m", port: port, conversation: before, instruction: "Go") { _ in }
+            try await Agent.run(
+                transcript: transcript, client: model, model: "m", contextWindow: nil, port: FakePort(), sessionID: "photo-1", sleep: { _ in }, onEvent: { _ in })
         }
-        try await Task.sleep(for: .milliseconds(450))
+        try await Task.sleep(for: .milliseconds(100))
         task.cancel()
-        let turn = try await task.value
-        XCTAssertEqual(turn.stop, .cancelled)
-        XCTAssertEqual(turn.conversation, before)
+        try await task.value
+        var conversation = Conversation(await transcript.entries)
+        XCTAssertEqual(conversation.halt, .stopped)
+        let seen2 = await turns(transcript)
+        XCTAssertEqual(seen2[0].status, .stopped)
+
+        // Stopped while its script waited to run: the next request says it never ran.
+        try await transcript.append(.assistant(.init(message: toolCall("c9", code: "1"), model: "m", usage: nil)))
+        try await transcript.append(.stop)
+        try await instruct(transcript, "Try again, warmer")
+        conversation = Conversation(await transcript.entries)
+        XCTAssertEqual(conversation.next, .answer)
+        let later = FakeModel([{ _ in note("Warmer now.") }])
+        try await run(transcript, later)
+        let messages = later.requests[0].messages
+        XCTAssertEqual(messages.filter { $0["role"] == "user" }.compactMap { parts($0).first?["text"]?.stringValue?.components(separatedBy: "\n").first }, ["Go", "Try again, warmer"])
+        let notRun = messages.first { $0["tool_call_id"] == "c9" }
+        XCTAssertEqual(JSONValue(text: notRun?["content"]?.stringValue ?? "")?["status"], "not_run")
+        let seen3 = await turns(transcript)
+        XCTAssertEqual(seen3.map(\.status), [.stopped, .done])
     }
 
-    func testASecondInstructionContinuesTheConversationWithOnlyTheLatestEarlierPictures() async throws {
-        let model = FakeModel([{ _ in toolCall("c1", code: "1") }, { _ in note("First done.") }, { _ in note("Second done.") }])
-        let port = FakePort()
-        let first = try await run(model, port, instruction: "First")
-        _ = try await run(model, port, conversation: first.conversation, instruction: "Second")
-        let messages = model.requests.last!.messages
-        XCTAssertEqual(messages.filter { $0["role"] == "system" }.count, 1)
-        // The first turn's opening picture is replaced by a note; its last before/after pair and the new opening stay.
-        let images = messages.flatMap(parts).filter { $0["type"] == "image_url" }.count
-        XCTAssertEqual(images, 3)
-        XCTAssertTrue(messages.flatMap(parts).contains { $0["text"]?.stringValue == Agent.removedImageNote })
-    }
-
-    func testCompactingKeepsTheLatestMessageWithPictures() {
-        func withImage(_ name: String) -> JSONValue {
-            ["role": "user", "content": [["type": "text", "text": .string(name)], ["type": "image_url", "image_url": ["url": .string(name)]]]]
+    func testWorkTheAppClosedDuringCarriesOnFromTheTranscript() async throws {
+        do {
+            let transcript = try Transcript(folder: folder)
+            try await instruct(transcript)
+            try await transcript.append(.assistant(.init(message: toolCall("c1", code: "1"), model: "m", usage: nil)))
+            // The app closes here, in the middle of a line.
+            let handle = try FileHandle(forWritingTo: transcript.file)
+            try handle.seekToEnd()
+            try handle.write(contentsOf: Data("{\"id\":\"half".utf8))
+            try handle.close()
         }
-        let compacted = Agent.compactEarlierImages([withImage("a"), ["role": "assistant", "content": "ok"], withImage("b"), withImage("c")])
-        XCTAssertEqual(compacted.map { Agent.hasImage($0) }, [false, false, false, true])
-        XCTAssertEqual(compacted[0]["content"]?.arrayValue?[1]["text"]?.stringValue, Agent.removedImageNote)
+        let transcript = try Transcript(folder: folder)
+        let conversation = Conversation(await transcript.entries)
+        XCTAssertEqual(conversation.entries.count, 2, "the cut-off line is dropped, nothing else")
+        XCTAssertTrue(conversation.wasInterrupted)
+        XCTAssertEqual(conversation.pendingCalls.map(\.id), ["c1"])
+        let seen4 = await turns(transcript)
+        XCTAssertEqual(seen4[0].steps.map(\.outcome), [.stopped])
+
+        try await transcript.append(.resume(automatic: true))
+        let model = FakeModel([{ _ in note("Finished.") }])
+        let port = FakePort()
+        try await run(transcript, model, port)
+        let executed = await port.executedCount()
+        XCTAssertEqual(executed, 1, "the script the model asked for runs")
+        let messages = model.requests[0].messages
+        XCTAssertEqual(messages.last?["content"]?.stringValue, Conversation.resumedNote, "told after the round, not between a call and its report")
+        let seen5 = await turns(transcript)
+        XCTAssertEqual(seen5[0].messages, ["Finished."])
+        // And the file reads back whole.
+        let reread = try await Transcript(folder: folder).entries.count
+        let written = await transcript.entries.count
+        XCTAssertEqual(reread, written)
+    }
+
+    func testMessagesSentWhileItWorksJoinBetweenSteps() async throws {
+        let transcript = try Transcript(folder: folder)
+        try await instruct(transcript)
+        try await transcript.append(.assistant(.init(message: toolCall("c1", code: "1"), model: "m", usage: nil)))
+        try await transcript.append(.user(Agent.steer("Keep the sky blue")))
+        var conversation = Conversation(await transcript.entries)
+        XCTAssertEqual(conversation.queued.count, 1)
+        let seen6 = await turns(transcript, working: true)
+        XCTAssertEqual(seen6.count, 1, "not in the thread until it is read")
+
+        let model = FakeModel([{ _ in note("Kept the sky blue.") }])
+        try await run(transcript, model)
+        let roles = model.requests[0].messages.map { $0["role"]?.stringValue ?? "" }
+        XCTAssertEqual(roles, ["system", "user", "assistant", "tool", "user", "user"])
+        XCTAssertEqual(model.requests[0].messages.last?["content"]?.arrayValue?.first?["text"], "Keep the sky blue")
+        conversation = Conversation(await transcript.entries)
+        XCTAssertTrue(conversation.queued.isEmpty)
+        let thread = await turns(transcript)
+        XCTAssertEqual(thread.map(\.kind), [.instruction("Make it cinematic"), .instruction("Keep the sky blue")])
+        XCTAssertEqual(thread[1].messages, ["Kept the sky blue."])
+    }
+
+    func testAnotherInstructionSendsOnlyTheLatestEarlierPicturesAndPrunesTheRest() async throws {
+        let transcript = try Transcript(folder: folder)
+        try await instruct(transcript, "First")
+        try await run(transcript, FakeModel([{ _ in toolCall("c1", code: "1") }, { _ in note("First done.") }]))
+        try await instruct(transcript, "Second")
+        let model = FakeModel([{ _ in note("Second done.") }])
+        try await run(transcript, model)
+        let messages = model.requests[0].messages
+        // The first opening picture is a note now; the last before/after pair and the new opening stay.
+        XCTAssertEqual(images(messages), 3)
+        XCTAssertTrue(messages.flatMap(parts).contains { $0["text"]?.stringValue == Conversation.removedPictureNote })
+        await transcript.prune()
+        let files = try FileManager.default.contentsOfDirectory(atPath: folder.appending(path: "pictures").path)
+        XCTAssertEqual(files.count, 3)
+    }
+
+    func testALongConversationIsSummarizedAndTheModelSeesTheSummaryInstead() async throws {
+        let transcript = try Transcript(folder: folder)
+        for index in 0..<4 {
+            try await instruct(transcript, "Instruction \(index) " + String(repeating: "word ", count: 6000))
+            try await transcript.append(.assistant(.init(message: note("Answer \(index)"), model: "m", usage: Usage(promptTokens: 150_000, completionTokens: 10, cost: 0.5))))
+        }
+        try await instruct(transcript, "Now make it black and white")
+        let model = FakeModel([
+            { request in
+                XCTAssertTrue(request.tools.isEmpty)
+                XCTAssertTrue(request.messages[1]["content"]?.stringValue?.contains("Instruction 0") ?? false)
+                return note("## Goal\nA moody look.")
+            },
+            { _ in note("Black and white.") },
+        ])
+        try await run(transcript, model, window: 160_000)
+        XCTAssertEqual(model.requests.count, 2)
+        let messages = model.requests[1].messages
+        XCTAssertTrue(messages[1]["content"]?.stringValue?.hasPrefix(Conversation.summaryPreface) ?? false)
+        XCTAssertFalse(messages.contains { Agent.text(of: $0).contains("Instruction 0") }, "summarized")
+        XCTAssertTrue(messages.contains { Agent.text(of: $0).contains("Now make it black and white") })
+        // The thread is still all there.
+        let seen7 = await turns(transcript)
+        XCTAssertEqual(seen7.count, 5)
+
+        // A request the provider says is too long is summarized and sent again, once.
+        try await instruct(transcript, "One more " + String(repeating: "word ", count: 6000))
+        let overflow = FakeModel([
+            { _ in throw ModelError(.badRequest, "This endpoint's maximum context length is 160000 tokens.", status: 400) },
+            { _ in note("## Goal\nStill moody.") }, { _ in note("Done.") },
+        ])
+        try await run(transcript, overflow)
+        XCTAssertEqual(overflow.requests.count, 3)
+        let seen8 = await turns(transcript)
+        XCTAssertEqual(seen8.last?.messages, ["Done."])
+    }
+
+    func testThreadsSavedBeforeTheTranscriptKeepTheirTurnsAndConversation() async throws {
+        let transcript = try Transcript(folder: folder)
+        let old = Turn(id: "t1", kind: .instruction("Warmer"), steps: [Step(code: "1", outcome: .running)], status: .working)
+        let picture: JSONValue = ["role": "user", "content": [["type": "text", "text": "Pictures"], ["type": "image_url", "image_url": ["url": "data:x"]]]]
+        try await transcript.append(.imported(.init(turns: [Turn(id: "original", kind: .original, result: EditingState()), old], conversation: [
+            ["role": "system", "content": "old prompt"], ["role": "user", "content": "Warmer"], picture, ["role": "assistant", "content": "Warmer now."],
+        ])))
+        let thread = await turns(transcript)
+        XCTAssertEqual(thread.map(\.id), ["original", "t1"])
+        XCTAssertEqual(thread[1].status, .stopped)
+        XCTAssertEqual(thread[1].steps[0].outcome, .stopped)
+        try await instruct(transcript, "Cooler")
+        let model = FakeModel([{ _ in note("Cooler.") }])
+        try await run(transcript, model)
+        let messages = model.requests[0].messages
+        XCTAssertEqual(messages.filter { $0["role"] == "system" }.count, 1)
+        XCTAssertEqual(messages[1]["content"], "Warmer")
+        XCTAssertEqual(images(messages), 1, "only the new opening picture")
+    }
+
+    func testRecordsReadBackAsTheyWereWritten() async throws {
+        let transcript = try Transcript(folder: folder)
+        try await instruct(transcript)
+        try await transcript.append(.edit(.init(kind: .filter("Dusk"), state: EditingState())))
+        try await transcript.append(.failure(.init(kind: .rateLimit, message: "Slow down", status: 429, retrying: true, delay: 2)))
+        try await transcript.append(.placed(["a"]))
+        try await transcript.append(.stop)
+        try await transcript.append(.resume(automatic: true))
+        try await transcript.append(.compaction(.init(summary: "s", firstKept: "x", tokensBefore: 10, usage: nil, model: "m")))
+        let reopened = try Transcript(folder: folder)
+        let written = await transcript.entries
+        let read = await reopened.entries
+        XCTAssertEqual(read.map(\.body), written.map(\.body))
+        XCTAssertEqual(read.map(\.id), written.map(\.id))
     }
 }
 
@@ -296,18 +461,25 @@ final class OpenRouterTests: XCTestCase {
         }
     }
 
-    func testOneRetryForServerAndNetworkFailures() async throws {
-        let recovered = Recorder([(503, [:]), (200, completion)])
-        _ = try await OpenRouter(apiKey: "k", transport: recovered.transport).chat(ChatRequest(model: "m", messages: [], tools: []))
-        XCTAssertEqual(recovered.requests.count, 2)
+    func testFailuresAreClassedForTheLoopNotRetriedHere() async throws {
         let offline = Recorder([])
         do {
             _ = try await OpenRouter(apiKey: "k", transport: offline.transport).chat(ChatRequest(model: "m", messages: [], tools: []))
             XCTFail("expected an error")
         } catch let error as ModelError {
             XCTAssertEqual(error.kind, .network)
-            XCTAssertEqual(offline.requests.count, 2)
+            XCTAssertEqual(offline.requests.count, 1, "the loop retries, where the person can see it")
+            XCTAssertTrue(error.isTransient)
         }
+        XCTAssertTrue(ModelError(.server, "Provider returned error", status: 502).isTransient)
+        XCTAssertTrue(ModelError(.badRequest, "Provider returned error").isTransient)
+        XCTAssertFalse(ModelError(.unauthorized, "No auth credentials found", status: 401).isTransient)
+        XCTAssertFalse(ModelError(.payment, "Insufficient credits", status: 402).isTransient)
+        let overflow = ModelError(.badRequest, "This endpoint's maximum context length is 200000 tokens. However, you requested about 250000 tokens.", status: 400)
+        XCTAssertTrue(overflow.isContextOverflow)
+        XCTAssertFalse(overflow.isTransient)
+        // A request without tools sends no tool settings.
+        XCTAssertNil(ChatRequest(model: "m", messages: [], tools: []).json["tool_choice"])
     }
 
     func testAnErrorInsideA200IsAnError() async {

@@ -8,6 +8,7 @@ import OscuruEngine
 ///     original.<ext>   a copy of the imported file, never written again
 ///     doc.json         this record: what the engine reported, the editing state and its revision
 ///     thumb.jpg        the library thumbnail
+///     conversation/    the thread with the assistant: transcript.jsonl and the pictures it was sent
 struct PhotoDocument: Codable, Identifiable, Equatable {
     var id: String
     var name: String
@@ -113,15 +114,14 @@ final class Library {
         write(document)
     }
 
+    /// The thread saved by versions before the transcript, if there is one.
     func loadThread(_ id: String) -> SavedThread? {
         guard let data = try? Data(contentsOf: folder(id).appending(path: "thread.json")) else { return nil }
         return try? JSONDecoder().decode(SavedThread.self, from: data)
     }
 
-    func saveThread(_ id: String, _ thread: SavedThread) {
-        guard let data = try? JSONEncoder().encode(thread) else { return }
-        try? data.write(to: folder(id).appending(path: "thread.json"), options: .atomic)
-    }
+    /// Where the photo's conversation with the assistant is kept (see `Transcript`).
+    func conversationFolder(_ id: String) -> URL { folder(id).appending(path: "conversation", directoryHint: .isDirectory) }
 
     func delete(id: String) {
         try? FileManager.default.removeItem(at: folder(id))

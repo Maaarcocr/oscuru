@@ -192,7 +192,7 @@ struct LibraryView: View {
             }
             .confirmationDialog(L10n.deleteTitle(selection.count), isPresented: $confirmingDelete, titleVisibility: .visible) {
                 Button(L10n.delete, role: .destructive) {
-                    for id in selection { model.library.delete(id: id) }
+                    model.delete(Array(selection))
                     endSelecting()
                 }
                 Button(L10n.cancel, role: .cancel) {}
@@ -242,7 +242,7 @@ struct LibraryView: View {
                 ForEach(photos) { photo in
                     let thumbnail = Thumbnail(
                         url: model.library.thumbnailURL(photo.id), stamp: photo.thumbnailStamp, isRaw: photo.info.isRaw,
-                        selected: selecting ? selection.contains(photo.id) : nil)
+                        working: model.isWorking(on: photo.id), selected: selecting ? selection.contains(photo.id) : nil)
                     if selecting {
                         Button {
                             toggle(photo.id)
@@ -265,7 +265,7 @@ struct LibraryView: View {
                                 selecting = true
                                 selection = [photo.id]
                             }
-                            Button(L10n.delete, systemImage: "trash", role: .destructive) { model.library.delete(id: photo.id) }
+                            Button(L10n.delete, systemImage: "trash", role: .destructive) { model.delete([photo.id]) }
                         }
                     }
                 }
@@ -675,6 +675,8 @@ private struct Thumbnail: View {
     let url: URL
     let stamp: Int
     let isRaw: Bool
+    /// Whether the assistant is still working on it, after the photo was closed.
+    let working: Bool
     /// Nil when not selecting; otherwise whether this photo is chosen.
     let selected: Bool?
     @State private var image: UIImage?
@@ -698,6 +700,18 @@ private struct Thumbnail: View {
                         .padding(5)
                 }
             }
+            .overlay(alignment: .topTrailing) {
+                if working {
+                    ProgressView()
+                        .controlSize(.mini)
+                        .tint(.white)
+                        .padding(5)
+                        .glassEffect(.regular, in: .circle)
+                        .padding(5)
+                        .transition(.opacity)
+                        .accessibilityLabel(L10n.working)
+                }
+            }
             .overlay {
                 if selected == true { Color.black.opacity(0.25) }
             }
@@ -712,6 +726,7 @@ private struct Thumbnail: View {
                 }
             }
             .animation(.snappy(duration: 0.2), value: selected)
+            .animation(.easeInOut(duration: 0.3), value: working)
             .contentShape(Rectangle())
             .task(id: stamp) {
                 let url = url

@@ -641,6 +641,22 @@
         }
       }
     },
+    "composer.working": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Add to what it's doing"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Aggiungi a quello che sta facendo"
+          }
+        }
+      }
+    },
     "curve.blue": {
       "localizations": {
         "en": {
@@ -1213,6 +1229,22 @@
           "stringUnit": {
             "state": "translated",
             "value": "Come sono stati scattati: il RAW resta RAW."
+          }
+        }
+      }
+    },
+    "library.working": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The assistant is working on this photo"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "L'assistente sta lavorando a questa foto"
           }
         }
       }
@@ -1921,6 +1953,22 @@
         }
       }
     },
+    "script.cutOff": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "did not finish"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "non finito"
+          }
+        }
+      }
+    },
     "script.failed": {
       "localizations": {
         "en": {
@@ -1965,22 +2013,6 @@
           "stringUnit": {
             "state": "translated",
             "value": "Saltato: nel frattempo la foto è cambiata"
-          }
-        }
-      }
-    },
-    "script.stopped": {
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Stopped before it finished."
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Fermato prima della fine."
           }
         }
       }
@@ -2801,6 +2833,22 @@
         }
       }
     },
+    "thread.continue": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Continue"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Continua"
+          }
+        }
+      }
+    },
     "thread.earlier": {
       "localizations": {
         "en": {
@@ -2877,6 +2925,38 @@
           "stringUnit": {
             "state": "translated",
             "value": "Originale"
+          }
+        }
+      }
+    },
+    "thread.queued": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Read after the current step"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Letto dopo il passo in corso"
+          }
+        }
+      }
+    },
+    "thread.reconnecting": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Reconnecting…"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Riconnessione…"
           }
         }
       }
@@ -2973,6 +3053,38 @@
           "stringUnit": {
             "state": "translated",
             "value": "Fermato. La foto tiene le modifiche fatte finora."
+          }
+        }
+      }
+    },
+    "thread.storageProblem %@": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The conversation could not be saved: %@"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Impossibile salvare la conversazione: %@"
+          }
+        }
+      }
+    },
+    "thread.summarizing": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Summarizing earlier messages…"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Riassumo i messaggi precedenti…"
           }
         }
       }

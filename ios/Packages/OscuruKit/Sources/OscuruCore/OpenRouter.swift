@@ -28,7 +28,7 @@ public struct HTTPResponse: Sendable {
 public typealias HTTPTransport = @Sendable (HTTPRequest) async throws -> HTTPResponse
 
 public struct ModelError: Error, Equatable, Sendable {
-    public enum Kind: Equatable, Sendable {
+    public enum Kind: String, Codable, Equatable, Sendable {
         case unauthorized, payment, rateLimit, badRequest, server, network, invalidResponse
     }
 
@@ -53,7 +53,41 @@ public struct ModelError: Error, Equatable, Sendable {
     }
 }
 
-public struct Usage: Equatable, Sendable {
+extension ModelError {
+    /// Whether the request was too long for the model: the conversation needs a summary.
+    public var isContextOverflow: Bool { ModelError.matches(message, ModelError.overflowPatterns) }
+
+    /// Whether the failure usually passes by itself, so the same request is worth sending again:
+    /// a dropped connection, a busy or failing server, a rate limit. A bad key, no credit or a
+    /// request the model refuses are not.
+    public var isTransient: Bool {
+        guard !isContextOverflow else { return false }
+        switch kind {
+        case .network, .server, .rateLimit, .invalidResponse: return true
+        case .unauthorized, .payment, .badRequest: return ModelError.matches(message, ModelError.transientPatterns)
+        }
+    }
+
+    static func matches(_ text: String, _ patterns: [String]) -> Bool {
+        patterns.contains { text.range(of: $0, options: [.regularExpression, .caseInsensitive]) != nil }
+    }
+
+    // After pi's lists of provider wording (packages/ai/src/utils/retry.ts and overflow.ts).
+    static let transientPatterns = [
+        "overloaded", "server_busy", "currently experiencing high demand", "at capacity", "rate.?limit", "too many requests",
+        "(^|[^a-z0-9])(429|500|502|503|504|520|524|525)([^a-z0-9]|$)", "temporarily unavailable", "service.?unavailable",
+        "provider returned error", "upstream", "internal.?error", "server.?error", "connection", "network", "timed? ?out", "socket",
+        "stream was interrupted",
+    ]
+
+    static let overflowPatterns = [
+        "prompt (is )?too long", "request_too_large", "exceeds the context window", "maximum context length", "context window exceeded",
+        "input token count.*exceeds the maximum", "context[_ ]length[_ ]exceeded", "too many tokens", "token limit exceeded",
+        "longer than the model'?s context length", "reduce the length of the messages",
+    ]
+}
+
+public struct Usage: Codable, Equatable, Sendable {
     public var promptTokens: Int
     public var completionTokens: Int
     /// What OpenRouter charged for the request, in US dollars of credit, when it said.
@@ -85,10 +119,12 @@ public struct ChatRequest: Sendable {
         var body: [String: JSONValue] = [
             "model": .string(model),
             "messages": .array(messages),
-            "tools": .array(tools),
-            "tool_choice": "auto",
-            "parallel_tool_calls": false,
         ]
+        if !tools.isEmpty {
+            body["tools"] = .array(tools)
+            body["tool_choice"] = "auto"
+            body["parallel_tool_calls"] = false
+        }
         if let sessionID { body["session_id"] = .string(sessionID) }
         // Anthropic models cache the prompt only when asked to.
         if model.hasPrefix("anthropic/") { body["cache_control"] = ["type": "ephemeral"] }
@@ -131,6 +167,16 @@ public struct ModelInfo: Equatable, Sendable, Identifiable {
     /// US dollars per million tokens.
     public var promptPrice: Double
     public var completionPrice: Double
+    /// How many tokens a request can hold, when OpenRouter says.
+    public var contextLength: Int?
+
+    public init(id: String, name: String, promptPrice: Double, completionPrice: Double, contextLength: Int? = nil) {
+        self.id = id
+        self.name = name
+        self.promptPrice = promptPrice
+        self.completionPrice = completionPrice
+        self.contextLength = contextLength
+    }
 }
 
 /// OpenRouter's HTTP API: the only place the app talks to a model.
@@ -179,14 +225,8 @@ public struct OpenRouter: ModelClient {
     }
 
     public func chat(_ request: ChatRequest) async throws -> ChatResponse {
-        let json: JSONValue
-        do {
-            json = try await send("POST", "/chat/completions", body: request.json)
-        } catch let error as ModelError where error.kind == .server || error.kind == .network {
-            // One retry for failures that are usually momentary.
-            try Task.checkCancellation()
-            json = try await send("POST", "/chat/completions", body: request.json)
-        }
+        // Failures are not retried here: the agent's loop tries again, and says so on screen.
+        let json = try await send("POST", "/chat/completions", body: request.json)
         guard let message = json["choices"]?.arrayValue?.first?["message"], message.objectValue != nil else {
             throw ModelError(.invalidResponse, "OpenRouter returned no message")
         }
@@ -220,7 +260,9 @@ public struct OpenRouter: ModelClient {
             guard let prompt = Double(entry["pricing"]?["prompt"]?.stringValue ?? ""), let completion = Double(entry["pricing"]?["completion"]?.stringValue ?? ""),
                 prompt >= 0, completion >= 0
             else { return nil }
-            return ModelInfo(id: id, name: entry["name"]?.stringValue ?? id, promptPrice: prompt * 1e6, completionPrice: completion * 1e6)
+            return ModelInfo(
+                id: id, name: entry["name"]?.stringValue ?? id, promptPrice: prompt * 1e6, completionPrice: completion * 1e6,
+                contextLength: entry["context_length"]?.doubleValue.map { Int($0) })
         }
     }
 

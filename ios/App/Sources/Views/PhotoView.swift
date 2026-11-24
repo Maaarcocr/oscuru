@@ -25,7 +25,10 @@ struct PhotoView: View {
         .task {
             guard editor == nil else { return }
             do {
-                editor = try await model.open(document)
+                let opened = try await model.open(document)
+                // Left before it opened: let it go again.
+                guard !Task.isCancelled else { return model.close(opened) }
+                editor = opened
             } catch {
                 problem = String(describing: error)
             }
@@ -73,6 +76,23 @@ private struct ThreadView: View {
                             withAnimation(.snappy) { proxy.scrollTo(id) }
                         }
                         .id(turn.id)
+                    }
+                    if let sending = editor.sending {
+                        Bubble(text: sending).opacity(0.6)
+                    }
+                    // Sent while the assistant works: read between two of its steps.
+                    ForEach(Array(editor.queued.enumerated()), id: \.offset) { _, text in
+                        VStack(alignment: .trailing, spacing: 4) {
+                            Bubble(text: text).opacity(0.6)
+                            Text(L10n.queuedNote).font(.caption).foregroundStyle(.secondary)
+                        }
+                        .accessibilityIdentifier("thread.queued")
+                    }
+                    if let problem = editor.storageProblem {
+                        Text(L10n.storageProblem(problem))
+                            .font(.footnote)
+                            .foregroundStyle(.red)
+                            .frame(maxWidth: .infinity, alignment: .leading)
                     }
                     Color.clear.frame(height: 1).id(ThreadView.end)
                 }
@@ -218,13 +238,12 @@ private struct ThreadView: View {
             }
             if model.account.isConnected {
                 HStack(alignment: .bottom, spacing: 8) {
-                    TextField(L10n.composerPlaceholder, text: $draft, axis: .vertical)
+                    TextField(editor.isWorking ? L10n.composerWhileWorking : L10n.composerPlaceholder, text: $draft, axis: .vertical)
                         .lineLimit(1...6)
                         .focused($composing)
                         .padding(.horizontal, 16)
                         .padding(.vertical, 10)
                         .background(Color(white: 0.15), in: RoundedRectangle(cornerRadius: 21, style: .continuous))
-                        .disabled(editor.isWorking)
                         .accessibilityIdentifier("composer.field")
                     action
                 }
@@ -246,10 +265,11 @@ private struct ThreadView: View {
         .background(Color.black)
     }
 
-    /// Send, or stop while the assistant is working.
+    /// Send, or stop while the assistant is working and there is nothing to send. Words sent while
+    /// it works join its work between two steps.
     @ViewBuilder
     private var action: some View {
-        if editor.isWorking {
+        if editor.isWorking, draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
             Button {
                 editor.stop()
             } label: {
@@ -299,14 +319,7 @@ private struct TurnView: View {
                 Caption(text: L10n.originalCaption(editor.info))
                 card
             case .instruction(let text):
-                Text(text)
-                    .padding(.horizontal, 14)
-                    .padding(.vertical, 9)
-                    .background(Color.accentColor.opacity(0.85), in: RoundedRectangle(cornerRadius: 19, style: .continuous))
-                    .foregroundStyle(.black)
-                    .frame(maxWidth: .infinity, alignment: .trailing)
-                    .padding(.leading, 56)
-                    .textSelection(.enabled)
+                Bubble(text: text)
                 reply
             case .filter(let name):
                 Caption(text: L10n.appliedFilter(name))
@@ -339,6 +352,13 @@ private struct TurnView: View {
                     .accessibilityIdentifier("thread.message")
             }
             WorkingCard(editor: editor, steps: turn.steps.count)
+            if let retry = editor.retry {
+                Text(retry.message)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .lineLimit(2)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+            }
         } else {
             ForEach(Array(turn.messages.enumerated()), id: \.offset) { _, message in
                 Text(message)
@@ -356,6 +376,14 @@ private struct TurnView: View {
                     .frame(maxWidth: .infinity, alignment: .leading)
                     .accessibilityIdentifier("thread.error")
             default: EmptyView()
+            }
+            if editor.canContinue, turn.id == editor.turns.last?.id {
+                Button(L10n.continueRun) { editor.continueRun() }
+                    .buttonStyle(.bordered)
+                    .buttonBorderShape(.capsule)
+                    .tint(.white)
+                    .frame(maxWidth: .infinity)
+                    .accessibilityIdentifier("thread.continue")
             }
             if !turn.steps.isEmpty {
                 StepsSummary(id: "\(turn.id).steps", steps: turn.steps, cost: turn.cost, reveal: reveal)
@@ -380,6 +408,22 @@ private struct TurnView: View {
                 .accessibilityAddTraits(.isButton)
                 .accessibilityIdentifier(turn.kind == .original ? "thread.original" : "thread.version")
         }
+    }
+}
+
+/// What the person wrote, on the right.
+private struct Bubble: View {
+    let text: String
+
+    var body: some View {
+        Text(text)
+            .padding(.horizontal, 14)
+            .padding(.vertical, 9)
+            .background(Color.accentColor.opacity(0.85), in: RoundedRectangle(cornerRadius: 19, style: .continuous))
+            .foregroundStyle(.black)
+            .frame(maxWidth: .infinity, alignment: .trailing)
+            .padding(.leading, 56)
+            .textSelection(.enabled)
     }
 }
 
@@ -445,7 +489,7 @@ private struct WorkingCard: View {
         .overlay(alignment: .bottomLeading) {
             HStack(spacing: 8) {
                 ProgressView().controlSize(.small).tint(.white)
-                Text(steps == 0 ? L10n.looking : L10n.step(steps))
+                Text(editor.retry != nil ? L10n.reconnecting : editor.summarizing ? L10n.summarizing : steps == 0 ? L10n.looking : L10n.step(steps))
                     .font(.footnote.weight(.medium))
                     .monospacedDigit()
             }
@@ -561,6 +605,7 @@ private struct StepView: View {
         case .unchanged: return "eye"
         case .failed: return "exclamationmark.triangle.fill"
         case .stale: return "arrow.triangle.2.circlepath"
+        case .stopped: return "stop.circle"
         }
     }
 

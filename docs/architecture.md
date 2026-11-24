@@ -9,6 +9,7 @@ person: "make it cinematic, recover the sky"
    │
    ▼
 Agent.run (OscuruCore)  ── HTTPS ──▶  model on OpenRouter
+   │   reads the photo's transcript; writes every step to it before going on
    │   sends: the instruction, settings, metadata, statistics, saved filters,
    │          the photo (and the original, when it has been edited)
    │   receives: execute_edit_script({ sessionId, baseRevision, code })
@@ -28,7 +29,7 @@ tool result: what changed, the script's value and logs, statistics,
 the model looks, and runs another script or writes its closing note
 ```
 
-The loop has no limits: no cap on scripts, no spending limit, no timeout on requests. It ends when the model replies without calling the tool, or when the person taps Stop.
+The loop has no limits: no cap on scripts, no spending limit, no timeout on requests. It ends when the model replies without calling the tool, when the person taps Stop, or when a request fails in a way retrying cannot fix.
 
 ## Editing state
 
@@ -62,7 +63,19 @@ There is no time limit. When the person stops the assistant, every API call thro
 
 ## Agent
 
-`Agent.run` carries out one instruction. It returns the conversation to continue from; a cancelled turn returns the conversation as it was. Within an instruction every picture stays, so the model can compare every step; before a new instruction, pictures from earlier ones are replaced by a note except the latest set.
+The assistant's loop follows [pi](https://github.com/earendil-works/pi) and pi-durable: one small loop, one tool, and a conversation that is an append-only log, so nothing is lost and work carries on where it stopped.
+
+**The transcript.** Each photo's conversation is `conversation/transcript.jsonl`: one record per line, only ever appended, each flushed to storage before anything shows it (`Transcript`, an actor; one per photo). Records are the person's words (with the photo's context and pictures when they start a run), the model's responses exactly as they came, each script's report, failures, stops, resumes, summaries, and changes the person made by hand (a style, a restored version, starting over). The pictures the model was sent are files next to it, referred to by name. A last line cut off by the app closing is dropped on opening; nothing else is touched.
+
+**Reading it.** `Conversation` works everything out from the records alone: the order the model saw them in, messages still waiting, why the latest run ended, and what comes next (`need`: nothing, an answer, or the scripts the model asked for). The thread on screen (`turns`) and the next request (`messages`) are both read from it, so what the person sees is what the model was told. Failed attempts are left out of requests; a script that never reported gets a report saying it did not run; a note never comes between a call and its report. Within a run every picture stays, so the model can compare every step; before it, only the latest set does, and the others are deleted from the phone once a run ends.
+
+**The loop.** `Agent.run` reads the transcript, does the one thing it asks for next (ask the model, or run the script it asked for), writes down what happened, and goes round again. Because it starts from whatever the transcript says, the same loop carries out an instruction, picks up after Stop (Continue), and carries on after the app was closed mid-run: when the photo is opened again the work resumes by itself, and the model is told the script REPL started afresh. Work cut off three times in a row without progress waits for Continue instead.
+
+**Failures.** A request that fails in a way that usually passes (a dropped connection, a busy or failing server, a rate limit) is sent again after 2, 4 and 8 seconds, and the thread says it is reconnecting. A bad key, no credit, or a request refused for good ends the run with the reason, and Continue picks it up.
+
+**Talking while it works.** Words sent while the assistant works are written down at once as queued, and join the conversation between two steps, never between a script and its report. Leaving the photo does not stop the assistant: the photo stays open until it is done, and its thumbnail shows it is working.
+
+**Long conversations.** When the previous request used nearly all of the model's context (from OpenRouter's model list), or the provider says a request is too long, older records are summarized by the same model into goal, preferences, what was done and what is open, and the summary takes their place in requests. Roughly the latest 20,000 tokens stay word for word. The thread keeps everything.
 
 It depends on two small protocols, `ModelClient` and `AgentPort`. That is the seam for moving orchestration to a server later.
 
@@ -84,11 +97,11 @@ There is no Oscuru server. The person signs in to OpenRouter (OAuth PKCE) or pas
 
 ## Storage
 
-Each photo has a folder in the app's documents: the copied original, `doc.json` (what the engine reported, the editing state, its revision) and a thumbnail. Filters, settings and the usage record are JSON files next to them.
+Each photo has a folder in the app's documents: the copied original, `doc.json` (what the engine reported, the editing state, its revision), a thumbnail, and `conversation/` (the transcript and the pictures the model was last sent). A thread saved by an earlier version (`thread.json`) is read once into the transcript. Filters, settings and the usage record are JSON files next to them.
 
 ## Tests
 
-- `OscuruCoreTests` (Linux and macOS): state, colour pipeline, statistics, filters, history, the agent loop with a played-back model, the OpenRouter client, and that `docs/photo-api.d.ts` is current.
+- `OscuruCoreTests` (Linux and macOS): state, colour pipeline, statistics, filters, history, the agent loop with a played-back model (retries, stop and Continue, resuming after the app closed, messages sent while it works, summaries, a cut-off last line), the OpenRouter client, and that `docs/photo-api.d.ts` is current.
 - `OscuruEngineTests` (macOS): what the TypeScript-era port assumes about Core Image — table layouts, colour spaces, rotation and white-balance directions, regions, exports, and that RAW files go through the RAW decoder.
 - `OscuruScriptingTests` (macOS): the JavaScriptCore environment — the API, the REPL, `photo.show`, filters, errors, cancellation, abandoned loops.
 - `OscuruUITests` (simulator, English and Italian): the whole flow against a sample photo and a played-back model.

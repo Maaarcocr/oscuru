@@ -32,7 +32,13 @@ final class OscuruUITests: XCTestCase {
         element(app, "composer.send").tap()
         XCTAssertTrue(element(app, "composer.stop").waitForExistence(timeout: 30))
         capture("04-working")
+        // Words sent while it works join its work between two steps.
+        field.tap()
+        field.typeText("Keep the sky blue")
+        element(app, "composer.send").tap()
+        capture("04b-sent-while-working")
         XCTAssertTrue(element(app, "thread.reply").waitForExistence(timeout: 120), "the assistant replies")
+        XCTAssertTrue(waitUntil(timeout: 120) { !element(app, "composer.stop").exists }, "and is done")
         capture("05-reply")
         element(app, "thread.steps").tap()
         sleep(1)

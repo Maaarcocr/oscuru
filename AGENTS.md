@@ -26,6 +26,7 @@ Status: first prototype (0.1).
 ## Engineering rules
 
 - **One editing path.** Every change to a photo goes through `EditHistory` in `PhotoEditor`; every change gives a new revision, and scripts against an old revision are refused.
+- **The transcript is the conversation.** A photo's thread and what the model is told are read from its append-only `Transcript`; nothing is kept beside it, and every step is written before it is shown. The loop starts from whatever the transcript says, so it can always pick up where it stopped (see `docs/architecture.md`, Agent).
 - **Scripts reach only `photo` and `console`.** All of the API goes through the single native bridge in `ScriptRuntime`.
 - **The original file is never written.**
 - **The model is replaceable.** Only `OpenRouter.swift` knows the wire format; `Agent.swift` knows nothing about rendering.

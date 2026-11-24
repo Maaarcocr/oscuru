@@ -33,19 +33,116 @@ final class AppModel {
         }
     }
 
-    /// Opens a photo for editing. The engine keeps it open until `close`.
+    /// Photos open in an editor: on screen, or closed while the assistant still works on them.
+    private var editors: [String: PhotoEditor] = [:]
+    /// How many screens show each photo.
+    private var viewers: [String: Int] = [:]
+    /// Each photo's conversation, opened once: a transcript has one writer.
+    private var transcripts: [String: Task<Transcript, Error>] = [:]
+
+    /// Opens a photo for editing, or the editor it already has (the assistant may still be at
+    /// work on it). Work the app was closed during carries on. The engine keeps the photo open
+    /// until it is closed and the assistant is done.
     func open(_ document: PhotoDocument) async throws -> PhotoEditor {
-        // A fresh name per opening, so closing an earlier opening of the same photo cannot close this one.
-        let id = "\(document.id)-\(UUID().uuidString.prefix(8))"
-        let url = library.originalURL(document)
+        viewers[document.id, default: 0] += 1
+        if let editor = editors[document.id] { return editor }
+        do {
+            // A fresh name per opening, so closing an earlier opening of the same photo cannot close this one.
+            let id = "\(document.id)-\(UUID().uuidString.prefix(8))"
+            let url = library.originalURL(document)
+            let engine = engine
+            var info = try await Task.detached(priority: .userInitiated) { try engine.open(id: id, url: url) }.value
+            info.fileName = document.name
+            let transcript = try await openTranscript(for: document, original: EditingState(defaults: info.defaults))
+            if let editor = editors[document.id] {
+                // Opened twice at once: the first one won.
+                engine.close(id: id)
+                return editor
+            }
+            let renderer = PhotoRenderer(engine: engine, id: id, info: info, filters: filterStore)
+            let account = account
+            let scripted = scriptedModel
+            let (entries, updates) = await transcript.observe()
+            let current = library.document(document.id) ?? document
+            let editor = PhotoEditor(
+                document: current, info: info, renderer: renderer, transcript: transcript, entries: entries, updates: updates, library: library, account: account
+            ) {
+                scripted ?? account.client()
+            }
+            editor.onIdle = { [weak self] in self?.releaseIfUnused(document.id) }
+            editors[document.id] = editor
+            editor.resumeIfInterrupted()
+            return editor
+        } catch {
+            viewers[document.id, default: 1] -= 1
+            throw error
+        }
+    }
+
+    /// A screen stops showing the photo. The assistant keeps working if it is; the photo closes
+    /// once nothing shows it and the assistant is done.
+    func close(_ editor: PhotoEditor) {
+        let id = editor.document.id
+        viewers[id] = max(0, viewers[id, default: 1] - 1)
+        releaseIfUnused(id)
+    }
+
+    private func releaseIfUnused(_ id: String) {
+        guard viewers[id, default: 0] == 0, let editor = editors[id], !editor.isWorking else { return }
+        editors[id] = nil
+        editor.detach()
         let engine = engine
-        var info = try await Task.detached(priority: .userInitiated) { try engine.open(id: id, url: url) }.value
-        info.fileName = document.name
-        let renderer = PhotoRenderer(engine: engine, id: id, info: info, filters: filterStore)
-        let account = account
-        let scripted = scriptedModel
-        return PhotoEditor(document: document, info: info, renderer: renderer, library: library, account: account) {
-            scripted ?? account.client()
+        let session = editor.renderer.id
+        Task {
+            await editor.saveThumbnail()
+            engine.close(id: session)
+        }
+    }
+
+    /// Whether the assistant is working on this photo now.
+    func isWorking(on id: String) -> Bool { editors[id]?.isWorking ?? false }
+
+    /// The photo's conversation. The first time, it starts from the thread an earlier version
+    /// saved, or from the original photo (and the edits it already had). Opened once, however
+    /// many ask at the same time.
+    private func openTranscript(for document: PhotoDocument, original: EditingState) async throws -> Transcript {
+        if let opening = transcripts[document.id] { return try await opening.value }
+        let folder = library.conversationFolder(document.id)
+        let saved = library.loadThread(document.id)
+        let state = document.state
+        let opening = Task { () throws -> Transcript in
+            let transcript = try Transcript(folder: folder)
+            guard await transcript.isEmpty else { return transcript }
+            if let saved {
+                try await transcript.append(.imported(.init(turns: saved.turns, conversation: saved.conversation)))
+            } else {
+                try await transcript.append(.edit(.init(kind: .original, state: original)))
+                if state != original { try await transcript.append(.edit(.init(kind: .earlier, state: state))) }
+            }
+            return transcript
+        }
+        transcripts[document.id] = opening
+        do {
+            return try await opening.value
+        } catch {
+            transcripts[document.id] = nil
+            throw error
+        }
+    }
+
+    /// Deletes photos, stopping the assistant on them first.
+    func delete(_ ids: [String]) {
+        for id in ids {
+            if let editor = editors[id] {
+                editor.onIdle = nil
+                editor.stop()
+                editor.detach()
+                engine.close(id: editor.renderer.id)
+                editors[id] = nil
+            }
+            viewers[id] = nil
+            transcripts[id] = nil
+            library.delete(id: id)
         }
     }
 
@@ -149,6 +246,11 @@ final class AppModel {
     /// Puts a style on photos in the library, one at a time, as a step in each one's conversation.
     func applyStyle(_ style: SavedFilter, to documents: [PhotoDocument]) async {
         for document in documents {
+            // A photo open in an editor changes there, so there is one editing path.
+            if let editor = editors[document.id] {
+                editor.apply(style)
+                continue
+            }
             let engine = engine
             let url = library.originalURL(document)
             let current = document.state
@@ -163,26 +265,11 @@ final class AppModel {
                 let thumbnail = try? engine.jpeg(id: id, recipe: RenderRecipe(state: state, defaults: info.defaults), options: RenderOptions(maxEdge: 480), quality: 0.8)
                 return (state, EditingState(defaults: info.defaults), thumbnail)
             }.value
-            guard let outcome, outcome.state != current else { continue }
+            guard let outcome, outcome.state != current, editors[document.id] == nil else { continue }
+            guard let transcript = try? await openTranscript(for: document, original: outcome.original) else { continue }
+            guard (try? await transcript.append(.edit(.init(kind: .filter(style.name), state: outcome.state)))) != nil else { continue }
             library.save(id: document.id, state: outcome.state, revision: document.revision + 1)
             if let thumbnail = outcome.thumbnail { library.saveThumbnail(id: document.id, jpeg: thumbnail) }
-            var thread = library.loadThread(document.id)
-                ?? SavedThread(
-                    turns: [Turn(id: "original", kind: .original, result: outcome.original)]
-                        + (current != outcome.original ? [Turn(id: UUID().uuidString, kind: .earlier, result: current)] : []),
-                    conversation: [])
-            thread.turns.append(Turn(id: UUID().uuidString, kind: .filter(style.name), result: outcome.state))
-            library.saveThread(document.id, thread)
-        }
-    }
-
-    func close(_ editor: PhotoEditor) {
-        editor.stop()
-        let engine = engine
-        let id = editor.renderer.id
-        Task {
-            await editor.saveThumbnail()
-            engine.close(id: id)
         }
     }
 }
