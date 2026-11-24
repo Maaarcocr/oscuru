@@ -408,8 +408,6 @@ struct LibraryView: View {
             Text(none ? L10n.selectPhotos : L10n.selectedCount(selection.count))
                 .font(.subheadline.weight(.semibold))
                 .monospacedDigit()
-                .contentTransition(.numericText())
-                .animation(.snappy, value: selection.count)
             Spacer()
             Button(role: .destructive) {
                 confirmingDelete = true
