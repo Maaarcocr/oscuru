@@ -1313,6 +1313,38 @@
         }
       }
     },
+    "photo.share.raw": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Original RAW"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "RAW originale"
+          }
+        }
+      }
+    },
+    "photo.share.raw.footer": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The file as it was taken, without edits."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Il file come è stato scattato, senza modifiche."
+          }
+        }
+      }
+    },
     "photo.startOver": {
       "localizations": {
         "en": {

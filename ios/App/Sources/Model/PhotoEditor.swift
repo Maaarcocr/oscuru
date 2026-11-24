@@ -240,14 +240,28 @@ final class PhotoEditor {
 
     /// Develops a version at full resolution into a temporary file for the share sheet.
     func export(_ state: EditingState, as format: ExportFormat) async throws -> URL {
-        let name = (document.name as NSString).deletingPathExtension
-            .replacingOccurrences(of: ":", with: ".")
-            .replacingOccurrences(of: "/", with: "-")
-        let url = FileManager.default.temporaryDirectory.appending(path: "\(name.isEmpty ? "Oscuru" : name).\(format == .heic ? "heic" : "jpg")")
+        let url = FileManager.default.temporaryDirectory.appending(path: "\(exportName).\(format == .heic ? "heic" : "jpg")")
         try? FileManager.default.removeItem(at: url)
         let renderer = renderer
         try await Task.detached(priority: .userInitiated) { try renderer.export(state, format: format, to: url) }.value
         return url
+    }
+
+    /// A copy of the original file, untouched (the RAW file for a RAW photo), for the share sheet.
+    func exportOriginal() async throws -> URL {
+        let source = library.originalURL(document)
+        let url = FileManager.default.temporaryDirectory.appending(path: "\(exportName).\(source.pathExtension)")
+        try? FileManager.default.removeItem(at: url)
+        try await Task.detached(priority: .userInitiated) { try FileManager.default.copyItem(at: source, to: url) }.value
+        return url
+    }
+
+    /// The photo's name, usable as a file name.
+    private var exportName: String {
+        let name = (document.name as NSString).deletingPathExtension
+            .replacingOccurrences(of: ":", with: ".")
+            .replacingOccurrences(of: "/", with: "-")
+        return name.isEmpty ? "Oscuru" : name
     }
 
     /// Redraws the library thumbnail from the current edits.

@@ -44,6 +44,8 @@ enum L10n {
     static var sharePhoto: String { String(localized: "photo.share") }
     static var shareJPEG: String { String(localized: "photo.share.jpeg") }
     static var shareHEIC: String { String(localized: "photo.share.heic") }
+    static var shareRAW: String { String(localized: "photo.share.raw") }
+    static var shareRAWFooter: String { String(localized: "photo.share.raw.footer") }
     static var exportFailed: String { String(localized: "photo.share.failed") }
     static var startOver: String { String(localized: "photo.startOver") }
     static var startOverTitle: String { String(localized: "photo.startOver.title") }

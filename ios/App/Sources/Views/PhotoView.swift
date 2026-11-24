@@ -143,6 +143,20 @@ private struct ThreadView: View {
         }
     }
 
+    /// The untouched RAW file, as it was taken or added.
+    private func shareOriginal() {
+        guard !exporting else { return }
+        exporting = true
+        Task {
+            defer { exporting = false }
+            do {
+                shared = SharedFile(url: try await editor.exportOriginal())
+            } catch {
+                problem = String(describing: error)
+            }
+        }
+    }
+
     // MARK: Menu
 
     @ToolbarContentBuilder
@@ -158,6 +172,15 @@ private struct ThreadView: View {
                     Menu(L10n.sharePhoto, systemImage: "square.and.arrow.up") {
                         Button(L10n.shareJPEG) { share(editor.state, .jpeg) }
                         Button(L10n.shareHEIC) { share(editor.state, .heic) }
+                        if editor.info.isRaw {
+                            Divider()
+                            Button {
+                                shareOriginal()
+                            } label: {
+                                Text(L10n.shareRAW)
+                                Text(L10n.shareRAWFooter)
+                            }
+                        }
                     }
                     Button(L10n.startOver, systemImage: "arrow.counterclockwise") { confirmingStartOver = true }
                         .disabled(editor.isWorking || editor.state == editor.original)
