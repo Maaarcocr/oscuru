@@ -665,7 +665,8 @@ final class EngineTests: XCTestCase {
   }
 
   private func coverage(_ id: String, _ mask: JSONValue, recipe: RenderRecipe = RenderRecipe(), engine: Engine? = nil) throws -> Double {
-    try (engine ?? self.engine).maskPreview(id: id, recipe: recipe, mask: try Mask.parse("mask", mask), options: RenderOptions(maxEdge: 400)).coverage
+    let target: Engine = engine ?? self.engine
+    return try target.maskPreview(id: id, recipe: recipe, mask: try Mask.parse("mask", mask), options: RenderOptions(maxEdge: 400)).coverage
   }
 
   func testJoinedAreasNeverDoubleAndCanBeCutOutOrIntersected() throws {
