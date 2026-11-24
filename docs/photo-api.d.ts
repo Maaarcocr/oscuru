@@ -308,9 +308,10 @@ interface Mask {
    * usually the sky), with soft edges `feather` wide (0 to 0.5, default 0.1). The phone estimates
    * depth from the photo alone, so the scale is relative and its edges are soft: look at
    * `photo.show("depth")` to choose from and to, and add `refine` for a crisp edge. For whatever
-   * follows distance: haze, mist and atmosphere, a far background, a near foreground. A wide
-   * feather makes a gradual change with distance. Water and glass that mirror the sky can read
-   * as far: cut them out with `subtract`.
+   * follows distance: haze, mist and atmosphere, a far background, a near foreground. For a change
+   * that grows steadily from nothing at the nearest point to full at the farthest, as haze does:
+   * { from: 0.5, to: 1, feather: 0.5 }. Water and glass that mirror the sky can read as far: cut
+   * them out with `subtract`.
    */
   depth?: { from: number; to: number; feather?: number };
   /**
