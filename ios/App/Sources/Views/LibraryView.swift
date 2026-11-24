@@ -207,7 +207,12 @@ struct LibraryView: View {
         ScrollViewReader { proxy in
             ScrollView {
                 if !selecting {
-                    stylesRow.padding(.top, 4).padding(.bottom, 14)
+                    stylesRow.padding(.top, 4).padding(.bottom, 18)
+                    Text(L10n.photosHeading)
+                        .font(.title3.weight(.semibold))
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .padding(.horizontal, 16)
+                        .padding(.bottom, 8)
                 }
                 gridContent
                     .coordinateSpace(.named(LibraryView.gridSpace))

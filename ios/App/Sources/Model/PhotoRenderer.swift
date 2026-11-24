@@ -69,6 +69,8 @@ final class PhotoRenderer: ScriptHost, @unchecked Sendable {
 
     func filterNames() -> [String] { filters.filters.map(\.name) }
     func filter(named name: String) -> SavedFilter? { filters.named(name) }
-    func saveFilter(name: String, look: Look) -> Bool { filters.save(name: name, look: look) }
+    func saveFilter(name: String, look: Look, state: EditingState) -> Bool {
+        filters.save(name: name, look: look, picture: thumbnail(of: state, maxEdge: 360))
+    }
     func deleteFilter(name: String) -> Bool { filters.delete(named: name) }
 }

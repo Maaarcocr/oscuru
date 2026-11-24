@@ -39,9 +39,18 @@ final class FilterStore: @unchecked Sendable {
         return collection.named(name)
     }
 
+    /// Saves a photo's look as a style, with a small picture of that photo with it.
     @discardableResult
-    func save(name: String, look: Look) -> Bool {
-        change { $0.save(name: name, look: look, id: UUID().uuidString, now: Date()) != nil }
+    func save(name: String, look: Look, picture: Data? = nil) -> Bool {
+        let saved = change { $0.save(name: name, look: look, id: UUID().uuidString, now: Date()) }
+        if let saved, let picture { keepPicture(picture, for: saved.id) }
+        return saved != nil
+    }
+
+    private func keepPicture(_ picture: Data, for id: String) {
+        guard let url = pictureURL(id) else { return }
+        try? FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try? picture.write(to: url, options: .atomic)
     }
 
     /// Where a style's picture is kept: the edit or reference it was learned from.
@@ -52,10 +61,7 @@ final class FilterStore: @unchecked Sendable {
     /// Saves a style learned from pictures, with a small copy of the picture for the library.
     func saveStyle(name: String, look: Look, fit: LookFit?, match: StyleFingerprint?, picture: Data?) -> SavedFilter? {
         let saved = change { $0.save(name: name, look: look, fit: fit, match: match, id: UUID().uuidString, now: Date()) }
-        if let saved, let picture, let url = pictureURL(saved.id) {
-            try? FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
-            try? picture.write(to: url, options: .atomic)
-        }
+        if let saved, let picture { keepPicture(picture, for: saved.id) }
         return saved
     }
 

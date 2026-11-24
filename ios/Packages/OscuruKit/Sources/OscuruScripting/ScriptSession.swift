@@ -93,7 +93,7 @@ final class ScriptSession {
             draft = try filter.applied(to: current, defaults: defaults) { host.pixels(of: LookFit.base(current, wholeFrame: false)) }
         case "filters.save":
             let wanted = try filterName(argument(0))
-            guard host.saveFilter(name: wanted, look: Look(state: draft, defaults: defaults)) else { throw Failure(message: "The filter could not be saved under the name \"\(wanted)\".") }
+            guard host.saveFilter(name: wanted, look: Look(state: draft, defaults: defaults), state: draft) else { throw Failure(message: "The filter could not be saved under the name \"\(wanted)\".") }
         case "filters.delete":
             let wanted = try filterName(argument(0))
             guard host.deleteFilter(name: wanted) else { throw Failure(message: "There is no saved filter named \"\(wanted)\".") }

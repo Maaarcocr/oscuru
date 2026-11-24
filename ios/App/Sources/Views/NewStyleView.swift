@@ -158,14 +158,12 @@ struct NewStyleView: View {
                 }
             }
             .accessibilityIdentifier(identifier)
-            VStack(spacing: 2) {
-                Text(title).font(.footnote.weight(.semibold))
-                Text(hint)
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                    .multilineTextAlignment(.center)
-                    .fixedSize(horizontal: false, vertical: true)
-            }
+            // The tile names the picture until one is chosen; then its name moves below it.
+            Text(picked == nil ? hint : title)
+                .font(picked == nil ? .caption : .footnote.weight(.semibold))
+                .foregroundStyle(picked == nil ? Color.secondary : Color.primary)
+                .multilineTextAlignment(.center)
+                .fixedSize(horizontal: false, vertical: true)
         }
         .frame(maxWidth: .infinity)
     }

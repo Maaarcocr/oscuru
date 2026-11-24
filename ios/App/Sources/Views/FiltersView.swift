@@ -93,7 +93,8 @@ struct FiltersView: View {
     }
 
     private func save() {
-        guard model.filterStore.save(name: name, look: editor.currentLook) else { return }
+        let picture = editor.renderer.thumbnail(of: editor.state, maxEdge: 360)
+        guard model.filterStore.save(name: name, look: editor.currentLook, picture: picture) else { return }
         name = ""
         naming = false
     }

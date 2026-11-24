@@ -60,7 +60,7 @@ private final class FakeHost: ScriptHost, @unchecked Sendable {
 
     func filterNames() -> [String] { filters.filters.map(\.name) }
     func filter(named name: String) -> SavedFilter? { filters.named(name) }
-    func saveFilter(name: String, look: Look) -> Bool { filters.save(name: name, look: look, id: UUID().uuidString, now: Date(timeIntervalSince1970: 0)) != nil }
+    func saveFilter(name: String, look: Look, state: EditingState) -> Bool { filters.save(name: name, look: look, id: UUID().uuidString, now: Date(timeIntervalSince1970: 0)) != nil }
     func deleteFilter(name: String) -> Bool {
         guard let filter = filters.named(name) else { return false }
         filters.delete(id: filter.id)

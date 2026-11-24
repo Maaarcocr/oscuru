@@ -42,6 +42,7 @@ enum L10n {
     }
     static var deleteMessage: String { String(localized: "library.delete.message") }
     static var applyStyle: String { String(localized: "library.applyStyle") }
+    static var photosHeading: String { String(localized: "library.photos") }
     static var applyToPhotos: String { String(localized: "library.applyToPhotos") }
     static var apply: String { String(localized: "library.apply") }
     static func chooseFor(_ name: String) -> String { String(localized: "library.chooseFor \(name)") }

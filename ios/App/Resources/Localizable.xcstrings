@@ -1073,6 +1073,22 @@
         }
       }
     },
+    "library.photos": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Photos"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Foto"
+          }
+        }
+      }
+    },
     "library.select": {
       "localizations": {
         "en": {

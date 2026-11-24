@@ -17,8 +17,9 @@ public protocol ScriptHost: AnyObject {
     func pixels(of state: EditingState) -> PixelBuffer?
     func filterNames() -> [String]
     func filter(named name: String) -> SavedFilter?
-    /// Saves a look under a name, replacing a filter of the same name. False when the name is unusable.
-    func saveFilter(name: String, look: Look) -> Bool
+    /// Saves a look under a name, replacing a filter of the same name; `state` is the photo it was
+    /// made on, for a picture of it. False when the name is unusable.
+    func saveFilter(name: String, look: Look, state: EditingState) -> Bool
     func deleteFilter(name: String) -> Bool
 }
 
