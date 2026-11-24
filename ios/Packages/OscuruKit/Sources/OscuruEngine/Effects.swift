@@ -62,8 +62,8 @@ enum Effects {
     let scale = max(1, pixels)
     let strength = CGFloat(grain.strength) * min(1, pixels)
     let roughness = CGFloat(grain.roughness)
-    guard let fine = noise(scale: scale, weight: strength * (1 - 0.6 * roughness), offset: .zero),
-      let coarse = noise(scale: scale * 2.5, weight: strength * 0.9 * roughness, offset: CGPoint(x: 517, y: 313))
+    guard let fine = noise(scale: scale, weight: strength * (1 - 0.6 * roughness), offset: .zero, extent: extent),
+      let coarse = noise(scale: scale * 2.5, weight: strength * 0.9 * roughness, offset: CGPoint(x: 517, y: 313), extent: extent)
     else { return image }
     let sum = CIFilter.additionCompositing()
     sum.inputImage = coarse
@@ -87,9 +87,13 @@ enum Effects {
   }
 
   /// Zero-centred grey noise with grains `scale` pixels across, its standard deviation about `weight`.
-  private static func noise(scale: CGFloat, weight: CGFloat, offset: CGPoint) -> CIImage? {
+  private static func noise(scale: CGFloat, weight: CGFloat, offset: CGPoint, extent: CGRect) -> CIImage? {
     guard let random = CIFilter.randomGenerator().outputImage else { return nil }
+    // The generator's alpha is random too. Made opaque first, its colours are the uniform values
+    // themselves; otherwise reading them divides by that alpha and biases the grain bright.
     let grains = random.transformed(by: CGAffineTransform(translationX: offset.x, y: offset.y).concatenating(CGAffineTransform(scaleX: scale, y: scale)))
+      .cropped(to: extent)
+      .settingAlphaOne(in: extent)
     // One channel of uniform noise (standard deviation 0.29) to every channel, centred on 0.
     let gain = weight / 0.29
     let matrix = CIFilter.colorMatrix()
