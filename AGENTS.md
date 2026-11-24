@@ -16,6 +16,7 @@ Status: first prototype (0.1).
 ## Product rules (from the owner)
 
 - **Simple and AI-driven.** The editor is the photo and a prompt. Do not add sliders, curve editors or other manual controls; this is not Lightroom.
+- **Few screens, nothing twice.** Home is styles, photos and the camera. A photo is its conversation, a composer with Styles beside it, and Share. A feature gets one place, where it is used, in plain sight; no menus of extras, no second entry point for the same thing.
 - **The camera does not process.** It takes single-frame Bayer RAW and nothing else. Do not add processed capture, ProRAW, multi-frame merging or looks applied at capture; development happens in the conversation.
 - **No limits on the assistant.** No cap on scripts per request, no spending limits, no request timeouts, no token caps. Record what it costs; never stop it for cost or time. Only the person stops it.
 - **The assistant sees its work.** After every script that changes the photo it gets the picture before and after; scripts can ask for more with `photo.show()`. Keep that.
@@ -25,7 +26,7 @@ Status: first prototype (0.1).
 
 ## Engineering rules
 
-- **One editing path.** Every change to a photo goes through `EditHistory` in `PhotoEditor`; every change gives a new revision, and scripts against an old revision are refused.
+- **One way to do each thing.** One editing path (`PhotoEditor.set`), one history (the transcript), one way to get pictures of a photo (`PhotoRenderer`), one way to turn a style into settings (`Style.applied`), one way out of the app (`AppModel.export`), and on screen one Share button, one style tile and one naming alert. Before adding a second way to do something, change the first.
 - **The transcript is the conversation.** A photo's thread and what the model is told are read from its append-only `Transcript`; nothing is kept beside it, and every step is written before it is shown. The loop starts from whatever the transcript says, so it can always pick up where it stopped (see `docs/architecture.md`, Agent).
 - **Scripts reach only `photo` and `console`.** All of the API goes through the single native bridge in `ScriptRuntime`.
 - **The original file is never written.**
@@ -47,7 +48,7 @@ python3 scripts/check-strings.py
 
 ## Testing expectations
 
-- Change the editing state, the colour pipeline, filters, history or the agent loop: `OscuruCoreTests`.
+- Change the editing state, the colour pipeline, styles, the transcript or the agent loop: `OscuruCoreTests`.
 - Change what Core Image does: `OscuruEngineTests` (they pin table layouts, colour spaces, directions, RAW decoding).
 - Change the scripting environment or the photo API: `OscuruScriptingTests`.
 - New user-facing flows: extend `OscuruUITests` (it runs against a sample photo and a played-back model, `-ui-testing`), finding elements by accessibility identifier.

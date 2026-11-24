@@ -16,11 +16,11 @@ The assistant never uses AI image generation and never invents content. It write
 - **A camera that doesn't process.** Shoot single-frame Bayer RAW: no Smart HDR, Deep Fusion, night mode, noise reduction or sharpening at capture, just what the sensor saw, kept as a DNG. The shot opens as a new conversation.
 - **A conversation.** Each photo is a thread: the original, what you asked for, and the version that came back. Open any version to zoom in or compare it with the one before. Nothing is lost: the thread survives a dropped connection or the app closing, and the assistant picks up where it stopped. You can keep talking while it works.
 - **An assistant that looks.** It sees the photo before and after each step, can zoom into any part of it, and measures what it needs (histogram, clipping, colour casts). It works as long as the photo needs, and you can stop it at any time.
-- **Every version kept.** Nothing is lost: any earlier version in the thread can be brought back or shared, and the thread is saved with the photo.
-- **Edits to part of the photo.** The assistant can mask a subject or the people it finds on the phone, an oval or a gradient it places by looking, or a range of tones or colours, and change exposure, contrast, colour and clarity inside it. It checks every mask by looking at it.
+- **Every version kept.** Any earlier version in the thread can be opened, compared and brought back; the thread is saved with the photo.
+- **Edits to part of the photo.** The assistant selects an object by pointing at it (the phone outlines it), or the subject or people, or shapes and ranges of tone and colour, joined and cut as needed, and draws by hand what is left. It changes exposure, contrast, colour and clarity inside, and checks every mask before using it.
 - **Film grain and halation.** Grain that scales with the photo and is strongest in the midtones, and the red glow film shows around bright light.
-- **Styles from pictures.** On the home screen, make a style from a photo whose look you love: from the edit alone, Oscuru matches each photo's tones and colours to it; add the original too and it learns exactly what the edit changed. Apply a style to many photos at once.
-- **Styles.** Save a photo's look as a style and apply it to any photo, yourself or by asking the assistant.
+- **Styles.** A look you can put on any photo. Save one from a photo you like with the Styles button beside the composer, where each of your styles is shown tried on the photo; or make one on the home screen from a picture whose look you love (add its original too and Oscuru learns exactly what the edit changed). Tap a style on the home screen, then the photos it goes on; or ask the assistant.
+- **Share.** One button: the developed photo as a full-size JPEG, or the original file untouched (a RAW stays RAW). From a photo, or from a selection in the library.
 - **Real RAW development, ours.** Apple ProRAW, DNG and the camera RAW formats iOS reads, plus JPEG and HEIC, developed on the phone with Core Image. Apple's decoder only does the maths the file dictates; its tone curve, noise reduction and sharpening are off, and Oscuru's own base curve keeps the light as measured. Originals are never changed. Export at full resolution to JPEG or HEIC.
 - **Your model, your account.** The assistant runs on any OpenRouter model that reads images and calls tools, with your own sign-in. The app records what it costs and sets no limits of its own.
 
@@ -29,9 +29,9 @@ The assistant never uses AI image generation and never invents content. It write
 A native iPhone app: Swift, SwiftUI, Core Image and JavaScriptCore. No server, no web views, no React Native.
 
 ```
-ios/App                         SwiftUI app: library, the photo screen, filters, settings
+ios/App                         SwiftUI app: library, the photo screen, styles, camera, settings
 ios/Packages/OscuruKit
-  OscuruCore                    editing state, colour pipeline, filters, history, the agent loop,
+  OscuruCore                    editing state, colour pipeline, styles, the transcript, the agent loop,
                                 the OpenRouter client, the photo API and prompt (pure Swift, also builds on Linux)
   OscuruEngine                  RAW decoding and rendering with Core Image
   OscuruScripting               the JavaScriptCore environment scripts run in
