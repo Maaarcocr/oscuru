@@ -9,7 +9,7 @@ import OscuruCore
 ///
 /// Pipeline, in order: develop (exposure, white balance, noise reduction, in linear light; for RAW
 /// files, Apple's decoder with its looks off, then Oscuru's base curve) → local highlight and shadow recovery → local contrast → tone tables → colour cube →
-/// flips, rotation, straightening, crop → vignette → output.
+/// halation → flips, rotation, straightening, crop → local adjustments → vignette → grain → output.
 public final class Engine: @unchecked Sendable {
   public let context: CIContext
   private let lock = NSLock()
@@ -93,6 +93,39 @@ public final class Engine: @unchecked Sendable {
     }
   }
 
+  /// The photo with the area a mask covers painted red, as an sRGB JPEG, and the share of the
+  /// frame the mask covers (0 to 1).
+  public func maskPreview(id: String, recipe: RenderRecipe, mask: Mask, options: RenderOptions, quality: Double = 0.85) throws -> (jpeg: Data, coverage: Double) {
+    try locked {
+      var options = options
+      options.mask = mask
+      var coverage = 0.0
+      let image = try buildImage(session: try session(id), recipe: recipe, options: options) { shown in
+        coverage = self.average(of: shown)
+      }
+      let writeOptions: [CIImageRepresentationOption: Any] = [
+        CIImageRepresentationOption(rawValue: kCGImageDestinationLossyCompressionQuality as String): min(1, max(0.1, quality))
+      ]
+      guard let data = context.jpegRepresentation(of: image, colorSpace: sRGB, options: writeOptions) else {
+        throw EngineError.renderFailed("the image could not be encoded")
+      }
+      return (data, coverage)
+    }
+  }
+
+  /// The mean of a grey mask's first channel.
+  private func average(of mask: CIImage) -> Double {
+    let average = CIFilter.areaAverage()
+    average.inputImage = mask
+    average.extent = mask.extent
+    guard let output = average.outputImage else { return 0 }
+    var pixel = [Float](repeating: 0, count: 4)
+    context.render(
+      output, toBitmap: &pixel, rowBytes: 16, bounds: CGRect(x: output.extent.minX, y: output.extent.minY, width: 1, height: 1), format: .RGBAf,
+      colorSpace: nil)
+    return Double(min(1, max(0, pixel[0])))
+  }
+
   /// Develops the photo at full resolution into a file, in Display P3, carrying the capture details over.
   public func export(id: String, recipe: RenderRecipe, format: ExportFormat, to url: URL, quality: Double = 0.95) throws -> (width: Int, height: Int) {
     try locked {
@@ -125,8 +158,9 @@ public final class Engine: @unchecked Sendable {
     }
   }
 
-  /// The fully processed image, with its extent starting at the origin.
-  func buildImage(session: PhotoSession, recipe: RenderRecipe, options: RenderOptions) throws -> CIImage {
+  /// The fully processed image, with its extent starting at the origin. With `options.mask`, the
+  /// mask is painted over it and handed to `shownMask` too.
+  func buildImage(session: PhotoSession, recipe: RenderRecipe, options: RenderOptions, shownMask: ((CIImage) -> Void)? = nil) throws -> CIImage {
     // Size of the output at full resolution, to choose how much to scale down before processing.
     let quarterTurned = abs(recipe.rotation) % 180 == 90
     var frame = quarterTurned ? CGSize(width: session.size.height, height: session.size.width) : session.size
@@ -182,10 +216,39 @@ public final class Engine: @unchecked Sendable {
       image = filter.outputImage ?? image
     }
 
+    if let halation = recipe.halation {
+      image = Effects.halation(image, halation, edge: workingEdge)
+    }
+
     image = geometry(image, recipe: recipe, fullFrame: options.fullFrame)
+
+    var maskToShow: CIImage?
+    if !recipe.local.isEmpty || options.mask != nil {
+      // The subject and people masks follow the photo through the same flips, turns and crop.
+      var framed: [String: CIImage] = [:]
+      let found: (String) -> CIImage? = { kind in
+        if let mask = framed[kind] { return mask }
+        guard let mask = session.foundMask(kind, extent: extent, context: self.context) else { return nil }
+        let placed = self.geometry(mask, recipe: recipe, fullFrame: options.fullFrame)
+        framed[kind] = placed
+        return placed
+      }
+      let frameEdge = max(image.extent.width, image.extent.height)
+      for pass in recipe.local {
+        image = Effects.local(pass, to: image, mask: Effects.mask(pass.mask, over: image, found: found), edge: frameEdge)
+      }
+      if let shown = options.mask { maskToShow = Effects.mask(shown, over: image, found: found) }
+    }
 
     if recipe.vignette != 0, !options.fullFrame {
       image = vignette(image, amount: recipe.vignette)
+    }
+    if let grain = recipe.grain {
+      image = Effects.grain(image, grain)
+    }
+    if let mask = maskToShow {
+      image = Effects.overlay(image, mask: mask)
+      shownMask?(mask)
     }
     if let region = options.region {
       let size = image.extent.size

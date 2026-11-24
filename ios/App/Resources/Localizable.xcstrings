@@ -225,6 +225,70 @@
         }
       }
     },
+    "change.grain": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Grain"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Grana"
+          }
+        }
+      }
+    },
+    "change.halation": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Halation"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Alone"
+          }
+        }
+      }
+    },
+    "change.local": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Local:"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Locale:"
+          }
+        }
+      }
+    },
+    "change.localNone": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Local adjustments removed"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Regolazioni locali rimosse"
+          }
+        }
+      }
+    },
     "color.aqua": {
       "localizations": {
         "en": {
@@ -1345,6 +1409,22 @@
         }
       }
     },
+    "property.amount": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "amount"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "quantità"
+          }
+        }
+      }
+    },
     "property.balance": {
       "localizations": {
         "en": {
@@ -1409,6 +1489,38 @@
         }
       }
     },
+    "property.radius": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "radius"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "raggio"
+          }
+        }
+      }
+    },
+    "property.roughness": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "roughness"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ruvidità"
+          }
+        }
+      }
+    },
     "property.saturation": {
       "localizations": {
         "en": {
@@ -1421,6 +1533,38 @@
           "stringUnit": {
             "state": "translated",
             "value": "saturazione"
+          }
+        }
+      }
+    },
+    "property.size": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "size"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "dimensione"
+          }
+        }
+      }
+    },
+    "property.threshold": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "threshold"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "soglia"
           }
         }
       }

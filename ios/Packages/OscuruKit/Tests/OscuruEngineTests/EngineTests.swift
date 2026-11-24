@@ -561,6 +561,109 @@ final class EngineTests: XCTestCase {
     return url
   }
 
+  // MARK: Grain, halation, local adjustments
+
+  private func recipe(_ change: (inout EditingState) throws -> Void) throws -> RenderRecipe {
+    var state = EditingState()
+    try change(&state)
+    return RenderRecipe(state: state, defaults: PhotoDefaults())
+  }
+
+  private func spread(_ pixels: Pixels) -> Double {
+    let mean = pixels.mean.g
+    var sum = 0.0
+    for y in 0..<pixels.height {
+      for x in 0..<pixels.width {
+        let d = Double(pixels.at(x, y).g) - mean
+        sum += d * d
+      }
+    }
+    return (sum / Double(pixels.width * pixels.height)).squareRoot()
+  }
+
+  func testGrainAddsTextureWithoutChangingBrightnessTheSameEveryTime() throws {
+    _ = try engine.open(id: "g", url: try makePNG("grey.png", width: 400, height: 300, paint: grey(0.5)))
+    let (_, plain) = try render("g")
+    let grainy = try recipe { try $0.setGrain(["amount": 60, "size": 100]) }
+    let (_, first) = try render("g", grainy)
+    XCTAssertLessThan(spread(plain), 1)
+    XCTAssertGreaterThan(spread(first), 3, "grain shows")
+    XCTAssertEqual(first.mean.g, plain.mean.g, accuracy: 3, "grain does not brighten or darken")
+    XCTAssertEqual(try render("g", grainy).1.data, first.data, "the same grain every time")
+  }
+
+  func testHalationGlowsRedAroundBrightAreasOnly() throws {
+    let url = try makePNG("lamp.png", width: 400, height: 300) { x, y in
+      (150..<250).contains(x) && (100..<200).contains(y) ? (1, 1, 1) : (0.15, 0.15, 0.15)
+    }
+    _ = try engine.open(id: "h", url: url)
+    let (_, plain) = try render("h")
+    let (_, glowing) = try render("h", try recipe { try $0.setHalation(["amount": 80, "radius": 60]) })
+    let near = (before: plain.at(140, 150), after: glowing.at(140, 150))
+    XCTAssertGreaterThan(near.after.r, near.before.r + 8, "light spreads just outside the bright area")
+    XCTAssertGreaterThan(near.after.r - near.after.b, near.before.r - near.before.b + 5, "and it is red")
+    XCTAssertEqual(Double(glowing.at(10, 10).r), Double(plain.at(10, 10).r), accuracy: 2, "far away nothing changes")
+  }
+
+  func testARadialAdjustmentChangesItsAreaOnly() throws {
+    _ = try engine.open(id: "r", url: try makePNG("mid.png", width: 400, height: 300, paint: grey(0.4)))
+    let (_, plain) = try render("r")
+    let lit = try recipe {
+      try $0.setLocal(
+        name: "middle", settings: ["mask": ["area": ["type": "radial", "x": 0.5, "y": 0.5, "width": 0.5, "height": 0.5, "feather": 0.2]], "adjust": ["exposureEV": 1]])
+    }
+    let (_, result) = try render("r", lit)
+    XCTAssertGreaterThan(result.at(200, 150).g, plain.at(200, 150).g + 25)
+    XCTAssertEqual(Double(result.at(10, 10).g), Double(plain.at(10, 10).g), accuracy: 1)
+    XCTAssertEqual(Double(result.at(390, 290).g), Double(plain.at(390, 290).g), accuracy: 1)
+  }
+
+  func testALinearGradientFadesFromItsStartToItsEnd() throws {
+    _ = try engine.open(id: "s", url: try makePNG("sky.png", width: 400, height: 300, paint: grey(0.6)))
+    let (_, plain) = try render("s")
+    let sky = try recipe { try $0.setLocal(name: "sky", settings: ["mask": ["area": ["type": "linear", "from": [0.5, 0], "to": [0.5, 0.5]]], "adjust": ["exposureEV": -1]]) }
+    let (_, result) = try render("s", sky)
+    XCTAssertLessThan(result.at(200, 2).g, plain.at(200, 2).g - 20, "full strength at the top")
+    XCTAssertLessThan(result.at(200, 75).g, plain.at(200, 75).g - 5, "fading")
+    XCTAssertEqual(Double(result.at(200, 290).g), Double(plain.at(200, 290).g), accuracy: 1, "nothing past the end")
+  }
+
+  func testRangesNarrowAMaskToTonesAndColours() throws {
+    let url = try makePNG("halves.png", width: 400, height: 300) { x, y in
+      if y < 150 { return x < 200 ? (0.2, 0.2, 0.2) : (0.8, 0.8, 0.8) }
+      return x < 200 ? (0.8, 0.15, 0.1) : (0.15, 0.7, 0.2)
+    }
+    _ = try engine.open(id: "q", url: url)
+    let (_, plain) = try render("q")
+    let bright = try recipe { try $0.setLocal(name: "bright", settings: ["mask": ["area": ["type": "frame"], "luminance": ["from": 0.6, "to": 1]], "adjust": ["exposureEV": -1]]) }
+    let (_, toned) = try render("q", bright)
+    XCTAssertLessThan(toned.at(300, 50).g, plain.at(300, 50).g - 20, "bright tones change")
+    XCTAssertEqual(Double(toned.at(100, 50).g), Double(plain.at(100, 50).g), accuracy: 2, "dark tones do not")
+
+    let reds = try recipe { try $0.setLocal(name: "reds", settings: ["mask": ["area": ["type": "frame"], "color": ["hue": 0, "range": 60]], "adjust": ["saturation": -100]]) }
+    let (_, muted) = try render("q", reds)
+    let red = muted.at(100, 220)
+    XCTAssertLessThan(red.r - red.b, (plain.at(100, 220).r - plain.at(100, 220).b) / 3, "red loses its colour")
+    XCTAssertEqual(Double(muted.at(300, 220).g), Double(plain.at(300, 220).g), accuracy: 2, "green keeps its own")
+  }
+
+  func testAMaskPreviewPaintsItsAreaAndSaysHowMuchItCovers() throws {
+    _ = try engine.open(id: "m", url: try makePNG("plain.png", width: 400, height: 300, paint: grey(0.5)))
+    let ellipse = try Mask.parse("mask", ["area": ["type": "radial", "x": 0.5, "y": 0.5, "width": 0.5, "height": 0.5, "feather": 0]])
+    let preview = try engine.maskPreview(id: "m", recipe: RenderRecipe(), mask: ellipse, options: RenderOptions(maxEdge: 512))
+    XCTAssertFalse(preview.jpeg.isEmpty)
+    XCTAssertEqual(preview.coverage, Double.pi * 0.25 * 0.25, accuracy: 0.03)
+
+    let nothing = try Mask.parse("mask", ["area": ["type": "frame"], "invert": true])
+    XCTAssertEqual(try engine.maskPreview(id: "m", recipe: RenderRecipe(), mask: nothing, options: RenderOptions(maxEdge: 256)).coverage, 0, accuracy: 0.001)
+
+    // A plain grey has no subject: the mask is empty, not an error.
+    let subject = try Mask.parse("mask", ["area": ["type": "subject"]])
+    let found = try engine.maskPreview(id: "m", recipe: RenderRecipe(), mask: subject, options: RenderOptions(maxEdge: 256))
+    XCTAssertGreaterThanOrEqual(found.coverage, 0)
+    XCTAssertLessThanOrEqual(found.coverage, 1)
+  }
+
   func testBaseCurveKeepsMidtonesAndRollsOffHighlights() throws {
     let space = CGColorSpace(name: CGColorSpace.extendedLinearSRGB)!
     func through(_ value: CGFloat) -> Float {

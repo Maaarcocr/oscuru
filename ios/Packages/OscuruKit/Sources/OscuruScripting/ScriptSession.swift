@@ -68,6 +68,15 @@ final class ScriptSession {
         case "grading.reset": try draft.reset(section: "grading", defaults: defaults)
         case "detail.set": try draft.setDetail(argument(0))
         case "detail.get": return .object(draft.detail.mapValues { .number($0) })
+        case "grain.set": try draft.setGrain(argument(0))
+        case "grain.get": return .object(draft.grain.mapValues { .number($0) })
+        case "halation.set": try draft.setHalation(argument(0))
+        case "halation.get": return .object(draft.halation.mapValues { .number($0) })
+        case "local.set": try draft.setLocal(name: argument(0), settings: argument(1))
+        case "local.get": return try draft.localAdjustment(named: argument(0)).json
+        case "local.list": return .array(draft.local.map(\.json))
+        case "local.remove": try draft.removeLocal(name: argument(0))
+        case "local.reset": try draft.reset(section: "local", defaults: defaults)
         case "crop": try draft.setCrop(argument(0))
         case "reset": try draft.reset(section: argument(0) == .null ? "all" : argument(0), defaults: defaults)
         case "revert": draft = request.state
@@ -114,14 +123,16 @@ final class ScriptSession {
     }
 
     private func show(which: JSONValue, options: JSONValue) throws {
-        let kind = which == .null ? "current" : try choice(which, in: ["current", "before", "original"], "what to show")
+        let kind = which == .null ? "current" : try choice(which, in: ["current", "before", "original", "mask"], "what to show")
         var region: ScriptRegion?
         var maxEdge = Prompt.defaultImageEdge
+        var maskName: JSONValue = .null
         if options != .null {
             guard let members = options.objectValue else { throw StateError("show options must be an object, got \(options.described)") }
-            for key in members.keys where key != "region" && key != "maxEdge" {
-                throw StateError("show has no option \"\(key)\". Valid options: region, maxEdge")
+            for key in members.keys where !["region", "maxEdge", "mask"].contains(key) {
+                throw StateError("show has no option \"\(key)\". Valid options: region, maxEdge, mask")
             }
+            maskName = members["mask"] ?? .null
             if let value = members["maxEdge"], value != .null {
                 guard let number = value.doubleValue, number.isFinite else { throw StateError("show maxEdge must be a number, got \(value.described)") }
                 maxEdge = Int(min(Double(Prompt.maxImageEdge), max(Double(Prompt.minImageEdge), number)).rounded())
@@ -139,6 +150,21 @@ final class ScriptSession {
                 }
                 region = candidate
             }
+        }
+        if kind == "mask" {
+            guard maskName != .null else { throw StateError("show(\"mask\") needs options.mask: the name of a local adjustment") }
+            let adjustment = try draft.localAdjustment(named: maskName)
+            guard let preview = host.maskImage(of: draft, mask: adjustment.mask, region: region, maxEdge: maxEdge) else {
+                throw Failure(message: "The photo could not be rendered.")
+            }
+            let zoom = region.map { " (region x \(formatNumber($0.x)), y \(formatNumber($0.y)), width \(formatNumber($0.width)), height \(formatNumber($0.height)))" } ?? ""
+            let percent = formatNumber((preview.coverage * 1000).rounded() / 10)
+            var label = "Shown by your script, picture \(shown.count + 1): the mask of the local adjustment \"\(adjustment.name)\", painted red over the photo with the settings at that point in your script\(zoom). It covers \(percent)% of the frame."
+            if preview.coverage < 0.002 { label += " It is empty: nothing in the photo matched it." }
+            shown.append(LabeledImage(label: label, jpeg: preview.jpeg))
+            return
+        } else if maskName != .null {
+            throw StateError("options.mask is only for show(\"mask\", { mask: name })")
         }
         let state: EditingState
         let what: String

@@ -176,6 +176,103 @@ public enum ColorPipeline {
         return table
     }
 
+    // MARK: Local adjustments
+
+    /// The tone part of a local adjustment as one function of an encoded (display) channel value:
+    /// exposure in linear light (brightening keeps white at white, so it never clips hard), then
+    /// dehaze and contrast as in the global tone stage, then highlights and shadows as gentle bends.
+    public static func localTone(_ adjust: [String: Double]) -> @Sendable (Double) -> Double {
+        let ev = adjust["exposureEV"] ?? 0
+        let gain = pow(2, ev)
+        var toneState = EditingState()
+        toneState.global["contrast"] = adjust["contrast"] ?? 0
+        toneState.global["dehaze"] = adjust["dehaze"] ?? 0
+        let basic = basicTone(toneState)
+        let highlights = (adjust["highlights"] ?? 0) / 100 * 0.12
+        let shadows = (adjust["shadows"] ?? 0) / 100 * 0.12
+        return { input in
+            var x = decode(clamp01(input))
+            x = ev > 0 ? 1 - pow(1 - x, gain) : x * gain
+            var v = basic(encode(x))
+            if highlights != 0 { v += highlights * 6.75 * v * v * (1 - v) }
+            if shadows != 0 { v += shadows * 6.75 * v * (1 - v) * (1 - v) }
+            return clamp01(v)
+        }
+    }
+
+    /// `localTone` as a table like the tone stage's (red, green, blue interleaved, the same value for
+    /// each), or nil when it changes nothing.
+    public static func localToneTable(_ adjust: [String: Double], size: Int = toneTableSize) -> [Float]? {
+        let keys = ["exposureEV", "contrast", "highlights", "shadows", "dehaze"]
+        if keys.allSatisfy({ (adjust[$0] ?? 0) == 0 }) { return nil }
+        let tone = localTone(adjust)
+        var table = [Float](repeating: 0, count: size * 3)
+        for i in 0..<size {
+            let value = Float(tone(Double(i) / Double(size - 1)))
+            for channel in 0..<3 { table[i * 3 + channel] = value }
+        }
+        return table
+    }
+
+    /// Linear-light gains for a local white balance shift (each −100 to 100), keeping luma the same.
+    public static func whiteBalanceGains(temperature: Double, tint: Double) -> [Double] {
+        let warm = temperature / 100 * 0.22
+        let magenta = tint / 100 * 0.12
+        let r = exp(warm)
+        let g = exp(-magenta)
+        let b = exp(-warm)
+        // Luma weights for linear Rec. 709 primaries, the working space the engine applies gains in.
+        let luma = 0.2126 * r + 0.7152 * g + 0.0722 * b
+        return [r / luma, g / luma, b / luma]
+    }
+
+    /// How much a colour (encoded Display P3) belongs to a mask's tone and colour ranges, 0 to 1.
+    /// Without either range, every colour belongs fully.
+    public static func rangeWeight(_ r: Double, _ g: Double, _ b: Double, luminance: LuminanceRange?, color: HueRange?) -> Double {
+        var weight = 1.0
+        if let luminance {
+            let y = luma(r, g, b)
+            let f = Swift.max(luminance.feather, 0.001)
+            if luminance.from > 0 { weight *= smoothstep(luminance.from - f, luminance.from + f, y) }
+            if luminance.to < 1 { weight *= 1 - smoothstep(luminance.to - f, luminance.to + f, y) }
+        }
+        if let color {
+            let high = Swift.max(r, g, b)
+            let chroma = high - Swift.min(r, g, b)
+            // Greys have no hue: they are left out, fading in as colour appears.
+            weight *= smoothstep(0.03, 0.12, chroma)
+            if chroma > 0 {
+                let difference = abs(hue(r, g, b, max: high, chroma: chroma) - color.hue).truncatingRemainder(dividingBy: 360)
+                let distance = Swift.min(difference, 360 - difference)
+                let half = color.range / 2
+                weight *= 1 - smoothstep(half * 0.5, half * 1.25, distance)
+            }
+        }
+        return weight
+    }
+
+    /// A mask's tone and colour ranges as a colour cube over encoded Display P3 (red fastest, RGBA,
+    /// the weight in red, green and blue), or nil when the mask has neither.
+    public static func rangeMaskCube(luminance: LuminanceRange?, color: HueRange?, size: Int = cubeSize) -> [Float]? {
+        if luminance == nil && color == nil { return nil }
+        var cube = [Float](repeating: 0, count: size * size * size * 4)
+        let step = 1 / Double(size - 1)
+        var index = 0
+        for blue in 0..<size {
+            for green in 0..<size {
+                for red in 0..<size {
+                    let weight = Float(rangeWeight(Double(red) * step, Double(green) * step, Double(blue) * step, luminance: luminance, color: color))
+                    cube[index] = weight
+                    cube[index + 1] = weight
+                    cube[index + 2] = weight
+                    cube[index + 3] = 1
+                    index += 4
+                }
+            }
+        }
+        return cube
+    }
+
     static func hue(_ r: Double, _ g: Double, _ b: Double, max: Double, chroma: Double) -> Double {
         var hue: Double
         if max == r {

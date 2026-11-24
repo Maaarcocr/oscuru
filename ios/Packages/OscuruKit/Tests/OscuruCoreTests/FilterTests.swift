@@ -136,7 +136,7 @@ final class FilterTests: XCTestCase {
         XCTAssertEqual(try JSONDecoder().decode(Look.self, from: data), look)
 
         let json = try JSONDecoder().decode(JSONValue.self, from: data)
-        XCTAssertEqual(Set(json.objectValue?.keys.map { $0 } ?? []), ["global", "temperatureShift", "tintShift", "curves", "hsl", "grading"])
+        XCTAssertEqual(Set(json.objectValue?.keys.map { $0 } ?? []), ["global", "temperatureShift", "tintShift", "curves", "hsl", "grading", "grain", "halation"])
         XCTAssertEqual(json["temperatureShift"], 500)
         XCTAssertNil(json["crop"])
         XCTAssertNil(json["detail"])

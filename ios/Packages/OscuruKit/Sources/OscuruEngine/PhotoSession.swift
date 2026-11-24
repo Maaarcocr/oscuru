@@ -24,6 +24,11 @@ public final class PhotoSession {
 
   /// The developed RAW at preview size, kept so that later stages can change without decoding again.
   private var developedCache: (key: String, image: CIImage)?
+  /// What Vision found in the photo ("subject", "people"), searched for once each.
+  private var found: [String: CIImage] = [:]
+  private var searched: Set<String> = []
+  /// The photo as Vision sees it: developed as opened, small.
+  private var analysisPicture: CGImage?
 
   private static let previewLongEdge: CGFloat = 2560
   private static let rawExtensions: Set<String> = [
@@ -176,6 +181,32 @@ public final class PhotoSession {
       image = (sharpen.outputImage ?? image).cropped(to: image.extent)
     }
     return image
+  }
+
+  /// The subject or people Vision finds in the photo, as a grey mask covering `extent` (the
+  /// developed photo at the size being rendered). Nil when there is nothing of that kind.
+  func foundMask(_ kind: String, extent: CGRect, context: CIContext) -> CIImage? {
+    if !searched.contains(kind) {
+      searched.insert(kind)
+      if let picture = analysisImage(context: context) {
+        found[kind] = kind == "people" ? Effects.findPeople(in: picture) : Effects.findSubject(in: picture)
+      }
+    }
+    guard let mask = found[kind] else { return nil }
+    let size = mask.extent.size
+    let transform = CGAffineTransform(scaleX: extent.width / size.width, y: extent.height / size.height)
+      .concatenating(CGAffineTransform(translationX: extent.minX, y: extent.minY))
+    return mask.transformed(by: transform).cropped(to: extent)
+  }
+
+  private func analysisImage(context: CIContext) -> CGImage? {
+    if let analysisPicture { return analysisPicture }
+    let scale = min(1, 1024 / max(size.width, size.height))
+    guard let image = try? developed(recipe: RenderRecipe(), scale: scale, cache: false, context: context),
+      let space = CGColorSpace(name: CGColorSpace.sRGB)
+    else { return nil }
+    analysisPicture = context.createCGImage(image, from: image.extent, format: .RGBA8, colorSpace: space)
+    return analysisPicture
   }
 
   /// Leaves Apple's decoder only what the file's own numbers decide: demosaicing, the camera's

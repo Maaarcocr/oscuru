@@ -8,6 +8,8 @@ import XCTest
 private final class FakeHost: ScriptHost, @unchecked Sendable {
     var filters = FilterCollection()
     var imageRequests: [(state: EditingState, region: ScriptRegion?, maxEdge: Int)] = []
+    var maskRequests: [Mask] = []
+    var maskCoverage = 0.25
     var analysisCount = 0
     var failRendering = false
 
@@ -24,6 +26,12 @@ private final class FakeHost: ScriptHost, @unchecked Sendable {
         if failRendering { return nil }
         imageRequests.append((state, region, maxEdge))
         return Data("jpeg-\(imageRequests.count)".utf8)
+    }
+
+    func maskImage(of state: EditingState, mask: Mask, region: ScriptRegion?, maxEdge: Int) -> (jpeg: Data, coverage: Double)? {
+        if failRendering { return nil }
+        maskRequests.append(mask)
+        return (Data("mask-\(maskRequests.count)".utf8), maskCoverage)
     }
 
     func filterNames() -> [String] { filters.filters.map(\.name) }
@@ -198,6 +206,60 @@ final class ScriptRuntimeTests: XCTestCase {
         XCTAssertTrue(outcome.shown[2].label.contains("original"))
         XCTAssertTrue(outcome.shown[2].label.contains("region"))
         XCTAssertEqual(outcome.shown[1].jpeg, Data("jpeg-2".utf8))
+    }
+
+    func testGrainHalationAndLocalAdjustmentsFromAScript() async {
+        let outcome = await run(
+            """
+            const image = photo.current;
+            image.grain.set({ amount: 20, size: 15 });
+            image.halation.set({ amount: 12 });
+            image.local.set("pagoda", { mask: { area: { type: "radial", x: 0.55, y: 0.4, width: 0.3, height: 0.6 } }, adjust: { exposureEV: 0.4, clarity: 15 } });
+            image.local.set("sky", { mask: { area: { type: "linear", from: [0.5, 0], to: [0.5, 0.4] }, luminance: { from: 0.5, to: 1 } }, adjust: { exposureEV: -0.3 } });
+            image.local.set("pagoda", { adjust: { dehaze: 10 } });
+            image.local.remove("sky");
+            ({ grain: image.grain.get().amount, names: image.local.list().map((l) => l.name), pagoda: image.local.get("PAGODA").adjust });
+            """)
+        XCTAssertNil(outcome.error)
+        XCTAssertEqual(outcome.state.grain["amount"], 20)
+        XCTAssertEqual(outcome.state.halation["amount"], 12)
+        XCTAssertEqual(outcome.state.local.map(\.name), ["pagoda"])
+        XCTAssertEqual(outcome.state.local.first?.adjust["dehaze"], 10)
+        XCTAssertEqual(outcome.state.local.first?.adjust["exposureEV"], 0.4)
+        XCTAssertTrue(outcome.returnValue?.contains("\"names\":[\"pagoda\"]") ?? false)
+        XCTAssertEqual(outcome.changes.map(\.path), ["grain.amount", "grain.size", "halation.amount", "local"])
+
+        let mistake = await run("photo.current.local.set('face', { adjust: { exposureEV: 0.2 } })")
+        XCTAssertEqual(mistake.error?.name, "RangeError")
+        XCTAssertTrue(mistake.error?.message.contains("needs a mask") ?? false)
+    }
+
+    func testShowingAMaskSaysHowMuchItCovers() async {
+        let outcome = await run(
+            """
+            photo.current.local.set("face", { mask: { area: { type: "subject" } } });
+            photo.show("mask", { mask: "face" });
+            """)
+        XCTAssertNil(outcome.error)
+        XCTAssertEqual(host.maskRequests.map(\.area.type), ["subject"])
+        XCTAssertEqual(outcome.shown.count, 1)
+        XCTAssertTrue(outcome.shown[0].label.contains("covers 25% of the frame"))
+        XCTAssertEqual(outcome.shown[0].jpeg, Data("mask-1".utf8))
+
+        host.maskCoverage = 0
+        let empty = await run(
+            """
+            photo.current.local.set("face", { mask: { area: { type: "people" } } });
+            photo.show("mask", { mask: "face" });
+            """)
+        XCTAssertTrue(empty.shown.first?.label.contains("It is empty") ?? false)
+
+        let unnamed = await run("photo.show('mask')")
+        XCTAssertTrue(unnamed.error?.message.contains("needs options.mask") ?? false)
+        let unknown = await run("photo.show('mask', { mask: 'nobody' })")
+        XCTAssertTrue(unknown.error?.message.contains("no local adjustment named") ?? false)
+        let misplaced = await run("photo.current.local.set('a', { mask: { area: { type: 'frame' } } }); photo.show('current', { mask: 'a' })")
+        XCTAssertTrue(misplaced.error?.message.contains("only for show(\"mask\"") ?? false)
     }
 
     func testShowRejectsBadArguments() async {

@@ -45,6 +45,8 @@ public enum PhotoAPI {
            *   "current"  the photo with the settings as they are at this point in the script (default)
            *   "before"   the photo as it was when the person gave this instruction
            *   "original" the photo as opened, with no edits (same crop)
+           *   "mask"     the photo as it is now with the area of the local adjustment named in
+           *              `options.mask` painted red, and how much of the frame it covers
            * `region` zooms in on part of the frame, given as fractions from its top-left corner, to
            * judge detail, noise, skin or edges. `maxEdge` is the long edge in pixels (default \(Prompt.defaultImageEdge),
            * up to \(Prompt.maxImageEdge)).
@@ -52,7 +54,7 @@ public enum PhotoAPI {
            * You do not need this for the usual case: whenever a script changes the photo, the reply
            * already includes it before your edits and as it is now.
            */
-          show(which?: "current" | "before" | "original", options?: { region?: Region; maxEdge?: number }): void;
+          show(which?: "current" | "before" | "original" | "mask", options?: { region?: Region; maxEdge?: number; mask?: string }): void;
 
           /** The person's saved filters: looks they can apply to any photo. */
           readonly filters: {
@@ -117,6 +119,38 @@ public enum PhotoAPI {
             get(): DetailSettings;
           };
 
+          /** Film grain, laid over the finished frame. Values left out keep their current value. */
+          readonly grain: {
+            set(settings: Partial<GrainSettings>): void;
+            get(): GrainSettings;
+          };
+
+          /** The warm glow film shows around bright highlights. Values left out keep their current value. */
+          readonly halation: {
+            set(settings: Partial<HalationSettings>): void;
+            get(): HalationSettings;
+          };
+
+          /**
+           * Local adjustments: changes to part of the photo. Each has a name you choose, a mask that says
+           * where it applies, and what it changes there, relative to the rest of the photo. They apply in
+           * order, after the global tone and colour, to the frame as cropped. Check a mask with
+           * `photo.show("mask", { mask: name })` before relying on it.
+           */
+          readonly local: {
+            /**
+             * Creates the local adjustment `name`, or changes it if it exists. A new one needs a mask.
+             * A mask given replaces the old one; adjust values left out keep their value (0 for a new
+             * one). At most \(Specs.maxLocalAdjustments) per photo.
+             */
+            set(name: string, settings: { mask?: Mask; adjust?: Partial<LocalSettings> }): void;
+            get(name: string): LocalAdjustment;
+            list(): LocalAdjustment[];
+            remove(name: string): void;
+            /** Removes them all. */
+            reset(): void;
+          };
+
           /** Crops, straightens, turns or flips. Values left out keep their current value. */
           crop(settings: Partial<CropSettings>): void;
 
@@ -159,6 +193,61 @@ public enum PhotoAPI {
         \(fields(Specs.detail) { _ in "Starts at 0: nothing is added until you add it." })
         }
 
+        interface GrainSettings {
+        \(fields(Specs.grain))
+        }
+
+        interface HalationSettings {
+        \(fields(Specs.halation))
+        }
+
+        /** Relative to the rest of the photo; 0 is no change. */
+        interface LocalSettings {
+        \(fields(Specs.localAdjustments))
+        }
+
+        interface LocalAdjustment {
+          name: string;
+          mask: Mask;
+          adjust: LocalSettings;
+        }
+
+        /**
+         * Where a local adjustment applies. Positions are fractions of the frame as you see it (after the
+         * crop), from its top-left corner: x to the right, y down. Crop first, then place masks: a later
+         * crop does not move them with the picture.
+         */
+        interface Mask {
+          area: RadialArea | LinearArea | SubjectArea | PeopleArea | FrameArea;
+          /** Use everything outside the area instead. Default false. */
+          invert?: boolean;
+          /**
+           * Keep only these tones, measured on the photo before this adjustment: display luminance from
+           * 0 (black) to 1 (white), with soft edges `feather` wide (0 to 0.5, default 0.1).
+           */
+          luminance?: { from: number; to: number; feather?: number };
+          /**
+           * Keep only colours near this hue (0 red, 30 orange, 60 yellow, 120 green, 180 cyan, 240 blue,
+           * 300 magenta), fading out beyond ±range/2 degrees (range 10 to 180, default 60). Greys are left out.
+           */
+          color?: { hue: number; range?: number };
+        }
+
+        /**
+         * An ellipse. x, y: its centre (-0.5 to 1.5). width, height: its full size as fractions of the
+         * frame's width and height (0.02 to 3). angle: degrees clockwise (-180 to 180, default 0).
+         * feather: how soft the edge is, from 0 (hard) to 1 (fading from the centre); default 0.5.
+         */
+        interface RadialArea { type: "radial"; x: number; y: number; width: number; height: number; angle?: number; feather?: number; }
+        /** A straight gradient: full strength at `from`, fading to nothing at `to`; [x, y] points (-0.5 to 1.5). A sky: from [0.5, 0] to [0.5, 0.45]. */
+        interface LinearArea { type: "linear"; from: [number, number]; to: [number, number]; }
+        /** The main subject or subjects, found by the phone's on-device image analysis. Empty when it finds none. */
+        interface SubjectArea { type: "subject"; }
+        /** Every person in the photo, found by the phone's on-device image analysis. Empty when there are none. */
+        interface PeopleArea { type: "people"; }
+        /** The whole frame: use it with `luminance` or `color` to pick tones or colours anywhere. */
+        interface FrameArea { type: "frame"; }
+
         /**
          * Order of operations: flips, then rotation, then straightening (which trims the frame so no empty
          * corners show), then the crop rectangle, given as fractions of that trimmed frame from its top-left corner.
@@ -186,6 +275,9 @@ public enum PhotoAPI {
           hsl: Record<ColorRange, HSLAdjustments>;
           grading: Record<GradingRange, ColorGrading> & GradingMix;
           detail: DetailSettings;
+          grain: GrainSettings;
+          halation: HalationSettings;
+          local: LocalAdjustment[];
           crop: CropSettings;
         }
 
@@ -263,7 +355,7 @@ public enum PhotoAPI {
          * clipping. No other tone curve, contrast or local tone mapping is applied for you, so an
          * unedited RAW looks flat and true to the scene. Then: local highlight/shadow recovery, clarity and
          * texture, the tone stage (dehaze, blacks/whites, contrast, curves), the colour stage (HSL,
-         * vibrance, saturation, grading), geometry, vignette.
+         * vibrance, saturation, grading), halation, geometry, local adjustments, vignette, grain.
          */
 
         """

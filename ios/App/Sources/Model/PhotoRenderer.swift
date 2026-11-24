@@ -58,6 +58,11 @@ final class PhotoRenderer: ScriptHost, @unchecked Sendable {
         return try? engine.jpeg(id: id, recipe: recipe(state), options: RenderOptions(maxEdge: Double(maxEdge), region: rect))
     }
 
+    func maskImage(of state: EditingState, mask: Mask, region: ScriptRegion?, maxEdge: Int) -> (jpeg: Data, coverage: Double)? {
+        let rect = region.map { CGRect(x: $0.x, y: $0.y, width: $0.width, height: $0.height) }
+        return try? engine.maskPreview(id: id, recipe: recipe(state), mask: mask, options: RenderOptions(maxEdge: Double(maxEdge), region: rect))
+    }
+
     func filterNames() -> [String] { filters.filters.map(\.name) }
     func look(named name: String) -> Look? { filters.named(name)?.look }
     func saveFilter(name: String, look: Look) -> Bool { filters.save(name: name, look: look) }

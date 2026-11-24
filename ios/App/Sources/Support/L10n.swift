@@ -156,6 +156,13 @@ enum L10n {
             return "\(String(localized: "change.grading")) \(range(parts[1])) \(property(parts[2])) \(value)"
         case ("grading", 2):
             return "\(String(localized: "change.grading")) \(property(parts[1])) \(percent(change.to))"
+        case ("grain", 2):
+            return "\(String(localized: "change.grain")) \(effectProperty(parts[1])) \(plain(change.to))"
+        case ("halation", 2):
+            return "\(String(localized: "change.halation")) \(effectProperty(parts[1])) \(plain(change.to))"
+        case ("local", _):
+            let names = (change.to.arrayValue ?? []).compactMap { $0["name"]?.stringValue }
+            return names.isEmpty ? String(localized: "change.localNone") : "\(String(localized: "change.local")) \(names.joined(separator: ", "))"
         case ("crop", _):
             return String(localized: "change.crop")
         default:
@@ -224,6 +231,16 @@ enum L10n {
         case "luminance": return String(localized: "property.luminance")
         case "blending": return String(localized: "property.blending")
         default: return String(localized: "property.balance")
+        }
+    }
+
+    static func effectProperty(_ name: String) -> String {
+        switch name {
+        case "amount": return String(localized: "property.amount")
+        case "size": return String(localized: "property.size")
+        case "roughness": return String(localized: "property.roughness")
+        case "radius": return String(localized: "property.radius")
+        default: return String(localized: "property.threshold")
         }
     }
 

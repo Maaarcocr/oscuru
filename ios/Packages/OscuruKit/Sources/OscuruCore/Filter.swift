@@ -2,7 +2,8 @@ import Foundation
 
 /// The part of an edit that carries over to another photo: its look.
 ///
-/// Crop and detail settings belong to the photo they were made on and are left out. White balance
+/// Crop, detail and local adjustments belong to the photo they were made on and are left out;
+/// grain and halation are part of the look and carry over. White balance
 /// is kept as a shift from the as-shot value, so "a little warmer" stays a little warmer on a photo
 /// taken in different light.
 public struct Look: Codable, Equatable, Sendable {
@@ -12,6 +13,25 @@ public struct Look: Codable, Equatable, Sendable {
     public var curves: [String: [[Double]]]
     public var hsl: [String: [String: Double]]
     public var grading: Grading
+    public var grain: [String: Double]
+    public var halation: [String: Double]
+
+    enum CodingKeys: String, CodingKey {
+        case global, temperatureShift, tintShift, curves, hsl, grading, grain, halation
+    }
+
+    /// Filters saved before grain and halation existed have none.
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        global = try container.decode([String: Double].self, forKey: .global)
+        temperatureShift = try container.decode(Double.self, forKey: .temperatureShift)
+        tintShift = try container.decode(Double.self, forKey: .tintShift)
+        curves = try container.decode([String: [[Double]]].self, forKey: .curves)
+        hsl = try container.decode([String: [String: Double]].self, forKey: .hsl)
+        grading = try container.decode(Grading.self, forKey: .grading)
+        grain = try container.decodeIfPresent([String: Double].self, forKey: .grain) ?? EditingState.defaults(Specs.grain)
+        halation = try container.decodeIfPresent([String: Double].self, forKey: .halation) ?? EditingState.defaults(Specs.halation)
+    }
 
     public init(state: EditingState, defaults: PhotoDefaults) {
         let base = EditingState(defaults: defaults)
@@ -24,6 +44,8 @@ public struct Look: Codable, Equatable, Sendable {
         curves = state.curves
         hsl = state.hsl
         grading = state.grading
+        grain = state.grain
+        halation = state.halation
     }
 
     /// The photo's state with this look in place of its own. Its crop and detail settings stay.
@@ -40,6 +62,8 @@ public struct Look: Codable, Equatable, Sendable {
         result.curves = curves
         result.hsl = hsl
         result.grading = grading
+        result.grain = grain
+        result.halation = halation
         return result
     }
 }

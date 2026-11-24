@@ -8,11 +8,14 @@ public struct RenderOptions {
     public var fullFrame = false
     /// Render only this part of the (cropped) frame, as fractions from its top-left corner.
     public var region: CGRect?
+    /// Paint the area this mask covers red over the photo.
+    public var mask: Mask?
 
-    public init(maxEdge: Double = 0, fullFrame: Bool = false, region: CGRect? = nil) {
+    public init(maxEdge: Double = 0, fullFrame: Bool = false, region: CGRect? = nil, mask: Mask? = nil) {
         self.maxEdge = maxEdge
         self.fullFrame = fullFrame
         self.region = region
+        self.mask = mask
     }
 }
 

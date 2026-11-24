@@ -61,6 +61,34 @@ public enum Specs {
         ParamSpec("colorNoiseReduction", 0, 100, "Colour noise reduction (RAW files only)."),
     ]
 
+    public static let grain: [ParamSpec] = [
+        ParamSpec("amount", 0, 100, "Strength of film grain. 0 is off; 10 to 30 is subtle, 40 and above is strong."),
+        ParamSpec("size", 0, 100, start: 25, "Grain size relative to the frame: 0 is very fine, like slow film; 100 is coarse, like pushed fast film."),
+        ParamSpec("roughness", 0, 100, start: 50, "How uneven the grain is: 0 is even and smooth, 100 is clumpy."),
+    ]
+
+    public static let halation: [ParamSpec] = [
+        ParamSpec("amount", 0, 100, "Strength of halation, the warm red glow film shows around bright highlights. 0 is off; 10 to 40 is typical."),
+        ParamSpec("radius", 0, 100, start: 30, "How far the glow spreads, relative to the frame."),
+        ParamSpec("threshold", 0, 100, start: 70, "How bright an area must be to glow: higher keeps it to the brightest highlights."),
+    ]
+
+    /// What a local adjustment can change inside its mask. Each is relative to the rest of the photo: 0 is no change.
+    public static let localAdjustments: [ParamSpec] = [
+        ParamSpec("exposureEV", -4, 4, unit: "stops", "Brightness of the area, in stops."),
+        ParamSpec("contrast", -100, 100, "Contrast inside the area."),
+        ParamSpec("highlights", -100, 100, "Negative darkens the area's bright tones, positive brightens them."),
+        ParamSpec("shadows", -100, 100, "Positive opens the area's dark tones, negative deepens them."),
+        ParamSpec("temperature", -100, 100, "Positive is warmer than the rest of the photo, negative cooler."),
+        ParamSpec("tint", -100, 100, "Positive is more magenta than the rest of the photo, negative greener."),
+        ParamSpec("saturation", -100, 100, "Saturation inside the area. -100 removes its colour."),
+        ParamSpec("clarity", -100, 100, "Mid-size local contrast inside the area. Negative softens."),
+        ParamSpec("dehaze", -100, 100, "Positive removes a veil inside the area, negative adds one."),
+    ]
+
+    public static let maskAreas = ["radial", "linear", "subject", "people", "frame"]
+    public static let maxLocalAdjustments = 8
+
     public static let cropAngle = ParamSpec(
         "angle", -45, 45, unit: "°",
         "Straighten angle. Positive turns the photo clockwise. The frame is trimmed so no empty corners show.")
@@ -68,7 +96,7 @@ public enum Specs {
     public static let colorRanges = ["red", "orange", "yellow", "green", "aqua", "blue", "purple", "magenta"]
     public static let curveChannels = ["rgb", "red", "green", "blue"]
     public static let gradingRanges = ["shadows", "midtones", "highlights"]
-    public static let resetSections = ["all", "light", "color", "curves", "hsl", "grading", "detail", "crop"]
+    public static let resetSections = ["all", "light", "color", "curves", "hsl", "grading", "detail", "effects", "local", "crop"]
 
     public static let maxCurvePoints = 16
     public static let minCurveGap = 0.004
@@ -146,9 +174,36 @@ public struct EditingState: Codable, Equatable, Sendable {
     public var hsl: [String: [String: Double]]
     public var grading: Grading
     public var detail: [String: Double]
+    /// Film grain and halation.
+    public var grain: [String: Double]
+    public var halation: [String: Double]
+    /// Adjustments to parts of the photo, applied in order.
+    public var local: [LocalAdjustment]
     public var crop: Crop
 
     static let identityCurve: [[Double]] = [[0, 0], [1, 1]]
+
+    static func defaults(_ specs: [ParamSpec]) -> [String: Double] {
+        Dictionary(uniqueKeysWithValues: specs.map { ($0.name, $0.defaultValue) })
+    }
+
+    enum CodingKeys: String, CodingKey {
+        case global, curves, hsl, grading, detail, grain, halation, local, crop
+    }
+
+    /// Reads a saved state. Photos saved before grain, halation and local adjustments existed have none.
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        global = try container.decode([String: Double].self, forKey: .global)
+        curves = try container.decode([String: [[Double]]].self, forKey: .curves)
+        hsl = try container.decode([String: [String: Double]].self, forKey: .hsl)
+        grading = try container.decode(Grading.self, forKey: .grading)
+        detail = try container.decode([String: Double].self, forKey: .detail)
+        grain = try container.decodeIfPresent([String: Double].self, forKey: .grain) ?? EditingState.defaults(Specs.grain)
+        halation = try container.decodeIfPresent([String: Double].self, forKey: .halation) ?? EditingState.defaults(Specs.halation)
+        local = try container.decodeIfPresent([LocalAdjustment].self, forKey: .local) ?? []
+        crop = try container.decode(Crop.self, forKey: .crop)
+    }
 
     /// The state of an untouched photo.
     public init(defaults: PhotoDefaults = PhotoDefaults()) {
@@ -169,6 +224,9 @@ public struct EditingState: Codable, Equatable, Sendable {
             "noiseReduction": start(defaults.noiseReduction, Specs.detail[1]),
             "colorNoiseReduction": start(defaults.colorNoiseReduction, Specs.detail[2]),
         ]
+        grain = EditingState.defaults(Specs.grain)
+        halation = EditingState.defaults(Specs.halation)
+        local = []
         crop = Crop()
     }
 
@@ -206,6 +264,57 @@ public struct EditingState: Codable, Equatable, Sendable {
 
     public mutating func setDetail(_ settings: JSONValue) throws {
         for (key, value) in try checkNumbers("detail", settings, Specs.detail) { detail[key] = value }
+    }
+
+    public mutating func setGrain(_ settings: JSONValue) throws {
+        for (key, value) in try checkNumbers("grain", settings, Specs.grain) { grain[key] = value }
+    }
+
+    public mutating func setHalation(_ settings: JSONValue) throws {
+        for (key, value) in try checkNumbers("halation", settings, Specs.halation) { halation[key] = value }
+    }
+
+    /// Creates the local adjustment called `name`, or changes it. A new one needs a mask; a mask
+    /// given replaces the old one; adjust values left out keep their value (0 for a new one).
+    public mutating func setLocal(name nameValue: JSONValue, settings: JSONValue) throws {
+        guard let raw = nameValue.stringValue, !LocalAdjustment.cleanName(raw).isEmpty else {
+            throw StateError("a local adjustment needs a name: a non-empty string, got \(nameValue.described)")
+        }
+        let name = LocalAdjustment.cleanName(raw)
+        let path = "local \"\(name)\""
+        let input = try checkKeys(path, settings, ["mask", "adjust"])
+        let index = local.firstIndex { $0.name.lowercased() == name.lowercased() }
+        var adjustment: LocalAdjustment
+        if let index {
+            adjustment = local[index]
+            if let mask = input["mask"], mask != .null { adjustment.mask = try Mask.parse("\(path).mask", mask) }
+        } else {
+            guard let mask = input["mask"], mask != .null else {
+                throw StateError("\(path) does not exist yet, so it needs a mask. Existing: \(local.isEmpty ? "none" : local.map(\.name).joined(separator: ", "))")
+            }
+            guard local.count < Specs.maxLocalAdjustments else {
+                throw StateError("a photo can have at most \(Specs.maxLocalAdjustments) local adjustments; remove one first")
+            }
+            adjustment = LocalAdjustment(name: name, mask: try Mask.parse("\(path).mask", mask))
+        }
+        if let values = input["adjust"], values != .null {
+            for (key, value) in try checkNumbers("\(path).adjust", values, Specs.localAdjustments) { adjustment.adjust[key] = value }
+        }
+        if let index { local[index] = adjustment } else { local.append(adjustment) }
+    }
+
+    public mutating func removeLocal(name nameValue: JSONValue) throws {
+        guard let name = nameValue.stringValue.map(LocalAdjustment.cleanName), let index = local.firstIndex(where: { $0.name.lowercased() == name.lowercased() }) else {
+            throw StateError("there is no local adjustment named \(nameValue.described). Existing: \(local.isEmpty ? "none" : local.map(\.name).joined(separator: ", "))")
+        }
+        local.remove(at: index)
+    }
+
+    public func localAdjustment(named nameValue: JSONValue) throws -> LocalAdjustment {
+        guard let name = nameValue.stringValue.map(LocalAdjustment.cleanName), let found = local.first(where: { $0.name.lowercased() == name.lowercased() }) else {
+            throw StateError("there is no local adjustment named \(nameValue.described). Existing: \(local.isEmpty ? "none" : local.map(\.name).joined(separator: ", "))")
+        }
+        return found
     }
 
     public mutating func setCrop(_ settings: JSONValue) throws {
@@ -256,6 +365,10 @@ public struct EditingState: Codable, Equatable, Sendable {
         case "detail":
             detail = fresh.detail
             restore(Specs.effectKeys)
+        case "effects":
+            grain = fresh.grain
+            halation = fresh.halation
+        case "local": local = []
         default: crop = fresh.crop
         }
     }
@@ -299,6 +412,9 @@ public struct EditingState: Codable, Equatable, Sendable {
                 "balance": .number(grading.balance),
             ],
             "detail": numbers(detail),
+            "grain": numbers(grain),
+            "halation": numbers(halation),
+            "local": .array(local.map(\.json)),
             "crop": [
                 "x": .number(crop.x), "y": .number(crop.y), "width": .number(crop.width), "height": .number(crop.height),
                 "angle": .number(crop.angle), "rotation": .number(Double(crop.rotation)),
@@ -327,6 +443,12 @@ public struct EditingState: Codable, Equatable, Sendable {
             try configureGrading(.object(mix))
         }
         if let value = json["detail"] { try setDetail(value) }
+        if let value = json["grain"] { try setGrain(value) }
+        if let value = json["halation"] { try setHalation(value) }
+        if let value = json["local"] {
+            guard let list = value.arrayValue else { throw StateError("local must be an array") }
+            for item in list { try setLocal(name: item["name"] ?? .null, settings: .object((item.objectValue ?? [:]).filter { $0.key != "name" })) }
+        }
         if let value = json["crop"] { try setCrop(value) }
     }
 
@@ -352,7 +474,7 @@ public struct EditingState: Codable, Equatable, Sendable {
                 changes.append(Change(path: path, from: old, to: new))
             }
         }
-        let order = ["global", "curves", "hsl", "grading", "detail", "crop"]
+        let order = ["global", "curves", "hsl", "grading", "detail", "grain", "halation", "local", "crop"]
         let old = before.json
         let new = json
         for section in order { compare(section, old[section] ?? .null, new[section] ?? .null) }
@@ -374,7 +496,7 @@ public struct EditingState: Codable, Equatable, Sendable {
 
 // MARK: Checks
 
-private func checkNumber(_ path: String, _ value: JSONValue, _ range: (min: Double, max: Double)) throws -> Double {
+func checkNumber(_ path: String, _ value: JSONValue, _ range: (min: Double, max: Double)) throws -> Double {
     guard let number = value.doubleValue, number.isFinite else {
         throw StateError("\(path) must be a finite number, got \(value.described)")
     }
@@ -384,7 +506,7 @@ private func checkNumber(_ path: String, _ value: JSONValue, _ range: (min: Doub
     return number
 }
 
-private func checkKeys(_ path: String, _ value: JSONValue, _ allowed: [String]) throws -> [String: JSONValue] {
+func checkKeys(_ path: String, _ value: JSONValue, _ allowed: [String]) throws -> [String: JSONValue] {
     guard let members = value.objectValue else { throw StateError("\(path) must be an object, got \(value.described)") }
     for key in members.keys.sorted() where !allowed.contains(key) {
         throw StateError("\(path) has no setting \"\(key)\". Valid settings: \(allowed.joined(separator: ", "))")
@@ -392,7 +514,7 @@ private func checkKeys(_ path: String, _ value: JSONValue, _ allowed: [String]) 
     return members
 }
 
-private func checkNumbers(_ path: String, _ value: JSONValue, _ specs: [ParamSpec]) throws -> [String: Double] {
+func checkNumbers(_ path: String, _ value: JSONValue, _ specs: [ParamSpec]) throws -> [String: Double] {
     let members = try checkKeys(path, value, specs.map(\.name))
     var result: [String: Double] = [:]
     for spec in specs {

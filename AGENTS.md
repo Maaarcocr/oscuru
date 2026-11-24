@@ -20,7 +20,7 @@ Status: first prototype (0.1).
 - **No limits on the assistant.** No cap on scripts per request, no spending limits, no request timeouts, no token caps. Record what it costs; never stop it for cost or time. Only the person stops it.
 - **The assistant sees its work.** After every script that changes the photo it gets the picture before and after; scripts can ask for more with `photo.show()`. Keep that.
 - **The scripting environment is a REPL.** One JavaScriptCore context per open photo, kept between scripts.
-- **No generated pixels.** Scripts set development parameters only.
+- **No AI image generation.** The assistant never generates, paints or replaces image content with a generative model, and nothing adds what the camera did not record. Any programmatic image processing is fine: development, film grain, halation, masks and local adjustments, on-device image analysis to find a subject or people. Scripts set parameters; the engine renders them.
 - **One tool.** New abilities are new members of the `photo` API (documented in `PhotoAPI.swift`), not new tools.
 
 ## Engineering rules

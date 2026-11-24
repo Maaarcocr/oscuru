@@ -9,6 +9,9 @@ public protocol ScriptHost: AnyObject {
     /// An sRGB JPEG of the photo rendered with these settings. `region` is part of the frame, as
     /// fractions from its top-left corner.
     func image(of state: EditingState, region: ScriptRegion?, maxEdge: Int) -> Data?
+    /// An sRGB JPEG of the photo with the area `mask` covers painted red, and the share of the frame
+    /// it covers (0 to 1).
+    func maskImage(of state: EditingState, mask: Mask, region: ScriptRegion?, maxEdge: Int) -> (jpeg: Data, coverage: Double)?
     func filterNames() -> [String]
     func look(named name: String) -> Look?
     /// Saves a look under a name, replacing a filter of the same name. False when the name is unusable.

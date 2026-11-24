@@ -32,7 +32,7 @@ The loop has no limits: no cap on scripts, no spending limit, no timeout on requ
 
 ## Editing state
 
-`EditingState` holds the whole development as plain data: global adjustments, four curves, eight HSL ranges, three-way grading, detail, crop. Every change goes through a function that validates it, so an invalid state cannot exist, and the same checks serve scripts, saved documents and filters. Ranges and descriptions live in one table per group (`Specs`); the API documentation given to the model is generated from them.
+`EditingState` holds the whole development as plain data: global adjustments, four curves, eight HSL ranges, three-way grading, detail, grain, halation, local adjustments, crop. A local adjustment is a named mask (a radial or linear area, the subject or people, or the whole frame; optionally inverted and narrowed to a luminance or hue range) with exposure, contrast, highlights, shadows, white balance shift, saturation, clarity and dehaze for inside it. Positions are fractions of the cropped frame, so they match the pictures the model sees. Every change goes through a function that validates it, so an invalid state cannot exist, and the same checks serve scripts, saved documents and filters. Ranges and descriptions live in one table per group (`Specs`); the API documentation given to the model is generated from them.
 
 `EditHistory` is the only way the photo changes. Every change (a script, undo, a filter, a reset) is a step and gives a new revision. A script names the revision it was written against and is refused if the photo has moved on, with the current state and picture in the reply.
 
@@ -43,7 +43,12 @@ The loop has no limits: no cap on scripts, no spending limit, no timeout on requ
 1. **Develop**, in linear light: for RAW files `CIRAWFilter` applies exposure, white balance, noise reduction and sharpening inside the decoder. Apple's looks in the decoder are switched off (no boost tone curve, local tone mapping, noise reduction or sharpening unless asked for), so it does only what the file's own numbers decide: demosaicing, the camera's colour matrix and white balance, the lens corrections in the file, and fitting colours into range. Its linear output then gets Oscuru's base curve (`ColorPipeline.baseCurve`): the identity up to 0.75 of white, then a smooth exponential roll-off towards white. Every other choice about the look is made in the conversation. The developed photo at preview size is cached, so tone and colour changes do not decode again.
 2. **Local recovery** (highlights and shadows) and **local contrast** (clarity and texture, radius relative to the photo).
 3. **Tone stage**: a per-channel 1D table. 4. **Colour stage**: a 33³ cube. Both are computed in `ColorPipeline` (pure Swift, unit-tested on Linux) and applied in gamma-encoded Display P3.
-5. **Geometry**: flips, quarter turns, straightening, crop. 6. **Vignette**.
+5. **Halation**: luminance above a threshold, tinted red-orange, blurred and screened on top.
+6. **Geometry**: flips, quarter turns, straightening, crop.
+7. **Local adjustments**, in order: each adjusts the whole frame (white balance gains, a tone table, saturation, clarity) and blends it in through its mask. Radial and linear areas are Core Image gradients; tone and colour ranges are a colour cube computed in `ColorPipeline` and evaluated on the photo before that adjustment; the subject and people come from Vision (`VNGenerateForegroundInstanceMaskRequest`, `VNGeneratePersonSegmentationRequest`) run once per open photo on a small development, then put through the same geometry as the photo.
+8. **Vignette**. 9. **Grain**: a fixed noise pattern (`CIRandomGenerator`) at a size relative to the frame, two layers mixed by roughness, overlaid in encoded values so it is strongest in the midtones; grains finer than a pixel are weakened as a downscale would.
+
+Everything here is programmatic image processing; nothing uses generative models.
 
 The screen gets Display P3; the model gets sRGB JPEGs (models read sRGB; a wide-gamut file would look washed out to them); exports are full-resolution Display P3 JPEG or HEIC with the capture details carried over. Statistics are measured on a small sRGB bitmap.
 

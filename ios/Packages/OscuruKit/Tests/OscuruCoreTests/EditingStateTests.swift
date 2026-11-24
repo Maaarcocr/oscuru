@@ -33,11 +33,14 @@ final class EditingStateTests: XCTestCase {
         XCTAssertEqual(Specs.colorRanges, ["red", "orange", "yellow", "green", "aqua", "blue", "purple", "magenta"])
         XCTAssertEqual(Specs.curveChannels, ["rgb", "red", "green", "blue"])
         XCTAssertEqual(Specs.gradingRanges, ["shadows", "midtones", "highlights"])
-        XCTAssertEqual(Specs.resetSections, ["all", "light", "color", "curves", "hsl", "grading", "detail", "crop"])
+        XCTAssertEqual(Specs.resetSections, ["all", "light", "color", "curves", "hsl", "grading", "detail", "effects", "local", "crop"])
+        XCTAssertEqual(Specs.grain.map(\.name), ["amount", "size", "roughness"])
+        XCTAssertEqual(Specs.halation.map(\.name), ["amount", "radius", "threshold"])
+        XCTAssertEqual(Specs.maskAreas, ["radial", "linear", "subject", "people", "frame"])
     }
 
     func testEverySpecHasADefaultInsideItsRangeAndADescription() {
-        for spec in Specs.global + Specs.hsl + Specs.grading + Specs.gradingMix + Specs.detail + [Specs.cropAngle] {
+        for spec in Specs.global + Specs.hsl + Specs.grading + Specs.gradingMix + Specs.detail + Specs.grain + Specs.halation + Specs.localAdjustments + [Specs.cropAngle] {
             XCTAssertLessThan(spec.min, spec.max, spec.name)
             XCTAssertGreaterThanOrEqual(spec.defaultValue, spec.min, spec.name)
             XCTAssertLessThanOrEqual(spec.defaultValue, spec.max, spec.name)
@@ -554,7 +557,7 @@ final class EditingStateTests: XCTestCase {
         var state = try global(["exposureEV": 1])
         assertStateError(
             try state.reset(section: "everything", defaults: PhotoDefaults()),
-            "reset section must be one of \"all\", \"light\", \"color\", \"curves\", \"hsl\", \"grading\", \"detail\", \"crop\", got \"everything\"")
+            "reset section must be one of \"all\", \"light\", \"color\", \"curves\", \"hsl\", \"grading\", \"detail\", \"effects\", \"local\", \"crop\", got \"everything\"")
         assertStateError(try state.reset(section: 3, defaults: PhotoDefaults()), contains: "reset section must be one of", "got 3")
         XCTAssertEqual(state.value("exposureEV"), 1)
     }
@@ -563,7 +566,7 @@ final class EditingStateTests: XCTestCase {
 
     func testJSONHasTheShapeScriptsAndTheModelSee() throws {
         let json = try richState().json
-        XCTAssertEqual(Set(json.objectValue?.keys.map { $0 } ?? []), ["global", "curves", "hsl", "grading", "detail", "crop"])
+        XCTAssertEqual(Set(json.objectValue?.keys.map { $0 } ?? []), ["global", "curves", "hsl", "grading", "detail", "grain", "halation", "local", "crop"])
         XCTAssertEqual(json["global"]?.objectValue?.count, 14)
         XCTAssertEqual(json["global"]?["temperature"], 4800)
         XCTAssertEqual(json["global"]?["exposureEV"], -0.35)

@@ -9,7 +9,7 @@
 
 Oscuru ("dark" in Sicilian) has no sliders. You open a RAW photo and type what you want: "make it cinematic", "recover the sky", "warmer, but keep the skin natural". An assistant develops the photo for you with the controls of a professional RAW developer — exposure, white balance, tone curves, HSL, colour grading, detail, crop — and keeps going until it looks right.
 
-The assistant never generates or alters image content. It writes small JavaScript programs against a documented photo API; the phone runs them and renders the result with its own RAW engine. After every change the assistant sees the photo before and after, and decides what to do next.
+The assistant never uses AI image generation and never invents content. It writes small JavaScript programs against a documented photo API; the phone runs them and renders the result with its own RAW engine. After every change the assistant sees the photo before and after, and decides what to do next.
 
 ## What it does
 
@@ -17,6 +17,8 @@ The assistant never generates or alters image content. It writes small JavaScrip
 - **A conversation.** Each photo is a thread: the original, what you asked for, and the version that came back. Open any version to zoom in or compare it with the one before.
 - **An assistant that looks.** It sees the photo before and after each step, can zoom into any part of it, and measures what it needs (histogram, clipping, colour casts). It works as long as the photo needs, and you can stop it at any time.
 - **Every version kept.** Nothing is lost: any earlier version in the thread can be brought back or shared, and the thread is saved with the photo.
+- **Edits to part of the photo.** The assistant can mask a subject or the people it finds on the phone, an oval or a gradient it places by looking, or a range of tones or colours, and change exposure, contrast, colour and clarity inside it. It checks every mask by looking at it.
+- **Film grain and halation.** Grain that scales with the photo and is strongest in the midtones, and the red glow film shows around bright light.
 - **Saved filters.** Save a look and apply it to any photo, yourself or by asking the assistant.
 - **Real RAW development, ours.** Apple ProRAW, DNG and the camera RAW formats iOS reads, plus JPEG and HEIC, developed on the phone with Core Image. Apple's decoder only does the maths the file dictates; its tone curve, noise reduction and sharpening are off, and Oscuru's own base curve keeps the light as measured. Originals are never changed. Export at full resolution to JPEG or HEIC.
 - **Your model, your account.** The assistant runs on any OpenRouter model that reads images and calls tools, with your own sign-in. The app records what it costs and sets no limits of its own.
