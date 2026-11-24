@@ -96,11 +96,9 @@ struct SettingsView: View {
 
     private var connected: some View {
         Section {
-            LabeledContent(L10n.settingsAccount, value: L10n.settingsConnected)
+            // One line: that it is connected, and with which key.
+            LabeledContent(L10n.settingsConnected, value: account.keyInfo?.label ?? "")
                 .accessibilityIdentifier("settings.connected")
-            if let info = account.keyInfo, !info.label.isEmpty {
-                LabeledContent(L10n.settingsKey, value: info.label)
-            }
         } header: {
             Text(verbatim: "OpenRouter")
         }
@@ -111,9 +109,6 @@ struct SettingsView: View {
             LabeledContent(L10n.usageToday, value: UsageLedger.dollars(account.spentToday))
             LabeledContent(L10n.usageMonth, value: UsageLedger.dollars(account.spentThisMonth))
             LabeledContent(L10n.usageTotal, value: UsageLedger.dollars(account.spentInTotal))
-            if let info = account.keyInfo {
-                LabeledContent(L10n.usageKey, value: UsageLedger.dollars(info.usage))
-            }
         } header: {
             Text(L10n.usageTitle)
         } footer: {

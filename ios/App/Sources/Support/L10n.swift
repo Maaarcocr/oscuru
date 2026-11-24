@@ -289,9 +289,7 @@ enum L10n {
     }
 
     // MARK: Settings
-    static var settingsAccount: String { String(localized: "settings.account") }
     static var settingsConnected: String { String(localized: "settings.connected") }
-    static var settingsKey: String { String(localized: "settings.key") }
     static var settingsSignIn: String { String(localized: "settings.signIn") }
     static var settingsOtherWays: String { String(localized: "settings.otherWays") }
     static var settingsCodeTitle: String { String(localized: "settings.code.title") }
@@ -319,7 +317,6 @@ enum L10n {
     static var usageToday: String { String(localized: "usage.today") }
     static var usageMonth: String { String(localized: "usage.month") }
     static var usageTotal: String { String(localized: "usage.total") }
-    static var usageKey: String { String(localized: "usage.key") }
     static var usageFooter: String { String(localized: "usage.footer") }
     static var privacyTitle: String { String(localized: "privacy.title") }
     static var privacyBody: String { String(localized: "privacy.body") }

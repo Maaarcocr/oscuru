@@ -286,7 +286,7 @@ private struct PhotoCard: View {
                     .aspectRatio(CGFloat(editor.info.width) / CGFloat(max(1, editor.info.height)), contentMode: .fit)
             }
         }
-        .animation(.easeInOut(duration: 0.35), value: image.map(ObjectIdentifier.init))
+        .animation(.easeInOut(duration: 0.35), value: image.map { ObjectIdentifier($0) })
         .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
         .frame(maxWidth: .infinity)
         .task(id: state) {

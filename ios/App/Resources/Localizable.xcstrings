@@ -1681,22 +1681,6 @@
         }
       }
     },
-    "settings.account": {
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Account"
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Account"
-          }
-        }
-      }
-    },
     "settings.account.footer": {
       "localizations": {
         "en": {
@@ -1869,22 +1853,6 @@
           "stringUnit": {
             "state": "translated",
             "value": "Ottieni un codice"
-          }
-        }
-      }
-    },
-    "settings.key": {
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Key"
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Chiave"
           }
         }
       }
@@ -2893,22 +2861,6 @@
           "stringUnit": {
             "state": "translated",
             "value": "Quanto è costato l’assistente da questa app. Oscuru non impone limiti; per un tetto di spesa, imposta un limite sulla chiave su openrouter.ai."
-          }
-        }
-      }
-    },
-    "usage.key": {
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "This key, on OpenRouter"
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Questa chiave, su OpenRouter"
           }
         }
       }

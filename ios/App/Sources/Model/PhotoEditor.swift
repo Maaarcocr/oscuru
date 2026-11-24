@@ -72,9 +72,11 @@ final class PhotoEditor {
         self.account = account
         self.modelClient = modelClient
         runtime = ScriptRuntime(host: renderer)
-        conversation = Conversation(entries)
+        let conversation = Conversation(entries)
+        self.conversation = conversation
         // The transcript says what the photo's settings are; the library keeps a copy.
-        state = conversation.state ?? document.state
+        let state = conversation.state ?? document.state
+        self.state = state
         thumbnailState = document.state
         library.save(id: document.id, state: state)
         reproject()
