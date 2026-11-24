@@ -23,6 +23,24 @@ enum L10n {
     static var fromPhotos: String { String(localized: "library.fromPhotos") }
     static var fromFiles: String { String(localized: "library.fromFiles") }
     static var importFailed: String { String(localized: "library.importFailed") }
+    static var select: String { String(localized: "library.select") }
+    static var selectAll: String { String(localized: "library.selectAll") }
+    static var deselectAll: String { String(localized: "library.deselectAll") }
+    static var selectPhotos: String { String(localized: "library.selectPhotos") }
+    static func selectedCount(_ count: Int) -> String {
+        if count == 1 { return String(localized: "library.selectedOne") }
+        let text = String(count)
+        return String(localized: "library.selected \(text)")
+    }
+    static var share: String { String(localized: "library.share") }
+    static var shareOriginals: String { String(localized: "library.share.originals") }
+    static var shareOriginalsFooter: String { String(localized: "library.share.originals.footer") }
+    static func deleteTitle(_ count: Int) -> String {
+        if count == 1 { return String(localized: "library.deleteOne") }
+        let text = String(count)
+        return String(localized: "library.delete \(text)")
+    }
+    static var deleteMessage: String { String(localized: "library.delete.message") }
 
     // MARK: Camera
     static var camera: String { String(localized: "camera.title") }

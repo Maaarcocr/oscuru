@@ -20,6 +20,16 @@ struct PhotoDocument: Codable, Identifiable, Equatable {
     var thumbnailStamp = 0
 }
 
+extension PhotoDocument {
+    /// The photo's name, usable as a file name (without an extension).
+    var fileName: String {
+        let name = (name as NSString).deletingPathExtension
+            .replacingOccurrences(of: ":", with: ".")
+            .replacingOccurrences(of: "/", with: "-")
+        return name.isEmpty ? "Oscuru" : name
+    }
+}
+
 @MainActor
 @Observable
 final class Library {

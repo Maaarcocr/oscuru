@@ -60,6 +60,12 @@ final class OscuruUITests: XCTestCase {
         app.navigationBars.buttons.element(boundBy: 0).tap()
         XCTAssertTrue(photo.waitForExistence(timeout: 30))
         capture("09-library")
+
+        // Selecting, as in Photos: choose photos to share or delete.
+        element(app, "library.select").tap()
+        photo.tap()
+        capture("09-select")
+        element(app, "library.endSelect").tap()
         element(app, "library.camera").tap()
         let shutter = element(app, "camera.shutter")
         XCTAssertTrue(shutter.waitForExistence(timeout: 30))

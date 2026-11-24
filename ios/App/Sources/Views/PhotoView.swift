@@ -58,7 +58,7 @@ private struct ThreadView: View {
     @State private var draft = ""
     @State private var sheet: Sheet?
     @State private var viewing: Viewed?
-    @State private var shared: SharedFile?
+    @State private var shared: SharedFiles?
     @State private var exporting = false
     @State private var problem: String?
     @State private var confirmingStartOver = false
@@ -112,8 +112,8 @@ private struct ThreadView: View {
         .fullScreenCover(item: $viewing) { item in
             PhotoViewer(editor: editor, item: item)
         }
-        .sheet(item: $shared) { file in
-            ShareSheet(url: file.url).presentationDetents([.medium, .large])
+        .sheet(item: $shared) { files in
+            ShareSheet(urls: files.urls).presentationDetents([.medium, .large])
         }
         .alert(L10n.exportFailed, isPresented: Binding(get: { problem != nil }, set: { if !$0 { problem = nil } })) {
             Button(L10n.ok, role: .cancel) {}
@@ -136,7 +136,7 @@ private struct ThreadView: View {
         Task {
             defer { exporting = false }
             do {
-                shared = SharedFile(url: try await editor.export(state, as: format))
+                shared = SharedFiles([try await editor.export(state, as: format)])
             } catch {
                 problem = String(describing: error)
             }
@@ -150,7 +150,7 @@ private struct ThreadView: View {
         Task {
             defer { exporting = false }
             do {
-                shared = SharedFile(url: try await editor.exportOriginal())
+                shared = SharedFiles([try await editor.exportOriginal()])
             } catch {
                 problem = String(describing: error)
             }
@@ -583,7 +583,7 @@ private struct PhotoViewer: View {
     @State private var image: CGImage?
     @State private var beforeImage: CGImage?
     @State private var comparing = false
-    @State private var shared: SharedFile?
+    @State private var shared: SharedFiles?
     @State private var exporting = false
 
     var body: some View {
@@ -666,8 +666,8 @@ private struct PhotoViewer: View {
             image = await editor.fullPicture(of: item.state)
             if let before = item.before { beforeImage = await editor.fullPicture(of: before) }
         }
-        .sheet(item: $shared) { file in
-            ShareSheet(url: file.url).presentationDetents([.medium, .large])
+        .sheet(item: $shared) { files in
+            ShareSheet(urls: files.urls).presentationDetents([.medium, .large])
         }
     }
 
@@ -676,25 +676,9 @@ private struct PhotoViewer: View {
         exporting = true
         Task {
             defer { exporting = false }
-            shared = (try? await editor.export(item.state, as: format)).map(SharedFile.init)
+            shared = (try? await editor.export(item.state, as: format)).map { SharedFiles([$0]) }
         }
     }
-}
-
-private struct SharedFile: Identifiable {
-    let url: URL
-    var id: String { url.path }
-}
-
-/// The system share sheet: save to Photos or Files, AirDrop, and so on.
-private struct ShareSheet: UIViewControllerRepresentable {
-    let url: URL
-
-    func makeUIViewController(context: Context) -> UIActivityViewController {
-        UIActivityViewController(activityItems: [url], applicationActivities: nil)
-    }
-
-    func updateUIViewController(_ controller: UIActivityViewController, context: Context) {}
 }
 
 /// The photo, fitted to the screen. Pinch to zoom, drag to move while zoomed, double-tap to fit again.
