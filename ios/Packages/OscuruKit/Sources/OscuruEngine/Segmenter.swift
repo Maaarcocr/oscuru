@@ -31,25 +31,11 @@ final class Segmenter {
   private let prompts: MLModel
   private let decoder: MLModel
 
-  /// Loads the models from `folder`: compiled (`.mlmodelc`) when the app was built with them,
-  /// otherwise the packages (`.mlpackage`), compiled here first.
+  /// Loads the models from `folder` (see `Models.load`).
   init(folder: URL) throws {
-    func load(_ name: String) throws -> MLModel {
-      let configuration = MLModelConfiguration()
-      configuration.computeUnits = .all
-      let compiled = folder.appendingPathComponent("\(name).mlmodelc")
-      if FileManager.default.fileExists(atPath: compiled.path) {
-        return try MLModel(contentsOf: compiled, configuration: configuration)
-      }
-      let package = folder.appendingPathComponent("\(name).mlpackage")
-      guard FileManager.default.fileExists(atPath: package.path) else {
-        throw EngineError.renderFailed("the segmentation model \(name) is not in this build")
-      }
-      return try MLModel(contentsOf: try MLModel.compileModel(at: package), configuration: configuration)
-    }
-    encoder = try load(Segmenter.names.encoder)
-    prompts = try load(Segmenter.names.prompts)
-    decoder = try load(Segmenter.names.decoder)
+    encoder = try Models.load(Segmenter.names.encoder, from: folder)
+    prompts = try Models.load(Segmenter.names.prompts, from: folder)
+    decoder = try Models.load(Segmenter.names.decoder, from: folder)
   }
 
   /// Reads a picture once, for any number of selections in it.

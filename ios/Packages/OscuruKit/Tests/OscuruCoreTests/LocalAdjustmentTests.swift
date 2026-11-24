@@ -58,7 +58,7 @@ final class LocalAdjustmentTests: XCTestCase {
         // A new mask replaces the old one.
         try state.setLocal(name: "pagoda", settings: ["mask": ["area": ["type": "subject"], "luminance": ["from": 0.2, "to": 0.8]]])
         XCTAssertEqual(state.local[0].mask.area.type, "subject")
-        XCTAssertEqual(state.local[0].mask.luminance, LuminanceRange(from: 0.2, to: 0.8, feather: 0.1))
+        XCTAssertEqual(state.local[0].mask.luminance, ValueRange(from: 0.2, to: 0.8, feather: 0.1))
         XCTAssertEqual(state.local[0].adjust["clarity"], 20)
 
         XCTAssertEqual(try state.localAdjustment(named: "PAGODA").name, "pagoda")
@@ -276,11 +276,11 @@ final class LocalAdjustmentTests: XCTestCase {
     }
 
     func testRangesKeepTheTonesAndColoursAsked() {
-        let mids = LuminanceRange(from: 0.3, to: 0.7, feather: 0.05)
+        let mids = ValueRange(from: 0.3, to: 0.7, feather: 0.05)
         XCTAssertEqual(ColorPipeline.rangeWeight(0.5, 0.5, 0.5, luminance: mids, color: nil), 1, accuracy: 1e-9)
         XCTAssertEqual(ColorPipeline.rangeWeight(0.1, 0.1, 0.1, luminance: mids, color: nil), 0, accuracy: 1e-9)
         XCTAssertEqual(ColorPipeline.rangeWeight(0.95, 0.95, 0.95, luminance: mids, color: nil), 0, accuracy: 1e-9)
-        let shadows = LuminanceRange(from: 0, to: 0.3, feather: 0.05)
+        let shadows = ValueRange(from: 0, to: 0.3, feather: 0.05)
         XCTAssertEqual(ColorPipeline.rangeWeight(0, 0, 0, luminance: shadows, color: nil), 1, "a range from 0 keeps black fully")
 
         let reds = HueRange(hue: 0, range: 60)
@@ -293,6 +293,32 @@ final class LocalAdjustmentTests: XCTestCase {
         let cube = ColorPipeline.rangeMaskCube(luminance: mids, color: nil, size: 9)
         XCTAssertEqual(cube?.count, 9 * 9 * 9 * 4)
         XCTAssertEqual(cube?[0], 0, "black is outside the midtones")
+    }
+
+    func testDepthRangesKeepTheFarPartOnAScaleFromNearestToFarthest() throws {
+        var state = EditingState()
+        try state.setLocal(name: "haze", settings: ["mask": ["area": ["type": "frame"], "depth": ["from": 0.6, "to": 1]]])
+        let mask = state.local[0].mask
+        XCTAssertEqual(mask.depth, ValueRange(from: 0.6, to: 1, feather: 0.1))
+        XCTAssertEqual(try JSONDecoder().decode(Mask.self, from: JSONEncoder().encode(mask)), mask)
+        XCTAssertEqual(mask.json["depth"], ["from": 0.6, "to": 1, "feather": 0.1])
+        assertError(
+            try state.setLocal(name: "haze", settings: ["mask": ["area": ["type": "frame"], "depth": ["from": 0.6]]]), contains: "mask.depth needs from and to")
+
+        // The model's output grows the nearer something is; the map runs from nearest (0) to farthest (1),
+        // and a stray pixel beyond the rest does not squeeze the scale.
+        var inverse = (0..<100).map { Float($0) }
+        inverse[99] = 10_000
+        let map = DepthMap(inverseDepth: inverse, width: 10, height: 10)
+        XCTAssertEqual(map.values[98], 0, "the nearest")
+        XCTAssertEqual(map.values[99], 0, "beyond the nearest is clipped")
+        XCTAssertEqual(map.values[0], 1, "the farthest")
+        XCTAssertEqual(map.values[50], 0.5, accuracy: 0.02)
+        let far = map.greys(in: ValueRange(from: 0.6, to: 1, feather: 0.05))
+        XCTAssertEqual(far[0], 255, "the far part is kept")
+        XCTAssertEqual(far[90], 0, "the near part is not")
+        XCTAssertEqual(map.greys(in: nil)[0], 255, "without a band, the distances themselves")
+        XCTAssertEqual(DepthMap(inverseDepth: [Float](repeating: 3, count: 4), width: 2, height: 2).values, [0.5, 0.5, 0.5, 0.5])
     }
 
     func testRecipeCarriesOnlyWhatIsSwitchedOn() throws {

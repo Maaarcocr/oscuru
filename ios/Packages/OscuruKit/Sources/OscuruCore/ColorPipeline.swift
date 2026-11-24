@@ -228,14 +228,9 @@ public enum ColorPipeline {
 
     /// How much a colour (encoded Display P3) belongs to a mask's tone and colour ranges, 0 to 1.
     /// Without either range, every colour belongs fully.
-    public static func rangeWeight(_ r: Double, _ g: Double, _ b: Double, luminance: LuminanceRange?, color: HueRange?) -> Double {
+    public static func rangeWeight(_ r: Double, _ g: Double, _ b: Double, luminance: ValueRange?, color: HueRange?) -> Double {
         var weight = 1.0
-        if let luminance {
-            let y = luma(r, g, b)
-            let f = Swift.max(luminance.feather, 0.001)
-            if luminance.from > 0 { weight *= smoothstep(luminance.from - f, luminance.from + f, y) }
-            if luminance.to < 1 { weight *= 1 - smoothstep(luminance.to - f, luminance.to + f, y) }
-        }
+        if let luminance { weight *= luminance.weight(luma(r, g, b)) }
         if let color {
             let high = Swift.max(r, g, b)
             let chroma = high - Swift.min(r, g, b)
@@ -253,7 +248,7 @@ public enum ColorPipeline {
 
     /// A mask's tone and colour ranges as a colour cube over encoded Display P3 (red fastest, RGBA,
     /// the weight in red, green and blue), or nil when the mask has neither.
-    public static func rangeMaskCube(luminance: LuminanceRange?, color: HueRange?, size: Int = cubeSize) -> [Float]? {
+    public static func rangeMaskCube(luminance: ValueRange?, color: HueRange?, size: Int = cubeSize) -> [Float]? {
         if luminance == nil && color == nil { return nil }
         var cube = [Float](repeating: 0, count: size * size * size * 4)
         let step = 1 / Double(size - 1)

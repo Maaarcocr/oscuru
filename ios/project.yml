@@ -34,7 +34,7 @@ targets:
       - path: App/Assets.xcassets
       - path: App/PrivacyInfo.xcprivacy
         buildPhase: resources
-      # The compiled segmentation models (scripts/fetch-models.sh), bundled as a folder.
+      # The compiled on-device models (scripts/fetch-models.sh), bundled as a folder.
       - path: Models
         type: folder
         buildPhase: resources

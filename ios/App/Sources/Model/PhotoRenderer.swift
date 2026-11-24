@@ -80,6 +80,11 @@ final class PhotoRenderer: ScriptHost, @unchecked Sendable {
         return try? engine.maskPreview(id: id, recipe: recipe(state), mask: mask, options: RenderOptions(maxEdge: Double(maxEdge), region: rect))
     }
 
+    func depthImage(of state: EditingState, region: ScriptRegion?, maxEdge: Int) -> Data? {
+        let rect = region.map { CGRect(x: $0.x, y: $0.y, width: $0.width, height: $0.height) }
+        return try? engine.jpeg(id: id, recipe: recipe(state), options: RenderOptions(maxEdge: Double(maxEdge), region: rect, depth: true))
+    }
+
     func pixels(of state: EditingState) -> PixelBuffer? {
         try? engine.displayPixels(id: id, recipe: recipe(state))
     }

@@ -719,7 +719,7 @@ final class EngineTests: XCTestCase {
     var refinedMask = gradient
     refinedMask.refine = 0.6
     func value(_ mask: Mask, x: Int) -> Double {
-      let image = Effects.mask(mask, over: photo, original: { photo }, found: { _ in nil }, context: engine.context)
+      let image = Effects.mask(mask, over: photo, original: { photo }, found: { _ in nil }, depth: { _ in nil }, context: engine.context)
       var pixel = [UInt8](repeating: 0, count: 4)
       engine.context.render(image, toBitmap: &pixel, rowBytes: 4, bounds: CGRect(x: x, y: 150, width: 1, height: 1), format: .RGBA8, colorSpace: nil)
       return Double(pixel[0]) / 255
@@ -730,14 +730,14 @@ final class EngineTests: XCTestCase {
     XCTAssertEqual(value(refinedMask, x: 380), 1, accuracy: 0.02)
   }
 
-  /// The segmentation models, when they have been fetched (scripts/fetch-models.sh).
-  private func segmentationModels() -> URL? {
+  /// The folder holding the model `name`, when it has been fetched (scripts/fetch-models.sh).
+  private func models(with name: String) -> URL? {
     let ios = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
       .deletingLastPathComponent().deletingLastPathComponent()
     for folder in ["Models", "ModelSources"] {
       let url = ios.appendingPathComponent(folder)
-      if FileManager.default.fileExists(atPath: url.appendingPathComponent("\(Segmenter.names.decoder).mlmodelc").path)
-        || FileManager.default.fileExists(atPath: url.appendingPathComponent("\(Segmenter.names.decoder).mlpackage").path)
+      if FileManager.default.fileExists(atPath: url.appendingPathComponent("\(name).mlmodelc").path)
+        || FileManager.default.fileExists(atPath: url.appendingPathComponent("\(name).mlpackage").path)
       {
         return url
       }
@@ -745,8 +745,46 @@ final class EngineTests: XCTestCase {
     return nil
   }
 
+  func testDepthRangesKeepWhatIsFarAndShowTheirScale() throws {
+    guard let models = models(with: DepthEstimator.name) else { throw XCTSkip("the depth model has not been fetched (scripts/fetch-models.sh)") }
+    let measuring = Engine(useSoftwareRenderer: true, models: models)
+    // Checkered ground receding to a horizon two fifths of the way down, sky above.
+    let horizon: Double = 0.4 * 384
+    let url = try makePNG("ground.png", width: 512, height: 384) { x, y in
+      let row = Double(y)
+      if row < horizon {
+        let t: Double = row / horizon
+        return (0.55 + 0.35 * t, 0.7 + 0.25 * t, 0.95)
+      }
+      let distance: Double = 40 / (row - horizon + 0.5)
+      let across: Double = (Double(x) - 256) * distance / 60
+      let check = (Int(across.rounded(.down)) + Int((distance * 4).rounded(.down))) % 2
+      return check == 0 ? (0.2, 0.55, 0.2) : (0.85, 0.85, 0.7)
+    }
+    _ = try measuring.open(id: "d", url: url)
+
+    // The far part: the sky and the ground near the horizon, not the ground at your feet.
+    let far: JSONValue = ["area": ["type": "frame"], "depth": ["from": 0.6, "to": 1]]
+    let share = try coverage("d", far, engine: measuring)
+    XCTAssertGreaterThan(share, 0.45)
+    XCTAssertLessThan(share, 0.8)
+    let lit = try recipe { try $0.setLocal(name: "far", settings: ["mask": far, "adjust": ["exposureEV": 1]]) }
+    let plain = try measuring.bitmap(id: "d", recipe: RenderRecipe(), options: RenderOptions(maxEdge: 512), longEdge: 512)
+    let result = try measuring.bitmap(id: "d", recipe: lit, options: RenderOptions(maxEdge: 512), longEdge: 512)
+    let before = Pixels(data: plain.pixels, width: plain.width, height: plain.height)
+    let after = Pixels(data: result.pixels, width: result.width, height: result.height)
+    XCTAssertGreaterThan(after.at(256, 20).r, before.at(256, 20).r + 15, "the sky brightens")
+    XCTAssertEqual(Double(after.at(256, 370).g), Double(before.at(256, 370).g), accuracy: 3, "the near ground does not")
+
+    // Shown as greys: black nearest, white farthest, the right way up.
+    let shown = try measuring.bitmap(id: "d", recipe: RenderRecipe(), options: RenderOptions(maxEdge: 256, depth: true), longEdge: 256)
+    let greys = Pixels(data: shown.pixels, width: shown.width, height: shown.height)
+    XCTAssertGreaterThan(greys.at(128, 10).g, 220, "the sky is far")
+    XCTAssertLessThan(greys.at(128, 185).g, 90, "the ground at the bottom is near")
+  }
+
   func testTappingAnObjectSelectsItAndNothingElse() throws {
-    guard let models = segmentationModels() else { throw XCTSkip("the segmentation models have not been fetched (scripts/fetch-models.sh)") }
+    guard let models = models(with: Segmenter.names.decoder) else { throw XCTSkip("the segmentation models have not been fetched (scripts/fetch-models.sh)") }
     let tapping = Engine(useSoftwareRenderer: true, models: models)
     // A dark blue disc on the left and a red square on the right, on light grey.
     let url = try makePNG("things.png", width: 512, height: 384) { x, y in

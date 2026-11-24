@@ -31,6 +31,8 @@ interface PhotoEditor {
    *   "original" the photo as opened, with no edits (same crop)
    *   "mask"     the photo as it is now with the area of the local adjustment named in
    *              `options.mask` painted red, and how much of the frame it covers
+   *   "depth"    how far each part of the frame is, as greys from black (nearest) to white
+   *              (farthest): the scale of a mask's `depth` range, to choose its from and to
    * `region` zooms in on part of the frame, given as fractions from its top-left corner, to
    * judge detail, noise, skin or edges. `maxEdge` is the long edge in pixels (default 1024,
    * up to 2048).
@@ -38,7 +40,7 @@ interface PhotoEditor {
    * You do not need this for the usual case: whenever a script changes the photo, the reply
    * already includes it before your edits and as it is now.
    */
-  show(which?: "current" | "before" | "original" | "mask", options?: { region?: Region; maxEdge?: number; mask?: string }): void;
+  show(which?: "current" | "before" | "original" | "mask" | "depth", options?: { region?: Region; maxEdge?: number; mask?: string }): void;
 
   /**
    * The person's saved styles: looks they can put on any photo. Some were learned from pictures
@@ -274,13 +276,13 @@ interface LocalAdjustment {
  * crop does not move them with the picture.
  *
  * Choose areas in this order, cheapest first: (1) tap the thing with an ObjectArea (or use
- * SubjectArea or PeopleArea), which the phone segments precisely on its own; (2) shapes and tone or
- * colour ranges, combined with `subtract` and `intersect` to remove what spills; (3) only for what
- * those cannot do, or to fix their edges, draw by hand with OutlineArea or BrushArea.
+ * SubjectArea or PeopleArea), which the phone segments precisely on its own; (2) shapes and tone,
+ * colour or depth ranges, combined with `subtract` and `intersect` to remove what spills; (3) only
+ * for what those cannot do, or to fix their edges, draw by hand with OutlineArea or BrushArea.
  *
  * The mask is built in this order: the areas joined (where they overlap it is as strong as the
  * strongest, never stronger), `intersect` (kept only inside each of those too), `subtract` (cut out),
- * `invert`, the `luminance` and `color` ranges, `grow`, `refine`.
+ * `invert`, the `luminance`, `color` and `depth` ranges, `grow`, `refine`.
  */
 interface Mask {
   /** One area, or several joined together. */
@@ -301,6 +303,15 @@ interface Mask {
    * 300 magenta), fading out beyond ±range/2 degrees (range 10 to 180, default 60). Greys are left out.
    */
   color?: { hue: number; range?: number };
+  /**
+   * Keep only what lies this far away: from 0 (the nearest part of the photo) to 1 (the farthest,
+   * usually the sky), with soft edges `feather` wide (0 to 0.5, default 0.1). The phone estimates
+   * depth from the photo alone, so the scale is relative and its edges are soft: look at
+   * `photo.show("depth")` to choose from and to, and add `refine` for a crisp edge. For whatever
+   * follows distance: haze, mist and atmosphere, a far background, a near foreground. A wide
+   * feather makes a gradual change with distance.
+   */
+  depth?: { from: number; to: number; feather?: number };
   /**
    * What `luminance` and `color` are measured on: "current" (default), the photo as it is before this
    * adjustment; or "original", the photo as developed before tone and colour. Use "original" when a
@@ -337,7 +348,7 @@ interface PeopleArea { type: "people"; }
 interface RadialArea { type: "radial"; x: number; y: number; width: number; height: number; angle?: number; feather?: number; }
 /** A straight gradient: full strength at `from`, fading to nothing at `to`; [x, y] points (-0.5 to 1.5). A sky: from [0.5, 0] to [0.5, 0.45]. */
 interface LinearArea { type: "linear"; from: [number, number]; to: [number, number]; }
-/** The whole frame: use it with `luminance` or `color` to pick tones or colours anywhere. */
+/** The whole frame: use it with `luminance`, `color` or `depth` to pick tones, colours or distances anywhere. */
 interface FrameArea { type: "frame"; }
 /**
  * A shape drawn by hand: its corners in order ([x, y], -0.5 to 1.5; 3 to 400 of them), filled.

@@ -74,13 +74,40 @@ public struct MaskArea: Codable, Equatable, Sendable {
     }
 }
 
-/// Which tones a mask keeps, by display luminance, with soft edges.
-public struct LuminanceRange: Codable, Equatable, Sendable {
+/// A band of values from 0 to 1 that a mask keeps, with soft edges `feather` wide: tones by display
+/// luminance, or distances from nearest (0) to farthest (1).
+public struct ValueRange: Codable, Equatable, Sendable {
     public var from: Double
     public var to: Double
     public var feather: Double
 
+    public init(from: Double, to: Double, feather: Double) {
+        self.from = from
+        self.to = to
+        self.feather = feather
+    }
+
     public var json: JSONValue { ["from": .number(from), "to": .number(to), "feather": .number(feather)] }
+
+    /// How much a value belongs to the band, 0 to 1. A band from 0 keeps 0 fully, one to 1 keeps 1.
+    public func weight(_ value: Double) -> Double {
+        let f = Swift.max(feather, 0.001)
+        var weight = 1.0
+        if from > 0 { weight *= ColorPipeline.smoothstep(from - f, from + f, value) }
+        if to < 1 { weight *= 1 - ColorPipeline.smoothstep(to - f, to + f, value) }
+        return weight
+    }
+
+    /// Checks a band from a script or a saved document.
+    static func parse(_ path: String, _ value: JSONValue) throws -> ValueRange {
+        let range = try checkKeys(path, value, ["from", "to", "feather"])
+        guard let fromValue = range["from"], let toValue = range["to"] else { throw StateError("\(path) needs from and to") }
+        let from = try checkNumber("\(path).from", fromValue, (0, 1))
+        let to = try checkNumber("\(path).to", toValue, (0, 1))
+        guard to - from >= 0.02 else { throw StateError("\(path).to must be above from (by at least 0.02), got from \(formatNumber(from)), to \(formatNumber(to))") }
+        let feather = try range["feather"].map { try checkNumber("\(path).feather", $0, (0, 0.5)) } ?? 0.1
+        return ValueRange(from: from, to: to, feather: feather)
+    }
 }
 
 /// Which colours a mask keeps: hues within `range` degrees around `hue`, fading at the edges.
@@ -92,8 +119,8 @@ public struct HueRange: Codable, Equatable, Sendable {
 }
 
 /// Where a local adjustment applies: one or more areas joined together, with others cut out or
-/// required, optionally turned inside out, narrowed to tones and colours, grown or shrunk, and
-/// snapped to the edges in the photo. In that order.
+/// required, optionally turned inside out, narrowed to tones, colours and distances, grown or shrunk,
+/// and snapped to the edges in the photo. In that order.
 public struct Mask: Codable, Equatable, Sendable {
     public var area: MaskArea
     /// More areas joined with `area`: where they overlap the mask is as strong as the strongest, never stronger.
@@ -103,8 +130,10 @@ public struct Mask: Codable, Equatable, Sendable {
     /// Areas it must also be in: what lies outside any of them is dropped.
     public var intersect: [MaskArea] = []
     public var invert = false
-    public var luminance: LuminanceRange?
+    public var luminance: ValueRange?
     public var color: HueRange?
+    /// How far away, from the nearest part of the photo (0) to the farthest (1), as the phone estimates it.
+    public var depth: ValueRange?
     /// Which picture tone and colour ranges are measured on: "current" (the photo as it is before
     /// this adjustment) or "original" (as developed, before tone and colour: before a style tinted it).
     public var measure = "current"
@@ -129,10 +158,11 @@ public struct Mask: Codable, Equatable, Sendable {
         if !intersect.isEmpty { members["intersect"] = .array(intersect.map(\.json)) }
         if let luminance { members["luminance"] = luminance.json }
         if let color { members["color"] = color.json }
+        if let depth { members["depth"] = depth.json }
         return .object(members)
     }
 
-    private enum CodingKeys: String, CodingKey { case area, add, subtract, intersect, invert, luminance, color, measure, grow, refine }
+    private enum CodingKeys: String, CodingKey { case area, add, subtract, intersect, invert, luminance, color, depth, measure, grow, refine }
 
     // Masks saved before areas could be combined have only an area, invert and ranges.
     public init(from decoder: Decoder) throws {
@@ -142,8 +172,9 @@ public struct Mask: Codable, Equatable, Sendable {
         subtract = try container.decodeIfPresent([MaskArea].self, forKey: .subtract) ?? []
         intersect = try container.decodeIfPresent([MaskArea].self, forKey: .intersect) ?? []
         invert = try container.decodeIfPresent(Bool.self, forKey: .invert) ?? false
-        luminance = try container.decodeIfPresent(LuminanceRange.self, forKey: .luminance)
+        luminance = try container.decodeIfPresent(ValueRange.self, forKey: .luminance)
         color = try container.decodeIfPresent(HueRange.self, forKey: .color)
+        depth = try container.decodeIfPresent(ValueRange.self, forKey: .depth)
         measure = try container.decodeIfPresent(String.self, forKey: .measure) ?? "current"
         grow = try container.decodeIfPresent(Double.self, forKey: .grow) ?? 0
         refine = try container.decodeIfPresent(Double.self, forKey: .refine) ?? 0
@@ -157,7 +188,7 @@ public struct Mask: Codable, Equatable, Sendable {
 
     /// Checks a mask from a script or a saved document.
     public static func parse(_ path: String, _ value: JSONValue) throws -> Mask {
-        let members = try checkKeys(path, value, ["area", "subtract", "intersect", "invert", "luminance", "color", "measure", "grow", "refine"])
+        let members = try checkKeys(path, value, ["area", "subtract", "intersect", "invert", "luminance", "color", "depth", "measure", "grow", "refine"])
         guard let areaValue = members["area"] else {
             throw StateError("\(path).area is required: an area, or a list of areas to join (types: \(Specs.maskAreas.joined(separator: ", ")))")
         }
@@ -171,15 +202,8 @@ public struct Mask: Codable, Equatable, Sendable {
             guard let flag = value.boolValue else { throw StateError("\(path).invert must be true or false, got \(value.described)") }
             mask.invert = flag
         }
-        if let value = members["luminance"], value != .null {
-            let range = try checkKeys("\(path).luminance", value, ["from", "to", "feather"])
-            guard let fromValue = range["from"], let toValue = range["to"] else { throw StateError("\(path).luminance needs from and to") }
-            let from = try checkNumber("\(path).luminance.from", fromValue, (0, 1))
-            let to = try checkNumber("\(path).luminance.to", toValue, (0, 1))
-            guard to - from >= 0.02 else { throw StateError("\(path).luminance.to must be above from (by at least 0.02), got from \(formatNumber(from)), to \(formatNumber(to))") }
-            let feather = try range["feather"].map { try checkNumber("\(path).luminance.feather", $0, (0, 0.5)) } ?? 0.1
-            mask.luminance = LuminanceRange(from: from, to: to, feather: feather)
-        }
+        if let value = members["luminance"], value != .null { mask.luminance = try ValueRange.parse("\(path).luminance", value) }
+        if let value = members["depth"], value != .null { mask.depth = try ValueRange.parse("\(path).depth", value) }
         if let value = members["color"], value != .null {
             let range = try checkKeys("\(path).color", value, ["hue", "range"])
             guard let hueValue = range["hue"] else { throw StateError("\(path).color needs a hue") }

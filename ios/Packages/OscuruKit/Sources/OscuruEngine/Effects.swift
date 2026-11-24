@@ -154,8 +154,10 @@ enum Effects {
   /// Where a mask applies, as a grey image over the frame (`current`'s extent): 1 fully, 0 not at all.
   /// `current` is the photo before this adjustment; `original` gives it as developed, before tone and
   /// colour (for ranges measured there); `found` gives the subject, people or a tapped object, in the
-  /// frame's coordinates, when an area needs one.
-  static func mask(_ mask: Mask, over current: CIImage, original: () -> CIImage, found: (MaskArea) -> CIImage?, context: CIContext) -> CIImage {
+  /// frame's coordinates, when an area needs one; `depth` gives a depth band's weight over the frame.
+  static func mask(
+    _ mask: Mask, over current: CIImage, original: () -> CIImage, found: (MaskArea) -> CIImage?, depth: (ValueRange) -> CIImage?, context: CIContext
+  ) -> CIImage {
     let frame = current.extent
     func area(_ area: MaskArea) -> CIImage { self.area(area, frame: frame, found: found) }
     // Joined areas are as strong as the strongest where they overlap, never stronger.
@@ -176,6 +178,11 @@ enum Effects {
       if let weight = weights.outputImage {
         result = combine(result, weight, CIFilter.multiplyCompositing())
       }
+    }
+    if let band = mask.depth {
+      // Without a depth estimate nothing is at any distance, so the mask is empty, as an object the phone cannot find.
+      let weight = depth(band) ?? CIImage(color: CIColor(red: 0, green: 0, blue: 0)).cropped(to: frame)
+      result = combine(result, weight, CIFilter.multiplyCompositing())
     }
     let longEdge = max(frame.width, frame.height)
     if mask.grow != 0 {

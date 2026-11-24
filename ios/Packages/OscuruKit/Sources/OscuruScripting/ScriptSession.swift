@@ -119,7 +119,7 @@ final class ScriptSession {
     }
 
     private func show(which: JSONValue, options: JSONValue) throws {
-        let kind = which == .null ? "current" : try choice(which, in: ["current", "before", "original", "mask"], "what to show")
+        let kind = which == .null ? "current" : try choice(which, in: ["current", "before", "original", "mask", "depth"], "what to show")
         var region: ScriptRegion?
         var maxEdge = Prompt.defaultImageEdge
         var maskName: JSONValue = .null
@@ -147,13 +147,13 @@ final class ScriptSession {
                 region = candidate
             }
         }
+        let zoom = region.map { " (region x \(formatNumber($0.x)), y \(formatNumber($0.y)), width \(formatNumber($0.width)), height \(formatNumber($0.height)))" } ?? ""
         if kind == "mask" {
             guard maskName != .null else { throw StateError("show(\"mask\") needs options.mask: the name of a local adjustment") }
             let adjustment = try draft.localAdjustment(named: maskName)
             guard let preview = host.maskImage(of: draft, mask: adjustment.mask, region: region, maxEdge: maxEdge) else {
                 throw Failure(message: "The photo could not be rendered.")
             }
-            let zoom = region.map { " (region x \(formatNumber($0.x)), y \(formatNumber($0.y)), width \(formatNumber($0.width)), height \(formatNumber($0.height)))" } ?? ""
             let percent = formatNumber((preview.coverage * 1000).rounded() / 10)
             var label = "Shown by your script, picture \(shown.count + 1): the mask of the local adjustment \"\(adjustment.name)\", painted red over the photo with the settings at that point in your script\(zoom). It covers \(percent)% of the frame."
             if preview.coverage < 0.002 { label += " It is empty: nothing in the photo matched it." }
@@ -161,6 +161,14 @@ final class ScriptSession {
             return
         } else if maskName != .null {
             throw StateError("options.mask is only for show(\"mask\", { mask: name })")
+        }
+        if kind == "depth" {
+            guard let jpeg = host.depthImage(of: draft, region: region, maxEdge: maxEdge) else {
+                throw Failure(message: "This phone could not estimate the photo's depth, so depth ranges select nothing here.")
+            }
+            let label = "Shown by your script, picture \(shown.count + 1): how far each part of the frame is\(zoom), as greys from black (nearest) to white (farthest), on the same 0 to 1 scale as a mask's depth range. It is estimated from the photo alone: it orders things by distance and its edges are soft."
+            shown.append(LabeledImage(label: label, jpeg: jpeg))
+            return
         }
         let state: EditingState
         let what: String
@@ -178,7 +186,6 @@ final class ScriptSession {
             what = "the photo with the settings at that point in your script"
         }
         guard let jpeg = host.image(of: state, region: region, maxEdge: maxEdge) else { throw Failure(message: "The photo could not be rendered.") }
-        let zoom = region.map { " (region x \(formatNumber($0.x)), y \(formatNumber($0.y)), width \(formatNumber($0.width)), height \(formatNumber($0.height)))" } ?? ""
         shown.append(LabeledImage(label: "Shown by your script, picture \(shown.count + 1): \(what)\(zoom).", jpeg: jpeg))
     }
 }

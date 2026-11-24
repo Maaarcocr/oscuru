@@ -39,9 +39,9 @@ jobs:
         run: |
           xcodebuild -version
           swift --version
-      - name: Segmentation model
+      - name: On-device models
         run: ./scripts/fetch-models.sh
-      - name: Core, Core Image engine (tables, colour, geometry, masks, segmentation, RAW decoding) and JavaScriptCore runtime
+      - name: Core, Core Image engine (tables, colour, geometry, masks, segmentation, depth, RAW decoding) and JavaScriptCore runtime
         run: swift test --package-path ios/Packages/OscuruKit
 
   ios:

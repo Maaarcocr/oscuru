@@ -10,12 +10,15 @@ public struct RenderOptions {
     public var region: CGRect?
     /// Paint the area this mask covers red over the photo.
     public var mask: Mask?
+    /// Show how far each part of the frame is instead of the photo, as greys: black nearest, white farthest.
+    public var depth = false
 
-    public init(maxEdge: Double = 0, fullFrame: Bool = false, region: CGRect? = nil, mask: Mask? = nil) {
+    public init(maxEdge: Double = 0, fullFrame: Bool = false, region: CGRect? = nil, mask: Mask? = nil, depth: Bool = false) {
         self.maxEdge = maxEdge
         self.fullFrame = fullFrame
         self.region = region
         self.mask = mask
+        self.depth = depth
     }
 }
 

@@ -33,6 +33,9 @@ public final class PhotoSession {
   private var selectionEncoding: (key: String, encoding: Segmenter.Encoding)?
   /// Objects selected so far, by framing and points.
   private var selections: [String: Segmenter.Logits] = [:]
+  /// How far each part of the photo is, estimated once, on the whole uncropped picture.
+  private var depthMap: DepthMap?
+  private var estimatedDepth = false
 
   private static let previewLongEdge: CGFloat = 2560
   private static let rawExtensions: Set<String> = [
@@ -221,6 +224,16 @@ public final class PhotoSession {
     if selections.count > 32 { selections.removeAll() }
     selections[key] = logits
     return logits
+  }
+
+  /// How far each part of the photo is, over the whole picture as opened (before any crop, so a
+  /// crop does not change the scale). Nil when the model cannot run.
+  func depth(estimator: DepthEstimator, context: CIContext) -> DepthMap? {
+    if !estimatedDepth {
+      estimatedDepth = true
+      depthMap = analysisImage(context: context).flatMap { try? estimator.depth(of: $0) }
+    }
+    return depthMap
   }
 
   func analysisImage(context: CIContext) -> CGImage? {

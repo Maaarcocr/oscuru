@@ -12,6 +12,9 @@ public protocol ScriptHost: AnyObject {
     /// An sRGB JPEG of the photo with the area `mask` covers painted red, and the share of the frame
     /// it covers (0 to 1).
     func maskImage(of state: EditingState, mask: Mask, region: ScriptRegion?, maxEdge: Int) -> (jpeg: Data, coverage: Double)?
+    /// An sRGB JPEG of how far each part of the frame is, as greys from black (nearest) to white
+    /// (farthest). Nil when this build cannot estimate depth.
+    func depthImage(of state: EditingState, region: ScriptRegion?, maxEdge: Int) -> Data?
     /// The open photo with these settings as a small Display P3 bitmap: what a style learned from
     /// one picture is matched on.
     func pixels(of state: EditingState) -> PixelBuffer?

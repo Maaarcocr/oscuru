@@ -22,12 +22,13 @@ public final class Engine: @unchecked Sendable {
   /// Renders up to this long edge share one developed image per photo.
   static let previewEdge: Double = 2048
 
-  /// Where the segmentation models are (see `Segmenter`); nil when this build has none.
+  /// Where the on-device models are (see `Segmenter`, `DepthEstimator`); nil when this build has none.
   private let models: URL?
   /// Loaded on first use; nil when the models are missing or would not load.
   private lazy var segmenter: Segmenter? = models.flatMap { try? Segmenter(folder: $0) }
+  private lazy var depthEstimator: DepthEstimator? = models.flatMap { try? DepthEstimator(folder: $0) }
 
-  /// `models` is the folder holding the segmentation models that tapping an object needs.
+  /// `models` is the folder holding the models that tapping an object and depth ranges need.
   public init(useSoftwareRenderer: Bool = false, models: URL? = nil) {
     self.models = models
     var options: [CIContextOption: Any] = [
@@ -244,6 +245,19 @@ public final class Engine: @unchecked Sendable {
 
     image = geometry(image, recipe: recipe, fullFrame: options.fullFrame)
 
+    // How far each part of the frame is: a band's weight, or without one the distance itself.
+    let depth: (ValueRange?) -> CIImage? = { band in
+      guard let estimator = self.depthEstimator, let map = session.depth(estimator: estimator, context: self.context) else { return nil }
+      return self.geometry(Effects.depthImage(map, band: band, extent: extent), recipe: recipe, fullFrame: options.fullFrame)
+    }
+    if options.depth {
+      guard let distances = depth(nil) else { throw EngineError.renderFailed("this build cannot estimate depth") }
+      // Decoded, so that once encoded for display each grey is the distance itself.
+      let decode = CIFilter.sRGBToneCurveToLinear()
+      decode.inputImage = distances
+      return Engine.region(of: decode.outputImage ?? distances, options.region)
+    }
+
     var maskToShow: CIImage?
     if !recipe.local.isEmpty || options.mask != nil {
       let frameExtent = image.extent
@@ -278,9 +292,12 @@ public final class Engine: @unchecked Sendable {
       }
       let frameEdge = max(image.extent.width, image.extent.height)
       for pass in recipe.local {
-        image = Effects.local(pass, to: image, mask: Effects.mask(pass.mask, over: image, original: original, found: found, context: self.context), edge: frameEdge)
+        let mask = Effects.mask(pass.mask, over: image, original: original, found: found, depth: { depth($0) }, context: self.context)
+        image = Effects.local(pass, to: image, mask: mask, edge: frameEdge)
       }
-      if let shown = options.mask { maskToShow = Effects.mask(shown, over: image, original: original, found: found, context: self.context) }
+      if let shown = options.mask {
+        maskToShow = Effects.mask(shown, over: image, original: original, found: found, depth: { depth($0) }, context: self.context)
+      }
     }
 
     if recipe.vignette != 0, !options.fullFrame {
@@ -293,16 +310,19 @@ public final class Engine: @unchecked Sendable {
       image = Effects.overlay(image, mask: mask)
       shownMask?(mask)
     }
-    if let region = options.region {
-      let size = image.extent.size
-      // Regions are measured from the top; Core Image from the bottom.
-      let rect = CGRect(
-        x: (size.width * region.minX).rounded(), y: (size.height * (1 - region.minY - region.height)).rounded(),
-        width: max(1, (size.width * region.width).rounded()), height: max(1, (size.height * region.height).rounded())
-      ).intersection(image.extent)
-      image = image.cropped(to: rect).atOrigin()
-    }
-    return image
+    return Engine.region(of: image, options.region)
+  }
+
+  /// Part of the frame, as fractions from its top-left corner, with its extent at the origin.
+  private static func region(of image: CIImage, _ region: CGRect?) -> CIImage {
+    guard let region else { return image }
+    let size = image.extent.size
+    // Regions are measured from the top; Core Image from the bottom.
+    let rect = CGRect(
+      x: (size.width * region.minX).rounded(), y: (size.height * (1 - region.minY - region.height)).rounded(),
+      width: max(1, (size.width * region.width).rounded()), height: max(1, (size.height * region.height).rounded())
+    ).intersection(image.extent)
+    return image.cropped(to: rect).atOrigin()
   }
 
   /// What the segmentation model looks at: the photo as opened, small, framed as it is now.

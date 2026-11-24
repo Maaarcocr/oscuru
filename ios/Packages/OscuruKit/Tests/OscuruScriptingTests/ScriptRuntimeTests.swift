@@ -36,6 +36,13 @@ private final class FakeHost: ScriptHost, @unchecked Sendable {
         return (Data("mask-\(maskRequests.count)".utf8), maskCoverage)
     }
 
+    var depthRequests = 0
+    func depthImage(of state: EditingState, region: ScriptRegion?, maxEdge: Int) -> Data? {
+        if failRendering { return nil }
+        depthRequests += 1
+        return Data("depth-\(depthRequests)".utf8)
+    }
+
     /// A grey ramp, transformed per pixel.
     static func ramp(_ transform: (Double) -> (Double, Double, Double) = { ($0, $0, $0) }) -> PixelBuffer {
         let width = 64
@@ -299,6 +306,18 @@ final class ScriptRuntimeTests: XCTestCase {
         XCTAssertTrue(unknown.error?.message.contains("no local adjustment named") ?? false)
         let misplaced = await run("photo.current.local.set('a', { mask: { area: { type: 'frame' } } }); photo.show('current', { mask: 'a' })")
         XCTAssertTrue(misplaced.error?.message.contains("only for show(\"mask\"") ?? false)
+    }
+
+    func testShowingDepthGivesTheScaleOfDepthRanges() async {
+        let outcome = await run(
+            """
+            photo.show("depth");
+            photo.current.local.set("haze", { mask: { area: { type: "frame" }, depth: { from: 0.6, to: 1 } }, adjust: { dehaze: 20 } });
+            """)
+        XCTAssertNil(outcome.error)
+        XCTAssertEqual(outcome.shown.map(\.jpeg), [Data("depth-1".utf8)])
+        XCTAssertTrue(outcome.shown[0].label.contains("black (nearest) to white (farthest)"))
+        XCTAssertEqual(outcome.state.local.first?.mask.depth?.from, 0.6)
     }
 
     func testShowRejectsBadArguments() async {
