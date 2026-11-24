@@ -724,20 +724,22 @@ final class EngineTests: XCTestCase {
     XCTAssertGreaterThan(try coverage("e", ["area": square, "grow": 0.02]), base + 0.02)
     XCTAssertLessThan(try coverage("e", ["area": square, "grow": -0.02]), base - 0.02)
 
-    // A soft gradient across a hard edge in the photo becomes a sharper step at that edge.
-    let photo = CIImage(color: CIColor(red: 0.1, green: 0.1, blue: 0.1)).cropped(to: CGRect(x: 0, y: 0, width: 200, height: 300))
+    // A soft gradient across a hard edge in the photo steps at that edge once refined.
+    let photo = CIImage(color: CIColor(red: 0.1, green: 0.1, blue: 0.1)).cropped(to: CGRect(x: 0, y: 0, width: 210, height: 300))
       .composited(over: CIImage(color: CIColor(red: 0.9, green: 0.9, blue: 0.9)).cropped(to: CGRect(x: 0, y: 0, width: 400, height: 300)))
     let gradient = try Mask.parse("mask", ["area": ["type": "linear", "from": [0.55, 0.5], "to": [0.45, 0.5]]])
     var refinedMask = gradient
     refinedMask.refine = 0.6
     func value(_ mask: Mask, x: Int) -> Double {
-      let image = Effects.mask(mask, over: photo, original: { photo }, found: { _ in nil })
+      let image = Effects.mask(mask, over: photo, original: { photo }, found: { _ in nil }, context: engine.context)
       var pixel = [UInt8](repeating: 0, count: 4)
       engine.context.render(image, toBitmap: &pixel, rowBytes: 4, bounds: CGRect(x: x, y: 150, width: 1, height: 1), format: .RGBA8, colorSpace: nil)
       return Double(pixel[0]) / 255
     }
-    XCTAssertLessThan(value(refinedMask, x: 194), value(gradient, x: 194) - 0.08, "darker just left of the photo's edge")
-    XCTAssertGreaterThan(value(refinedMask, x: 206), value(gradient, x: 206) + 0.08, "brighter just right of it")
+    XCTAssertLessThan(value(gradient, x: 212) - value(gradient, x: 207), 0.15)
+    XCTAssertGreaterThan(value(refinedMask, x: 212) - value(refinedMask, x: 207), 0.25, "the step moves onto the photo's edge")
+    XCTAssertEqual(value(refinedMask, x: 20), 0, accuracy: 0.02)
+    XCTAssertEqual(value(refinedMask, x: 380), 1, accuracy: 0.02)
   }
 
   /// The segmentation models, when they have been fetched (scripts/fetch-models.sh).

@@ -178,6 +178,31 @@ final class LocalAdjustmentTests: XCTestCase {
         XCTAssertEqual(try JSONDecoder().decode(Mask.self, from: JSONEncoder().encode(old)), Mask(area: MaskArea(type: "linear")))
     }
 
+    func testSnappingMovesAMasksEdgeOntoThePhotosEdge() {
+        // A photo dark on the left and bright from x = 210; a soft mask rising from x = 180 to 220.
+        let width = 400
+        let height = 20
+        var guide = [Float](repeating: 0, count: width * height)
+        var mask = [Float](repeating: 0, count: width * height)
+        for y in 0..<height {
+            for x in 0..<width {
+                guide[y * width + x] = x < 210 ? 0.1 : 0.9
+                mask[y * width + x] = Float(min(1, max(0, Double(x - 180) / 40)))
+            }
+        }
+        let snapped = EdgeSnap.snap(mask: mask, guide: guide, width: width, height: height, strength: 0.6)
+        func at(_ values: [Float], _ x: Int) -> Float { values[10 * width + x] }
+        // The step now happens at the photo's edge, not spread across the ramp.
+        XCTAssertGreaterThan(at(snapped, 212) - at(snapped, 207), 0.25)
+        XCTAssertLessThan(at(mask, 212) - at(mask, 207), 0.15)
+        // Far from it nothing changes.
+        XCTAssertEqual(at(snapped, 20), 0, accuracy: 0.01)
+        XCTAssertEqual(at(snapped, 380), 1, accuracy: 0.01)
+        // Where the photo is flat, a guided filter keeps a flat mask flat.
+        let flat = EdgeSnap.guided(mask: [Float](repeating: 0.3, count: 100), guide: [Float](repeating: 0.5, count: 100), width: 10, height: 10, radius: 2, epsilon: 0.001)
+        for value in flat { XCTAssertEqual(value, 0.3, accuracy: 1e-4) }
+    }
+
     // MARK: Filters
 
     func testALookCarriesGrainAndHalationButNotLocalAdjustments() throws {

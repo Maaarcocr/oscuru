@@ -274,9 +274,9 @@ public final class Engine: @unchecked Sendable {
       }
       let frameEdge = max(image.extent.width, image.extent.height)
       for pass in recipe.local {
-        image = Effects.local(pass, to: image, mask: Effects.mask(pass.mask, over: image, original: original, found: found), edge: frameEdge)
+        image = Effects.local(pass, to: image, mask: Effects.mask(pass.mask, over: image, original: original, found: found, context: self.context), edge: frameEdge)
       }
-      if let shown = options.mask { maskToShow = Effects.mask(shown, over: image, original: original, found: found) }
+      if let shown = options.mask { maskToShow = Effects.mask(shown, over: image, original: original, found: found, context: self.context) }
     }
 
     if recipe.vignette != 0, !options.fullFrame {

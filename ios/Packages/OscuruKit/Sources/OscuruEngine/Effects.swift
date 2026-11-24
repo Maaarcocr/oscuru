@@ -155,7 +155,7 @@ enum Effects {
   /// `current` is the photo before this adjustment; `original` gives it as developed, before tone and
   /// colour (for ranges measured there); `found` gives the subject, people or a tapped object, in the
   /// frame's coordinates, when an area needs one.
-  static func mask(_ mask: Mask, over current: CIImage, original: () -> CIImage, found: (MaskArea) -> CIImage?) -> CIImage {
+  static func mask(_ mask: Mask, over current: CIImage, original: () -> CIImage, found: (MaskArea) -> CIImage?, context: CIContext) -> CIImage {
     let frame = current.extent
     func area(_ area: MaskArea) -> CIImage { self.area(area, frame: frame, found: found) }
     // Joined areas are as strong as the strongest where they overlap, never stronger.
@@ -193,7 +193,7 @@ enum Effects {
       }
     }
     if mask.refine > 0 {
-      result = refined(opaque(result).cropped(to: frame), guide: current, strength: mask.refine)
+      result = refined(opaque(result).cropped(to: frame), guide: current, strength: mask.refine, context: context)
     }
     return opaque(result).cropped(to: frame)
   }
@@ -204,27 +204,43 @@ enum Effects {
     return filter.outputImage ?? base
   }
 
-  /// Snaps a mask's edge to the edges in the photo: the mask is made coarse, then brought back to
-  /// full size by a guided filter that follows the photo's own outlines. The stronger, the coarser
-  /// the starting point and the further an edge can move.
-  static func refined(_ mask: CIImage, guide: CIImage, strength: Double) -> CIImage {
+  /// Snaps a mask's edge to the edges in the photo (`EdgeSnap`), worked out on at most 1024 pixels
+  /// on the long edge and stretched back over the frame.
+  static func refined(_ mask: CIImage, guide: CIImage, strength: Double, context: CIContext) -> CIImage {
     let frame = mask.extent
-    let factor = CGFloat(2 + 14 * min(1, max(0, strength)))
-    let small = mask.clampedToExtent().samplingLinear()
-      .transformed(by: CGAffineTransform(scaleX: 1 / factor, y: 1 / factor))
-      .cropped(to: CGRect(x: frame.minX / factor, y: frame.minY / factor, width: (frame.width / factor).rounded(.up), height: (frame.height / factor).rounded(.up)))
-    // Core Image's guided filter has no typed interface, only its name.
-    guard let filter = CIFilter(name: "CIGuidedFilter") else { return mask }
-    filter.setValue(small, forKey: kCIInputImageKey)
-    filter.setValue(guide, forKey: "inputGuideImage")
-    filter.setValue(1 + 3 * strength, forKey: kCIInputRadiusKey)
-    filter.setValue(0.001, forKey: "inputEpsilon")
-    guard let output = filter.outputImage else { return mask }
-    let clamp = CIFilter.colorClamp()
-    clamp.inputImage = opaque(output)
-    clamp.minComponents = CIVector(x: 0, y: 0, z: 0, w: 1)
-    clamp.maxComponents = CIVector(x: 1, y: 1, z: 1, w: 1)
-    return (clamp.outputImage ?? mask).cropped(to: frame)
+    let scale = min(1, 1024 / max(frame.width, frame.height))
+    let width = max(1, Int((frame.width * scale).rounded()))
+    let height = max(1, Int((frame.height * scale).rounded()))
+    func values(_ image: CIImage) -> [Float] {
+      let placed = image
+        .transformed(by: CGAffineTransform(translationX: -frame.minX, y: -frame.minY))
+        .transformed(by: CGAffineTransform(scaleX: CGFloat(width) / frame.width, y: CGFloat(height) / frame.height))
+      var out = [Float](repeating: 0, count: width * height)
+      out.withUnsafeMutableBytes { buffer in
+        guard let base = buffer.baseAddress else { return }
+        context.render(placed, toBitmap: base, rowBytes: width * 4, bounds: CGRect(x: 0, y: 0, width: width, height: height), format: .Rf, colorSpace: nil)
+      }
+      return out
+    }
+    let luminance = CIFilter.colorMatrix()
+    luminance.inputImage = guide
+    luminance.rVector = CIVector(x: 0.2126, y: 0.7152, z: 0.0722, w: 0)
+    let snapped = EdgeSnap.snap(
+      mask: values(opaque(mask)), guide: values(luminance.outputImage ?? guide), width: width, height: height, strength: strength)
+    // Rows from the top, as rendered.
+    let bytes = snapped.map { UInt8(max(0, min(255, ($0 * 255).rounded()))) }
+    guard let provider = CGDataProvider(data: Data(bytes) as CFData),
+      let picture = CGImage(
+        width: width, height: height, bitsPerComponent: 8, bitsPerPixel: 8, bytesPerRow: width, space: CGColorSpaceCreateDeviceGray(),
+        bitmapInfo: CGBitmapInfo(rawValue: CGImageAlphaInfo.none.rawValue), provider: provider, decode: nil, shouldInterpolate: true,
+        intent: .defaultIntent)
+    else { return mask }
+    return CIImage(cgImage: picture, options: [.colorSpace: NSNull()])
+      .clampedToExtent()
+      .samplingLinear()
+      .transformed(by: CGAffineTransform(scaleX: frame.width / CGFloat(width), y: frame.height / CGFloat(height)))
+      .transformed(by: CGAffineTransform(translationX: frame.minX, y: frame.minY))
+      .cropped(to: frame)
   }
 
   private static func area(_ area: MaskArea, frame: CGRect, found: (MaskArea) -> CIImage?) -> CIImage {
