@@ -26,7 +26,7 @@ jobs:
     timeout-minutes: 15
     steps:
       - uses: actions/checkout@v4
-      - name: Editing state, colour pipeline, filters, history, agent loop, OpenRouter client
+      - name: Editing state, colour pipeline, styles, transcript, agent loop, OpenRouter client
         run: swift test --package-path ios/Packages/OscuruKit
 
   kit:

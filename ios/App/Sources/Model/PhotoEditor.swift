@@ -193,13 +193,18 @@ final class PhotoEditor {
 
     // MARK: Pictures
 
+    /// A picture of a version that is already at hand, so a card showing it need not start empty.
+    func keptPicture(of version: EditingState) -> CGImage? {
+        pictures.first { $0.state == version }?.image
+    }
+
     /// A version of the photo for the screen: sized for the thread, or `filling` the screen to zoom into.
     func picture(of version: EditingState, filling: Bool = false) async -> CGImage? {
-        if !filling, let kept = pictures.first(where: { $0.state == version }) { return kept.image }
+        if !filling, let kept = keptPicture(of: version) { return kept }
         let renderer = renderer
         let edge = filling ? PhotoRenderer.screenEdge : PhotoRenderer.cardEdge
         guard let image = await Task.detached(priority: .userInitiated, operation: { try? renderer.picture(of: version, edge: edge) }).value else { return nil }
-        if !filling, !pictures.contains(where: { $0.state == version }) {
+        if !filling, keptPicture(of: version) == nil {
             pictures.append((version, image))
             if pictures.count > 16 { pictures.removeFirst() }
         }

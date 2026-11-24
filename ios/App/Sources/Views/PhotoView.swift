@@ -52,10 +52,8 @@ private struct ThreadView: View {
             ScrollView {
                 LazyVStack(alignment: .leading, spacing: 22) {
                     ForEach(editor.turns) { turn in
-                        TurnView(turn: turn, editor: editor, open: open) { id in
-                            withAnimation(.snappy) { proxy.scrollTo(id) }
-                        }
-                        .id(turn.id)
+                        TurnView(turn: turn, editor: editor, open: open)
+                            .id(turn.id)
                     }
                     if let sending = editor.sending {
                         Bubble(text: sending).opacity(0.6)
@@ -82,8 +80,8 @@ private struct ThreadView: View {
             }
             .scrollDismissesKeyboard(.interactively)
             // A short thread starts at the top; a long one opens at its latest turn. New turns are
-            // followed by scrolling on each change, not by anchoring to size changes: in a lazy stack
-            // that anchor fights explicit scrolling (opening a turn's steps) and can loop forever.
+            // followed by scrolling on each change. Nothing in the thread changes size on a tap:
+            // a row growing in the middle of a lazy stack while it scrolls can loop forever.
             .defaultScrollAnchor(.top, for: .alignment)
             .defaultScrollAnchor(.bottom, for: .initialOffset)
             .accessibilityIdentifier("thread")
@@ -128,8 +126,6 @@ private struct TurnView: View {
     let turn: Turn
     let editor: PhotoEditor
     let open: (Turn) -> Void
-    /// Scrolls just enough to bring the view with this id fully onto the screen.
-    let reveal: (String) -> Void
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
@@ -206,7 +202,7 @@ private struct TurnView: View {
                     .accessibilityIdentifier("thread.continue")
             }
             if !turn.steps.isEmpty {
-                StepsSummary(id: "\(turn.id).steps", steps: turn.steps, cost: turn.cost, reveal: reveal)
+                StepsSummary(steps: turn.steps, cost: turn.cost)
             }
         }
     }
@@ -274,7 +270,9 @@ private struct PhotoCard: View {
     @State private var image: CGImage?
 
     var body: some View {
-        ZStack {
+        // The picture it last drew, or one the editor already has; a new version fades in over it.
+        let image = image ?? editor.keptPicture(of: state)
+        return ZStack {
             if let image {
                 Image(decorative: image, scale: 1)
                     .resizable()
@@ -290,59 +288,54 @@ private struct PhotoCard: View {
         .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
         .frame(maxWidth: .infinity)
         .task(id: state) {
-            if let picture = await editor.picture(of: state) { image = picture }
+            if let picture = await editor.picture(of: state) { self.image = picture }
         }
     }
 }
 
-/// What the assistant's scripts did, in words. Folded away until asked for.
+/// What the assistant's scripts did: one line in the thread, and the steps themselves on a sheet,
+/// so the thread stays the conversation and never changes size under the finger.
 private struct StepsSummary: View {
-    let id: String
     let steps: [Step]
     let cost: Double?
-    let reveal: (String) -> Void
-    @State private var expanded = false
+    @State private var showing = false
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            Button {
-                withAnimation(.snappy) { expanded.toggle() }
-            } label: {
-                HStack(spacing: 6) {
-                    Text(L10n.stepsCount(steps.count))
-                    if let cost { Text(verbatim: "· \(UsageLedger.dollars(cost))") }
-                    Image(systemName: "chevron.down")
-                        .font(.caption2.weight(.semibold))
-                        .rotationEffect(.degrees(expanded ? 180 : 0))
-                }
-                .font(.footnote)
-                .foregroundStyle(.secondary)
-                .contentShape(Rectangle())
+        Button {
+            showing = true
+        } label: {
+            HStack(spacing: 6) {
+                Text(L10n.stepsCount(steps.count))
+                if let cost { Text(verbatim: "· \(UsageLedger.dollars(cost))") }
+                Image(systemName: "chevron.right").font(.caption2.weight(.semibold))
             }
-            .buttonStyle(.plain)
-            .accessibilityIdentifier("thread.steps")
-            if expanded {
-                VStack(alignment: .leading, spacing: 14) {
-                    ForEach(Array(steps.enumerated()), id: \.offset) { index, step in
-                        StepView(number: index + 1, step: step)
+            .font(.footnote)
+            .foregroundStyle(.secondary)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .accessibilityIdentifier("thread.steps")
+        .sheet(isPresented: $showing) {
+            NavigationStack {
+                ScrollView {
+                    VStack(alignment: .leading, spacing: 18) {
+                        ForEach(Array(steps.enumerated()), id: \.offset) { index, step in
+                            StepView(number: index + 1, step: step)
+                        }
+                    }
+                    .padding(20)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                }
+                .navigationTitle(L10n.stepsCount(steps.count))
+                .navigationBarTitleDisplayMode(.inline)
+                .toolbar {
+                    ToolbarItem(placement: .confirmationAction) {
+                        Button(L10n.done) { showing = false }
+                            .accessibilityIdentifier("steps.done")
                     }
                 }
-                .padding(14)
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .background(Color(white: 0.1), in: RoundedRectangle(cornerRadius: 16, style: .continuous))
-                .id(id)
             }
-        }
-        .onChange(of: expanded) { _, isExpanded in
-            guard isExpanded else { return }
-            Task {
-                // Bring the steps onto the screen once they are laid out, and again once they have
-                // settled; the second time does nothing if they are already there.
-                for delay in [60, 400] {
-                    try? await Task.sleep(for: .milliseconds(delay))
-                    reveal(id)
-                }
-            }
+            .presentationDetents([.medium, .large])
         }
     }
 }

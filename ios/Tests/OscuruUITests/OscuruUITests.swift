@@ -43,8 +43,10 @@ final class OscuruUITests: XCTestCase {
         XCTAssertTrue(waitUntil(timeout: 180) { idle() && { sleep(2); return idle() }() }, "and is done")
         capture("05-reply")
         element(app, "thread.steps").tap()
+        XCTAssertTrue(element(app, "steps.done").waitForExistence(timeout: 30))
         sleep(1)
         capture("06-steps")
+        element(app, "steps.done").tap()
 
         // A version full screen.
         element(app, "thread.version").tap()
@@ -129,6 +131,22 @@ final class OscuruUITests: XCTestCase {
         element(app, "settings.other").tap()
         XCTAssertTrue(element(app, "settings.key").waitForExistence(timeout: 30))
         capture("15-other-ways")
+
+        // Share, last, in a fresh launch: it ends in the system's share sheet.
+        app.terminate()
+        app.launch()
+        XCTAssertTrue(photo.waitForExistence(timeout: 60))
+        photo.tap()
+        let share = element(app, "share")
+        XCTAssertTrue(share.waitForExistence(timeout: 30))
+        share.tap()
+        let developed = element(app, "share.developed")
+        XCTAssertTrue(developed.waitForExistence(timeout: 30))
+        capture("16-share")
+        developed.tap()
+        _ = app.otherElements["ActivityListView"].waitForExistence(timeout: 30)
+        capture("17-share-sheet")
+        XCTAssertFalse(app.alerts.firstMatch.exists, "the photo was developed for sharing")
     }
 
     private func waitUntil(timeout: TimeInterval, _ condition: () -> Bool) -> Bool {
