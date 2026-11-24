@@ -697,11 +697,15 @@ final class EngineTests: XCTestCase {
 
     // A stroke across the middle, a tenth of the long edge thick, and a dot.
     let stroke: JSONValue = ["type": "brush", "strokes": [[[0.1, 0.5], [0.9, 0.5]]], "size": 0.1, "feather": 0]
-    XCTAssertEqual(try coverage("d", ["area": stroke]), 0.8 * 400 * 40 / (400 * 300) + 0.01, accuracy: 0.02)
+    let frameArea: Double = 400 * 300
+    let band: Double = 320 * 40  // the stroke's straight part
+    let caps: Double = Double.pi * 20 * 20  // its two round ends
+    XCTAssertEqual(try coverage("d", ["area": stroke]), (band + caps) / frameArea, accuracy: 0.02)
     let dot: JSONValue = ["type": "brush", "strokes": [[[0.5, 0.2]]], "size": 0.1, "feather": 0]
-    XCTAssertEqual(try coverage("d", ["area": dot]), Double.pi * 20 * 20 / (400 * 300), accuracy: 0.005)
+    XCTAssertEqual(try coverage("d", ["area": dot]), caps / frameArea, accuracy: 0.005)
     // A brush cuts what a shape spilled into.
-    XCTAssertEqual(try coverage("d", ["area": square, "subtract": stroke]), 0.25 - 0.5 * 400 * 40 / (400 * 300), accuracy: 0.02)
+    let crossing: Double = 200 * 40  // where the stroke crosses the square
+    XCTAssertEqual(try coverage("d", ["area": square, "subtract": stroke]), 0.25 - crossing / frameArea, accuracy: 0.02)
   }
 
   func testRangesCanBeMeasuredOnThePhotoBeforeItsStyle() throws {
@@ -764,9 +768,12 @@ final class EngineTests: XCTestCase {
     }
     _ = try tapping.open(id: "t", url: url)
     let disc = try coverage("t", ["area": ["type": "object", "points": [[0.3, 0.5]]]], engine: tapping)
-    XCTAssertEqual(disc, Double.pi * 60 * 60 / (512 * 384), accuracy: 0.025, "about the disc")
+    let picture: Double = 512 * 384
+    let discArea: Double = Double.pi * 60 * 60
+    XCTAssertEqual(disc, discArea / picture, accuracy: 0.025, "about the disc")
     let square = try coverage("t", ["area": ["type": "object", "points": [[0.74, 0.5]]]], engine: tapping)
-    XCTAssertEqual(square, 100.0 * 100 / (512 * 384), accuracy: 0.025, "about the square")
+    let squareArea: Double = 100 * 100
+    XCTAssertEqual(square, squareArea / picture, accuracy: 0.025, "about the square")
 
     // Through a local adjustment: the disc changes, the square and the background do not.
     let lit = try recipe { try $0.setLocal(name: "disc", settings: ["mask": ["area": ["type": "object", "points": [[0.3, 0.5]]]], "adjust": ["exposureEV": 1]]) }
