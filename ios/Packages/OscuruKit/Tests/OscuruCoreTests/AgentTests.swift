@@ -320,6 +320,8 @@ final class AgentTests: XCTestCase {
         XCTAssertEqual(images(messages), 3)
         XCTAssertTrue(messages.flatMap(parts).contains { $0["text"]?.stringValue == Conversation.removedPictureNote })
         await transcript.prune()
+        XCTAssertEqual(try FileManager.default.contentsOfDirectory(atPath: folder.appending(path: "pictures").path).count, 4, "recent pictures stay")
+        await transcript.prune(keepingNewerThan: -1)
         let files = try FileManager.default.contentsOfDirectory(atPath: folder.appending(path: "pictures").path)
         XCTAssertEqual(files.count, 3)
     }

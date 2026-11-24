@@ -101,10 +101,11 @@ private struct ThreadView: View {
                 .padding(.bottom, 16)
             }
             .scrollDismissesKeyboard(.interactively)
-            // A short thread starts at the top; a long one stays at its latest turn.
+            // A short thread starts at the top; a long one opens at its latest turn. New turns are
+            // followed by scrolling on each change, not by anchoring to size changes: in a lazy stack
+            // that anchor fights explicit scrolling (opening a turn's steps) and can loop forever.
             .defaultScrollAnchor(.top, for: .alignment)
             .defaultScrollAnchor(.bottom, for: .initialOffset)
-            .defaultScrollAnchor(.bottom, for: .sizeChanges)
             .accessibilityIdentifier("thread")
             .onChange(of: editor.threadVersion) {
                 withAnimation(.snappy) { proxy.scrollTo(ThreadView.end, anchor: .bottom) }

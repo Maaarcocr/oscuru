@@ -311,11 +311,16 @@ public actor Transcript {
 
     /// Deletes the pictures the model will not be sent again (it gets a note in their place),
     /// so a long conversation does not fill the phone.
-    public func prune() {
+    /// Recent files are kept: a picture stored for a message not written yet must survive.
+    public func prune(keepingNewerThan age: TimeInterval = 600) {
         let keep = Conversation(entries).keptPictures
         let files = (try? FileManager.default.contentsOfDirectory(atPath: picturesFolder.path)) ?? []
+        let cutoff = now().addingTimeInterval(-age)
         for file in files where !keep.contains(file) {
-            try? FileManager.default.removeItem(at: picturesFolder.appending(path: file))
+            let url = picturesFolder.appending(path: file)
+            let modified = (try? FileManager.default.attributesOfItem(atPath: url.path)[.modificationDate] as? Date) ?? .distantPast
+            guard modified < cutoff else { continue }
+            try? FileManager.default.removeItem(at: url)
         }
     }
 

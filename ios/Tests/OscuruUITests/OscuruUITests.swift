@@ -38,7 +38,9 @@ final class OscuruUITests: XCTestCase {
         element(app, "composer.send").tap()
         capture("04b-sent-while-working")
         XCTAssertTrue(element(app, "thread.reply").waitForExistence(timeout: 120), "the assistant replies")
-        XCTAssertTrue(waitUntil(timeout: 120) { !element(app, "composer.stop").exists }, "and is done")
+        // Done: the words may have joined the run or started a second one, so wait until nothing is working.
+        func idle() -> Bool { !element(app, "composer.stop").exists && !element(app, "thread.working").exists }
+        XCTAssertTrue(waitUntil(timeout: 180) { idle() && { sleep(2); return idle() }() }, "and is done")
         capture("05-reply")
         element(app, "thread.steps").tap()
         sleep(1)

@@ -213,11 +213,12 @@ enum Effects {
     let small = mask.clampedToExtent().samplingLinear()
       .transformed(by: CGAffineTransform(scaleX: 1 / factor, y: 1 / factor))
       .cropped(to: CGRect(x: frame.minX / factor, y: frame.minY / factor, width: (frame.width / factor).rounded(.up), height: (frame.height / factor).rounded(.up)))
-    let filter = CIFilter.guidedFilter()
-    filter.inputImage = small
-    filter.guideImage = guide
-    filter.radius = Float(1 + 3 * strength)
-    filter.epsilon = 0.001
+    // Core Image's guided filter has no typed interface, only its name.
+    guard let filter = CIFilter(name: "CIGuidedFilter") else { return mask }
+    filter.setValue(small, forKey: kCIInputImageKey)
+    filter.setValue(guide, forKey: "inputGuideImage")
+    filter.setValue(1 + 3 * strength, forKey: kCIInputRadiusKey)
+    filter.setValue(0.001, forKey: "inputEpsilon")
     guard let output = filter.outputImage else { return mask }
     let clamp = CIFilter.colorClamp()
     clamp.inputImage = opaque(output)
