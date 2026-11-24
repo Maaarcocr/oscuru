@@ -86,6 +86,7 @@ final class AppModel {
 
     func close(_ editor: PhotoEditor) {
         editor.stop()
+        editor.renderer.closeReferences()
         let engine = engine
         let id = editor.renderer.id
         Task {

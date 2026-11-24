@@ -664,6 +664,17 @@ final class EngineTests: XCTestCase {
     XCTAssertLessThanOrEqual(found.coverage, 1)
   }
 
+  func testDisplayPixelsAreSmallAndInDisplayP3() throws {
+    _ = try engine.open(id: "p", url: try makePNG("ramp.png", width: 400, height: 300) { x, _ in (Double(x) / 399, 0.5, 0.5) })
+    let pixels = try engine.displayPixels(id: "p", recipe: RenderRecipe(), longEdge: 200)
+    XCTAssertEqual(pixels.width, 200)
+    XCTAssertEqual(pixels.height, 150)
+    XCTAssertEqual(pixels.rgba.count, 200 * 150 * 4)
+    // A neutral grey is the same in sRGB and Display P3.
+    let middle = (75 * 200 + 100) * 4
+    XCTAssertEqual(Double(pixels.rgba[middle + 1]), 128, accuracy: 3)
+  }
+
   func testBaseCurveKeepsMidtonesAndRollsOffHighlights() throws {
     let space = CGColorSpace(name: CGColorSpace.extendedLinearSRGB)!
     func through(_ value: CGFloat) -> Float {

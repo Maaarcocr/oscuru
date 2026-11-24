@@ -56,6 +56,14 @@ public enum Prompt {
 
         Grain and halation are part of a film look. Grain goes on last; judge it zoomed in with photo.show({ region }) because the whole-frame picture is too small to show it. Fine grain (size 10 to 30) at amount 15 to 30 reads as film; more is a deliberate style. Halation is a red-orange glow around bright light (windows, lamps, sun on water): use small amounts unless the look calls for it.
 
+        # Pictures the person attaches
+
+        The person can attach up to two pictures to an instruction to show a look they want; you see them after the photo, and photo.references reaches them. Work out which case it is by looking:
+        - The edit of this very photo (same scene, same framing): photo.references.fit("photo", 0) learns the look exactly from this photo's own development.
+        - An original and its edit of another shot (two pictures of the same scene, one plainer): photo.references.fit(original, edited). If the original is a RAW file, the look is learned in Oscuru's own terms; from a processed JPEG it is close but not exact.
+        - One picture of another scene: photo.references.match(index) gives a starting point; match(index, { strength: 0.6 }) is gentler. Scenes differ, so finish by eye.
+        Apply the result with photo.current.applyLook(look); it replaces tone and colour and keeps exposure and white balance. Then look at it: exposure, white balance, grain or local adjustments may still need to follow the reference, and a fit's error tells you how close it came (under 6 levels is indistinguishable). Tell the person how close you got and offer to save the look as a filter. Attached pictures are only references: never copy their content into the photo.
+
         # Filters
 
         The person can save a look as a named filter and apply it to other photos. When they ask you to save, apply, update or remove a filter, use photo.filters. Applying a filter replaces the photo's tone and colour settings with the filter's; adjust afterwards if the photo needs it (a filter made on one photo rarely fits another exactly).

@@ -1,5 +1,6 @@
 import OscuruCore
 import OscuruEngine
+import PhotosUI
 import SwiftUI
 
 /// A photo, as a conversation: the original, what you asked for, and every version since.
@@ -62,6 +63,9 @@ private struct ThreadView: View {
     @State private var exporting = false
     @State private var problem: String?
     @State private var confirmingStartOver = false
+    /// Pictures to send with the next instruction: a look to match, or the original and edit of one.
+    @State private var attachments: [Attachment] = []
+    @State private var pickedReferences: [PhotosPickerItem] = []
     @FocusState private var composing: Bool
 
     var body: some View {
@@ -217,7 +221,9 @@ private struct ThreadView: View {
                 }
             }
             if model.account.isConnected {
+                if !attachments.isEmpty { attachmentStrip }
                 HStack(alignment: .bottom, spacing: 8) {
+                    attachButton
                     TextField(L10n.composerPlaceholder, text: $draft, axis: .vertical)
                         .lineLimit(1...6)
                         .focused($composing)
@@ -244,6 +250,67 @@ private struct ThreadView: View {
         .padding(.top, 10)
         .padding(.bottom, 8)
         .background(Color.black)
+        .onChange(of: pickedReferences) { _, items in
+            guard !items.isEmpty else { return }
+            pickedReferences = []
+            Task {
+                for item in items.prefix(max(0, 2 - attachments.count)) {
+                    guard let picked = try? await item.loadTransferable(type: PickedPhoto.self) else { continue }
+                    // Temporary copies are named "<uuid>-<original name>".
+                    let name = String(picked.url.lastPathComponent.dropFirst(37))
+                    let thumbnail = await Task.detached { Thumbnails.image(at: picked.url, maxPixel: 240) }.value
+                    withAnimation(.snappy) { attachments.append(Attachment(url: picked.url, name: name, thumbnail: thumbnail)) }
+                }
+            }
+        }
+    }
+
+    /// Attach up to two pictures from Photos: a look to match, or an original and its edit.
+    private var attachButton: some View {
+        PhotosPicker(selection: $pickedReferences, maxSelectionCount: max(1, 2 - attachments.count), matching: .images, preferredItemEncoding: .current) {
+            Image(systemName: "plus.circle.fill")
+                .font(.system(size: 34))
+                .symbolRenderingMode(.hierarchical)
+                .foregroundStyle(.white)
+        }
+        .disabled(editor.isWorking || attachments.count >= 2)
+        .accessibilityLabel(L10n.attach)
+        .accessibilityIdentifier("composer.attach")
+    }
+
+    private var attachmentStrip: some View {
+        HStack(spacing: 10) {
+            ForEach(attachments) { attachment in
+                Group {
+                    if let image = attachment.thumbnail {
+                        Image(uiImage: image).resizable().scaledToFill()
+                    } else {
+                        Color(white: 0.15)
+                    }
+                }
+                .frame(width: 64, height: 64)
+                .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+                .overlay(alignment: .topTrailing) {
+                    Button {
+                        withAnimation(.snappy) {
+                            attachments.removeAll { $0.id == attachment.id }
+                        }
+                        try? FileManager.default.removeItem(at: attachment.url)
+                    } label: {
+                        Image(systemName: "xmark.circle.fill")
+                            .font(.system(size: 20))
+                            .symbolRenderingMode(.palette)
+                            .foregroundStyle(Color.white, Color(white: 0.3))
+                    }
+                    .offset(x: 7, y: -7)
+                    .accessibilityLabel(L10n.removeAttachment)
+                }
+                .transition(.scale.combined(with: .opacity))
+            }
+            Spacer()
+        }
+        .padding(.horizontal, 16)
+        .padding(.top, 6)
     }
 
     /// Send, or stop while the assistant is working.
@@ -261,7 +328,7 @@ private struct ThreadView: View {
             .accessibilityLabel(L10n.stop)
             .accessibilityIdentifier("composer.stop")
         } else {
-            let empty = draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+            let empty = draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty && attachments.isEmpty
             Button {
                 send(draft)
             } label: {
@@ -276,9 +343,11 @@ private struct ThreadView: View {
     }
 
     private func send(_ text: String) {
+        let files = attachments.map { (url: $0.url, name: $0.name) }
         draft = ""
+        attachments = []
         composing = false
-        editor.send(text)
+        editor.send(text, attachments: files)
     }
 }
 
@@ -299,6 +368,14 @@ private struct TurnView: View {
                 Caption(text: L10n.originalCaption(editor.info))
                 card
             case .instruction(let text):
+                if let names = turn.attachments, !names.isEmpty {
+                    HStack(spacing: 6) {
+                        ForEach(names, id: \.self) { name in
+                            AttachedPicture(url: editor.referenceURL(name))
+                        }
+                    }
+                    .frame(maxWidth: .infinity, alignment: .trailing)
+                }
                 Text(text)
                     .padding(.horizontal, 14)
                     .padding(.vertical, 9)
@@ -380,6 +457,34 @@ private struct TurnView: View {
                 .accessibilityAddTraits(.isButton)
                 .accessibilityIdentifier(turn.kind == .original ? "thread.original" : "thread.version")
         }
+    }
+}
+
+/// A picture waiting to be sent with the next instruction.
+private struct Attachment: Identifiable {
+    let id = UUID()
+    /// A temporary copy, moved into the photo's folder when sent.
+    let url: URL
+    let name: String
+    let thumbnail: UIImage?
+}
+
+/// A picture sent with an instruction, above its words.
+private struct AttachedPicture: View {
+    let url: URL
+    @State private var image: UIImage?
+
+    var body: some View {
+        Color(white: 0.12)
+            .frame(width: 96, height: 96)
+            .overlay {
+                if let image { Image(uiImage: image).resizable().scaledToFill().transition(.opacity) }
+            }
+            .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+            .task(id: url) {
+                let url = url
+                image = await Task.detached { Thumbnails.image(at: url, maxPixel: 300) }.value
+            }
     }
 }
 

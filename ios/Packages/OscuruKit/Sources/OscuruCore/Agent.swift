@@ -36,14 +36,19 @@ public struct AgentContext: Sendable {
     public var metadata: JSONValue
     public var statistics: JSONValue?
     public var filters: [String]
+    /// Pictures the person attached to this instruction.
+    public var references: [ReferenceInfo]
 
-    public init(sessionID: String, revision: Int, state: EditingState, metadata: JSONValue, statistics: JSONValue?, filters: [String]) {
+    public init(
+        sessionID: String, revision: Int, state: EditingState, metadata: JSONValue, statistics: JSONValue?, filters: [String], references: [ReferenceInfo] = []
+    ) {
         self.sessionID = sessionID
         self.revision = revision
         self.state = state
         self.metadata = metadata
         self.statistics = statistics
         self.filters = filters
+        self.references = references
     }
 
     var json: JSONValue {
@@ -54,6 +59,7 @@ public struct AgentContext: Sendable {
             "metadata": metadata,
             "statistics": statistics ?? .null,
             "savedFilters": .array(filters.map { .string($0) }),
+            "references": .array(references.enumerated().map { $0.element.json(index: $0.offset) }),
         ]
     }
 }

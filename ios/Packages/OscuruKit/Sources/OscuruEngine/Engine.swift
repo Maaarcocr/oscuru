@@ -93,6 +93,16 @@ public final class Engine: @unchecked Sendable {
     }
   }
 
+  /// A small Display P3 RGBA8 bitmap of the photo, top row first: the values the tone and colour
+  /// stages work on, which looks are fitted to.
+  public func displayPixels(id: String, recipe: RenderRecipe, longEdge: Int = 384) throws -> PixelBuffer {
+    try locked {
+      let image = try buildImage(session: try session(id), recipe: recipe, options: RenderOptions(maxEdge: Double(longEdge)))
+      let bitmap = bitmap(of: image, longEdge: longEdge, space: tableColorSpace)
+      return PixelBuffer(rgba: bitmap.pixels, width: bitmap.width, height: bitmap.height)
+    }
+  }
+
   /// The photo with the area a mask covers painted red, as an sRGB JPEG, and the share of the
   /// frame the mask covers (0 to 1).
   public func maskPreview(id: String, recipe: RenderRecipe, mask: Mask, options: RenderOptions, quality: Double = 0.85) throws -> (jpeg: Data, coverage: Double) {
@@ -326,8 +336,8 @@ public final class Engine: @unchecked Sendable {
     return (blend.outputImage ?? image).cropped(to: extent)
   }
 
-  /// A small sRGB RGBA8 copy of the image, top row first.
-  func bitmap(of image: CIImage, longEdge: Int) -> (pixels: Data, width: Int, height: Int) {
+  /// A small RGBA8 copy of the image, top row first, in sRGB unless another space is given.
+  func bitmap(of image: CIImage, longEdge: Int, space: CGColorSpace? = nil) -> (pixels: Data, width: Int, height: Int) {
     let extent = image.extent
     let factor = min(1, CGFloat(longEdge) / max(extent.width, extent.height))
     var small = image
@@ -345,7 +355,7 @@ public final class Engine: @unchecked Sendable {
       if let base = buffer.baseAddress {
         context.render(
           small, toBitmap: base, rowBytes: width * 4, bounds: CGRect(x: 0, y: 0, width: width, height: height),
-          format: .RGBA8, colorSpace: sRGB)
+          format: .RGBA8, colorSpace: space ?? sRGB)
       }
     }
     return (data, width, height)

@@ -577,6 +577,22 @@
         }
       }
     },
+    "composer.attach": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Attach a Picture"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Allega una foto"
+          }
+        }
+      }
+    },
     "composer.connect": {
       "localizations": {
         "en": {
@@ -593,6 +609,22 @@
         }
       }
     },
+    "composer.matchThisLook": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Match this look."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Riprendi questo look."
+          }
+        }
+      }
+    },
     "composer.placeholder": {
       "localizations": {
         "en": {
@@ -605,6 +637,22 @@
           "stringUnit": {
             "state": "translated",
             "value": "Descrivi il look che vuoi"
+          }
+        }
+      }
+    },
+    "composer.removeAttachment": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Remove"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Rimuovi"
           }
         }
       }

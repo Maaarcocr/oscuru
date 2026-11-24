@@ -56,6 +56,36 @@ public enum PhotoAPI {
            */
           show(which?: "current" | "before" | "original" | "mask", options?: { region?: Region; maxEdge?: number; mask?: string }): void;
 
+          /**
+           * Pictures the person attached to this instruction, to show a look they want. You also see them.
+           *
+           * Two pictures of the same shot, an original and its edit (made in another app, say), give the
+           * look exactly: `fit` measures what every tone and colour became. One picture of another scene
+           * gives it only roughly: `match` makes this photo's tones and colours fall like the reference's.
+           * Neither changes anything until you pass the result to `photo.current.applyLook`; then judge it
+           * like any other edit, adjust, and offer to save it as a filter.
+           */
+          readonly references: {
+            list(): ReferenceInfo[];
+            /**
+             * Learns a look from a pair of the same shot, uncropped and the same way up: `original` is the
+             * index of an attached picture, or "photo" for the photo open in the editor (its own
+             * development as it is now, without its tone and colour settings); `edited` is the index of the
+             * edit. A RAW original is developed the neutral way first, so the look is in Oscuru's terms.
+             * `error` says how close the fit is: under 6 levels is indistinguishable by eye.
+             */
+            fit(original: number | "photo", edited: number): Look;
+            /**
+             * Approximates the look of a reference of any scene: maps each channel of this photo (as it is
+             * now, without its tone and colour settings) so its darkest, middle and brightest values fall
+             * where the reference's do, then matches its colourfulness. `strength` from 0 (no change) to 1
+             * (a full match, the default). Scenes differ, so treat it as a starting point.
+             */
+            match(reference: number, options?: { strength?: number }): Look;
+            /** Statistics of an attached picture, measured like getStatistics(). */
+            getStatistics(reference: number): ImageStatistics;
+          };
+
           /** The person's saved filters: looks they can apply to any photo. */
           readonly filters: {
             /** Names of the saved filters. */
@@ -151,6 +181,13 @@ public enum PhotoAPI {
             reset(): void;
           };
 
+          /**
+           * Puts a look from photo.references in place of the photo's tone and colour settings (contrast,
+           * whites, blacks, dehaze, curves, HSL, grading, vibrance, saturation). Exposure, white balance,
+           * highlights, shadows, clarity, texture, detail, effects and crop stay as they are.
+           */
+          applyLook(look: Look): void;
+
           /** Crops, straightens, turns or flips. Values left out keep their current value. */
           crop(settings: Partial<CropSettings>): void;
 
@@ -204,6 +241,23 @@ public enum PhotoAPI {
         /** Relative to the rest of the photo; 0 is no change. */
         interface LocalSettings {
         \(fields(Specs.localAdjustments))
+        }
+
+        interface ReferenceInfo {
+          index: number;
+          fileName: string;
+          isRaw: boolean;
+          width: number;
+          height: number;
+        }
+
+        /** A look found by comparing pictures. */
+        interface Look {
+          /** One curve per channel; the master curve stays straight. */
+          curves: { red: CurvePoint[]; green: CurvePoint[]; blue: CurvePoint[] };
+          saturation: number;
+          /** fit only: the average difference left between the original with this look and the edit, in 8-bit levels. */
+          error?: number;
         }
 
         interface LocalAdjustment {

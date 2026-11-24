@@ -225,12 +225,18 @@ public final class ScriptRuntime: @unchecked Sendable {
             grain: group("grain", ["set", "get"]),
             halation: group("halation", ["set", "get"]),
             local: group("local", ["set", "get", "list", "remove", "reset"]),
+            applyLook: bind("applyLook"),
             crop: bind("crop"),
             reset: bind("reset"),
             revert: bind("revert"),
             commit: bind("commit"),
           });
-          const photo = Object.freeze({ current, show: bind("show"), filters: group("filters", ["list", "apply", "save", "delete"]) });
+          const photo = Object.freeze({
+            current,
+            show: bind("show"),
+            filters: group("filters", ["list", "apply", "save", "delete"]),
+            references: group("references", ["list", "fit", "match", "getStatistics"]),
+          });
           const describe = (value) => {
             if (typeof value === "string") return value;
             if (value instanceof Error) return value.name + ": " + value.message;

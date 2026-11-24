@@ -10,6 +10,38 @@ private final class FakeHost: ScriptHost, @unchecked Sendable {
     var imageRequests: [(state: EditingState, region: ScriptRegion?, maxEdge: Int)] = []
     var maskRequests: [Mask] = []
     var maskCoverage = 0.25
+    var attached: [ReferenceInfo] = []
+    var referencePictures: [PixelBuffer] = []
+    var photoPixelRequests: [EditingState] = []
+
+    /// A grey ramp, transformed per pixel.
+    static func ramp(_ transform: (Double) -> (Double, Double, Double) = { ($0, $0, $0) }) -> PixelBuffer {
+        let width = 64
+        let height = 48
+        var data = Data(count: width * height * 4)
+        for y in 0..<height {
+            for x in 0..<width {
+                let c = transform(Double(x) / Double(width - 1))
+                let o = (y * width + x) * 4
+                data[o] = UInt8((min(1, max(0, c.0)) * 255).rounded())
+                data[o + 1] = UInt8((min(1, max(0, c.1)) * 255).rounded())
+                data[o + 2] = UInt8((min(1, max(0, c.2)) * 255).rounded())
+                data[o + 3] = 255
+            }
+        }
+        return PixelBuffer(rgba: data, width: width, height: height)
+    }
+
+    func references() -> [ReferenceInfo] { attached }
+    func pixels(ofReference index: Int) -> PixelBuffer? { index < referencePictures.count ? referencePictures[index] : nil }
+    func pixels(of state: EditingState) -> PixelBuffer? {
+        photoPixelRequests.append(state)
+        return FakeHost.ramp()
+    }
+    func referenceAnalysis(_ index: Int) -> ImageAnalysis? {
+        guard let picture = pixels(ofReference: index) else { return nil }
+        return ImageAnalysis(pixels: picture.rgba, width: picture.width, height: picture.height)
+    }
     var analysisCount = 0
     var failRendering = false
 
@@ -232,6 +264,33 @@ final class ScriptRuntimeTests: XCTestCase {
         let mistake = await run("photo.current.local.set('face', { adjust: { exposureEV: 0.2 } })")
         XCTAssertEqual(mistake.error?.name, "RangeError")
         XCTAssertTrue(mistake.error?.message.contains("needs a mask") ?? false)
+    }
+
+    func testALookFromAttachedPicturesIsFittedAndApplied() async {
+        host.attached = [ReferenceInfo(fileName: "edit.jpg", isRaw: false, width: 4032, height: 3024)]
+        host.referencePictures = [FakeHost.ramp { (0.05 + $0 * 0.9, 0.04 + $0 * 0.85, 0.03 + $0 * 0.75) }]
+        let outcome = await run(
+            """
+            const look = photo.references.fit("photo", 0);
+            photo.current.applyLook(look);
+            const rough = photo.references.match(0, { strength: 0.5 });
+            ({ count: photo.references.list().length, error: look.error, rough: rough.saturation !== undefined });
+            """)
+        XCTAssertNil(outcome.error)
+        XCTAssertTrue(outcome.returnValue?.contains("\"count\":1") ?? false)
+        XCTAssertTrue(outcome.returnValue?.contains("\"rough\":true") ?? false)
+        XCTAssertFalse(outcome.state.isIdentityCurve("blue"), "the look's curves are in place")
+        XCTAssertTrue(outcome.changes.map(\.path).contains("curves.blue"))
+        // The photo was measured whole and without its own tone and colour settings.
+        XCTAssertEqual(host.photoPixelRequests.first?.crop, Crop())
+
+        let missing = await run("photo.references.fit('photo', 3)")
+        XCTAssertEqual(missing.error?.name, "RangeError")
+        XCTAssertTrue(missing.error?.message.contains("index of an attached picture, 0 to 0") ?? false)
+
+        host.attached = []
+        let none = await run("photo.references.match(0)")
+        XCTAssertTrue(none.error?.message.contains("attached no pictures") ?? false)
     }
 
     func testShowingAMaskSaysHowMuchItCovers() async {

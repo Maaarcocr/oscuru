@@ -73,6 +73,10 @@ enum L10n {
     static var composerPlaceholder: String { String(localized: "composer.placeholder") }
     static var composerConnect: String { String(localized: "composer.connect") }
     static var send: String { String(localized: "composer.send") }
+    static var attach: String { String(localized: "composer.attach") }
+    static var removeAttachment: String { String(localized: "composer.removeAttachment") }
+    /// Sent when the person attaches pictures and writes nothing.
+    static var matchThisLook: String { String(localized: "composer.matchThisLook") }
     static var stop: String { String(localized: "composer.stop") }
     /// Ideas for a first instruction: a short label, and what is sent.
     struct Suggestion: Hashable {

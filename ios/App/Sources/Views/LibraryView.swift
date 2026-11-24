@@ -4,7 +4,7 @@ import SwiftUI
 import UniformTypeIdentifiers
 
 /// A photo picked from the system library, as the file it is stored as (the RAW file when there is one).
-private struct PickedPhoto: Transferable {
+struct PickedPhoto: Transferable {
     let url: URL
 
     static func keep(_ received: ReceivedTransferredFile) throws -> PickedPhoto {

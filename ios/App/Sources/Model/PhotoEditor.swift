@@ -59,6 +59,8 @@ struct Turn: Codable, Identifiable, Equatable {
     var result: EditingState?
     var status: Status = .done
     var cost: Double?
+    /// Pictures attached to an instruction, by their stored names. Nil in threads saved before attachments existed.
+    var attachments: [String]?
 }
 
 /// What is saved of a photo's thread: what the person sees, and what the model has been told.
@@ -268,19 +270,36 @@ final class PhotoEditor {
 
     // MARK: The assistant
 
-    /// Gives the assistant an instruction. It works until it is done or the person stops it.
-    func send(_ instruction: String) {
-        let text = instruction.trimmingCharacters(in: .whitespacesAndNewlines)
+    /// A picture attached to an instruction of this photo.
+    func referenceURL(_ name: String) -> URL { library.referenceURL(document.id, name) }
+
+    /// Gives the assistant an instruction, with any pictures attached to it (temporary files, which
+    /// are moved into the photo's folder). It works until it is done or the person stops it.
+    func send(_ instruction: String, attachments: [(url: URL, name: String)] = []) {
+        var text = instruction.trimmingCharacters(in: .whitespacesAndNewlines)
+        if text.isEmpty, !attachments.isEmpty { text = L10n.matchThisLook }
         guard !text.isEmpty, !isWorking, account.isConnected else { return }
         let run = UUID().uuidString
         let start = history.state
-        turns.append(Turn(id: run, kind: .instruction(text), status: .working))
+        var references: [(url: URL, name: String)] = []
+        var stored: [String] = []
+        for file in attachments {
+            if let name = try? library.saveReference(document.id, from: file.url) {
+                stored.append(name)
+                references.append((library.referenceURL(document.id, name), file.name))
+            }
+            try? FileManager.default.removeItem(at: file.url)
+        }
+        turns.append(Turn(id: run, kind: .instruction(text), status: .working, attachments: stored.isEmpty ? nil : stored))
         save()
         let client = modelClient()
         let model = account.activeModel
         let port = EditorPort(editor: self, run: run)
         let conversation = conversation
+        let renderer = renderer
         task = Task {
+            // The attached pictures are what this instruction's scripts can measure.
+            await Task.detached(priority: .userInitiated) { renderer.setReferences(references) }.value
             var status = Turn.Status.done
             do {
                 // Events are delivered in order, each handled before the agent goes on.
@@ -396,7 +415,7 @@ private struct EditorPort: AgentPort {
         let statistics = await Task.detached { renderer.analysis(of: snapshot.state)?.statistics }.value
         return AgentContext(
             sessionID: editor.document.id, revision: snapshot.revision, state: snapshot.state, metadata: renderer.info.json, statistics: statistics,
-            filters: renderer.filterNames())
+            filters: renderer.filterNames(), references: renderer.references())
     }
 
     func openingImages() async -> [LabeledImage] {
@@ -410,6 +429,11 @@ private struct EditorPort: AgentPort {
             }
             if let jpeg = renderer.image(of: snapshot.state, region: nil, maxEdge: Prompt.defaultImageEdge) {
                 images.append(LabeledImage(label: snapshot.state == original ? "The photo (not edited yet):" : "The photo as it is now:", jpeg: jpeg))
+            }
+            for (index, reference) in renderer.references().enumerated() {
+                guard let jpeg = renderer.referenceImage(index, maxEdge: Prompt.defaultImageEdge) else { continue }
+                let kind = reference.isRaw ? ", a RAW file shown developed the neutral way" : ""
+                images.append(LabeledImage(label: "Picture \(index) the person attached (\(reference.fileName)\(kind)):", jpeg: jpeg))
             }
             return images
         }.value

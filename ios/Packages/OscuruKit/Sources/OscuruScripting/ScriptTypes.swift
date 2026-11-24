@@ -12,6 +12,14 @@ public protocol ScriptHost: AnyObject {
     /// An sRGB JPEG of the photo with the area `mask` covers painted red, and the share of the frame
     /// it covers (0 to 1).
     func maskImage(of state: EditingState, mask: Mask, region: ScriptRegion?, maxEdge: Int) -> (jpeg: Data, coverage: Double)?
+    /// The pictures the person attached to the current instruction, in order.
+    func references() -> [ReferenceInfo]
+    /// A reference as a small Display P3 bitmap, developed the neutral way when it is a RAW file.
+    func pixels(ofReference index: Int) -> PixelBuffer?
+    /// The open photo with these settings as a small Display P3 bitmap.
+    func pixels(of state: EditingState) -> PixelBuffer?
+    /// Measurements of a reference.
+    func referenceAnalysis(_ index: Int) -> ImageAnalysis?
     func filterNames() -> [String]
     func look(named name: String) -> Look?
     /// Saves a look under a name, replacing a filter of the same name. False when the name is unusable.
