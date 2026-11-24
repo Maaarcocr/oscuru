@@ -1,7 +1,7 @@
 import OscuruCore
 import SwiftUI
 
-/// Saved looks, shown on this photo: tap one to apply it. Below, save the photo's own look.
+/// Saved styles, shown on this photo: tap one to apply it. Below, save the photo's own look as a style.
 struct FiltersView: View {
     @Environment(AppModel.self) private var model
     @Environment(\.dismiss) private var dismiss
@@ -116,9 +116,14 @@ private struct FilterPreview: View {
             .clipShape(RoundedRectangle(cornerRadius: 14))
             .animation(.easeOut(duration: 0.25), value: image != nil)
             .task(id: filter) {
-                let state = filter.look.applied(to: editor.state, defaults: editor.info.defaults)
+                let current = editor.state
+                let defaults = editor.info.defaults
                 let renderer = editor.renderer
-                image = await Task.detached { renderer.thumbnail(of: state, maxEdge: 240).flatMap(UIImage.init(data:)) }.value
+                image = await Task.detached {
+                    let state =
+                        (try? filter.applied(to: current, defaults: defaults) { renderer.pixels(of: LookFit.base(current, wholeFrame: false)) }) ?? current
+                    return renderer.thumbnail(of: state, maxEdge: 240).flatMap(UIImage.init(data:))
+                }.value
             }
     }
 }

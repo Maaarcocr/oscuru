@@ -113,20 +113,6 @@ final class Library {
         write(document)
     }
 
-    /// A picture attached to an instruction, kept with the photo it was attached to.
-    func referenceURL(_ id: String, _ name: String) -> URL {
-        folder(id).appending(path: "references", directoryHint: .isDirectory).appending(path: name)
-    }
-
-    /// Keeps a copy of an attached picture with the photo. Returns its stored name.
-    func saveReference(_ id: String, from source: URL) throws -> String {
-        let directory = folder(id).appending(path: "references", directoryHint: .isDirectory)
-        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
-        let name = "\(UUID().uuidString).\(source.pathExtension.isEmpty ? "img" : source.pathExtension.lowercased())"
-        try FileManager.default.copyItem(at: source, to: directory.appending(path: name))
-        return name
-    }
-
     func loadThread(_ id: String) -> SavedThread? {
         guard let data = try? Data(contentsOf: folder(id).appending(path: "thread.json")) else { return nil }
         return try? JSONDecoder().decode(SavedThread.self, from: data)

@@ -29,7 +29,7 @@ public struct PixelBuffer: Equatable, Sendable {
 
 /// A look found by comparing pictures: one tone curve per channel and a saturation, ready to set
 /// with the photo API.
-public struct LookFit: Equatable, Sendable {
+public struct LookFit: Codable, Equatable, Sendable {
     public var curves: [String: [[Double]]]
     public var saturation: Double
     /// Average difference left after a pair fit, in 8-bit levels. Nil for a match.
@@ -79,7 +79,7 @@ public struct LookFit: Equatable, Sendable {
 
     /// Reads a look a script passes back, checking it like any other settings.
     public init(json: JSONValue) throws {
-        guard let members = json.objectValue else { throw StateError("a look must be the object references.fit or references.match returned") }
+        guard let members = json.objectValue else { throw StateError("a look must be an object with curves and a saturation") }
         guard let curveMembers = members["curves"]?.objectValue else { throw StateError("look.curves must be an object with red, green and blue curves") }
         var curves: [String: [[Double]]] = [:]
         for (channel, points) in curveMembers {
@@ -98,22 +98,16 @@ public struct LookFit: Equatable, Sendable {
     }
 }
 
-/// A picture the person attached to an instruction.
-public struct ReferenceInfo: Codable, Equatable, Sendable {
-    public var fileName: String
-    public var isRaw: Bool
-    public var width: Int
-    public var height: Int
+/// The tone and colour of a picture, as a style learned from one picture keeps it: where each
+/// channel's darkest, middle and brightest values fall, and how colourful it is.
+public struct StyleFingerprint: Codable, Equatable, Sendable {
+    /// For "red", "green" and "blue": the value at each of `LookFitting.matchQuantiles`.
+    public var quantiles: [String: [Double]]
+    public var colourfulness: Double
 
-    public init(fileName: String, isRaw: Bool, width: Int, height: Int) {
-        self.fileName = fileName
-        self.isRaw = isRaw
-        self.width = width
-        self.height = height
-    }
-
-    public func json(index: Int) -> JSONValue {
-        ["index": .number(Double(index)), "fileName": .string(fileName), "isRaw": .bool(isRaw), "width": .number(Double(width)), "height": .number(Double(height))]
+    public init(quantiles: [String: [Double]], colourfulness: Double) {
+        self.quantiles = quantiles
+        self.colourfulness = colourfulness
     }
 }
 
@@ -158,23 +152,41 @@ public enum LookFitting {
         return LookFit(curves: curves, saturation: saturation, error: (error * 255 * 10).rounded() / 10)
     }
 
+    /// Where a fingerprint samples each channel's distribution.
+    public static let matchQuantiles: [Double] = [0, 0.01, 0.04, 0.1, 0.2, 0.35, 0.5, 0.65, 0.8, 0.9, 0.96, 0.99, 1]
+
+    /// The fingerprint of a picture's tone and colour.
+    public static func fingerprint(of picture: PixelBuffer) -> StyleFingerprint {
+        let colors = grid(picture)
+        var quantiles: [String: [Double]] = [:]
+        for (channel, name) in ["red", "green", "blue"].enumerated() {
+            let sorted = colors.map { $0[channel] }.sorted()
+            quantiles[name] = matchQuantiles.map { (quantile(sorted, $0) * 10000).rounded() / 10000 }
+        }
+        return StyleFingerprint(quantiles: quantiles, colourfulness: colourfulness(colors))
+    }
+
     /// An approximate look from a reference of another scene: each channel of `source` is mapped
     /// so its distribution matches the reference's (the darkest 1% to the darkest 1%, the median to
     /// the median, and so on), then saturation is matched. `strength` 0 is no change, 1 a full match.
     public static func match(source: PixelBuffer, reference: PixelBuffer, strength: Double = 1) throws -> LookFit {
-        guard source.width > 0, source.height > 0, reference.width > 0, reference.height > 0 else { throw Failure.empty }
+        guard reference.width > 0, reference.height > 0 else { throw Failure.empty }
+        return try match(source: source, fingerprint: fingerprint(of: reference), strength: strength)
+    }
+
+    /// `match` against a fingerprint kept from an earlier picture.
+    public static func match(source: PixelBuffer, fingerprint: StyleFingerprint, strength: Double = 1) throws -> LookFit {
+        guard source.width > 0, source.height > 0 else { throw Failure.empty }
         let amount = min(1, max(0, strength))
         let from = grid(source)
-        let to = grid(reference)
-        let quantiles: [Double] = [0, 0.01, 0.04, 0.1, 0.2, 0.35, 0.5, 0.65, 0.8, 0.9, 0.96, 0.99, 1]
         var curves: [String: [[Double]]] = [:]
         for (channel, name) in ["red", "green", "blue"].enumerated() {
             let a = from.map { $0[channel] }.sorted()
-            let b = to.map { $0[channel] }.sorted()
+            let b = fingerprint.quantiles[name] ?? matchQuantiles
             var points: [[Double]] = []
-            for q in quantiles {
+            for (index, q) in matchQuantiles.enumerated() {
                 let x = quantile(a, q)
-                let y = x + amount * (quantile(b, q) - x)
+                let y = x + amount * ((index < b.count ? b[index] : q) - x)
                 if let last = points.last, x - last[0] < Specs.minCurveGap { continue }
                 points.append([x, y])
             }
@@ -185,7 +197,7 @@ public enum LookFitting {
         }
         // Saturation: the reference's colourfulness relative to brightness, after the curves.
         let toned = render(curves: curves, saturation: 0, from)
-        let ratio = colourfulness(to) / max(0.001, colourfulness(toned))
+        let ratio = fingerprint.colourfulness / max(0.001, colourfulness(toned))
         let saturation = min(60, max(-60, (ratio - 1) * 100 * amount)).rounded()
         return LookFit(curves: curves, saturation: saturation, error: nil)
     }

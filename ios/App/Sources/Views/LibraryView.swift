@@ -33,6 +33,13 @@ struct LibraryView: View {
     @State private var path: [String] = []
     @Namespace private var transition
 
+    /// Styles: making one, and putting one on photos chosen in the grid.
+    @State private var creatingStyle = false
+    @State private var applyingStyle: SavedFilter?
+    @State private var styling = false
+    @State private var renamingStyle: SavedFilter?
+    @State private var styleName = ""
+
     /// Choosing photos to share or delete, as in Photos.
     @State private var selecting = false
     @State private var selection: Set<String> = []
@@ -79,6 +86,8 @@ struct LibraryView: View {
         NavigationStack(path: $path) {
             Group {
                 if photos.isEmpty {
+                    VStack(spacing: 0) {
+                        stylesRow.padding(.top, 8)
                     ContentUnavailableView {
                         Label(L10n.libraryEmptyTitle, systemImage: "photo.on.rectangle.angled")
                     } description: {
@@ -91,6 +100,8 @@ struct LibraryView: View {
                         .buttonStyle(.glass)
                         Button(L10n.fromFiles) { choosingFile = true }
                             .buttonStyle(.glass)
+                    }
+                    .frame(maxHeight: .infinity)
                     }
                 } else {
                     grid
@@ -108,6 +119,14 @@ struct LibraryView: View {
                 }
             }
             .sheet(isPresented: $showingSettings) { SettingsView() }
+            .sheet(isPresented: $creatingStyle) { NewStyleView() }
+            .alert(L10n.rename, isPresented: Binding(get: { renamingStyle != nil }, set: { if !$0 { renamingStyle = nil } })) {
+                TextField(L10n.filterNamePlaceholder, text: $styleName)
+                Button(L10n.save) {
+                    if let renamingStyle { _ = model.filterStore.rename(id: renamingStyle.id, to: styleName) }
+                }
+                Button(L10n.cancel, role: .cancel) {}
+            }
             .sheet(item: $shared) { files in
                 ShareSheet(urls: files.urls).presentationDetents([.medium, .large])
             }
@@ -171,6 +190,9 @@ struct LibraryView: View {
     private var grid: some View {
         ScrollViewReader { proxy in
             ScrollView {
+                if !selecting {
+                    stylesRow.padding(.top, 4).padding(.bottom, 14)
+                }
                 gridContent
                     .coordinateSpace(.named(LibraryView.gridSpace))
                     .onGeometryChange(for: CGFloat.self) { $0.size.width } action: { gridWidth = $0 }
@@ -311,6 +333,68 @@ struct LibraryView: View {
         endRun()
         selecting = false
         selection = []
+        applyingStyle = nil
+    }
+
+    // MARK: Styles
+
+    /// Your styles, and the way to make a new one: from an edited photo, or an original and its edit.
+    private var stylesRow: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            Text(L10n.filters)
+                .font(.title3.weight(.semibold))
+                .padding(.horizontal, 16)
+            ScrollView(.horizontal, showsIndicators: false) {
+                HStack(alignment: .top, spacing: 12) {
+                    Button {
+                        creatingStyle = true
+                    } label: {
+                        StyleCard(title: L10n.newStyle, picture: nil, isNew: true)
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityIdentifier("library.newStyle")
+                    ForEach(model.filters) { style in
+                        Button {
+                            beginApplying(style)
+                        } label: {
+                            StyleCard(title: style.name, picture: model.filterStore.pictureURL(style.id), isNew: false)
+                        }
+                        .buttonStyle(.plain)
+                        .disabled(photos.isEmpty)
+                        .accessibilityIdentifier("library.style")
+                        .contextMenu {
+                            Button(L10n.applyToPhotos, systemImage: "checkmark.circle") { beginApplying(style) }
+                                .disabled(photos.isEmpty)
+                            Button(L10n.rename, systemImage: "pencil") {
+                                styleName = style.name
+                                renamingStyle = style
+                            }
+                            Button(L10n.delete, systemImage: "trash", role: .destructive) { model.filterStore.delete(id: style.id) }
+                        }
+                    }
+                }
+                .padding(.horizontal, 16)
+            }
+        }
+    }
+
+    /// Tapping a style: choose the photos it goes on.
+    private func beginApplying(_ style: SavedFilter) {
+        guard !photos.isEmpty else { return }
+        selection = []
+        applyingStyle = style
+        selecting = true
+    }
+
+    private func apply(_ style: SavedFilter) {
+        let chosen = photos.filter { selection.contains($0.id) }
+        guard !chosen.isEmpty, !styling else { return }
+        styling = true
+        Task {
+            await model.applyStyle(style, to: chosen)
+            styling = false
+            endSelecting()
+        }
     }
 
     // MARK: Toolbar
@@ -378,8 +462,45 @@ struct LibraryView: View {
         .padding(.bottom, 4)
     }
 
-    /// While selecting: share on the left, how many are chosen in the middle, delete on the right.
+    /// While selecting: share and styles on the left, how many are chosen in the middle, delete on
+    /// the right. When a style was tapped, just that: what to put it on, and Apply.
+    @ViewBuilder
     private var selectionBar: some View {
+        if let style = applyingStyle {
+            styleBar(style)
+        } else {
+            actionsBar
+        }
+    }
+
+    private func styleBar(_ style: SavedFilter) -> some View {
+        let none = selection.isEmpty
+        return HStack(spacing: 12) {
+            VStack(alignment: .leading, spacing: 2) {
+                Text(L10n.chooseFor(style.name))
+                    .font(.subheadline.weight(.semibold))
+                    .lineLimit(1)
+                Text(none ? L10n.selectPhotos : L10n.selectedCount(selection.count))
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+            Spacer()
+            if styling {
+                ProgressView().frame(width: 44, height: 44)
+            } else {
+                Button(L10n.apply) { apply(style) }
+                    .buttonStyle(.glassProminent)
+                    .controlSize(.large)
+                    .disabled(none)
+                    .accessibilityIdentifier("library.applyStyle")
+            }
+        }
+        .padding(.horizontal, 20)
+        .padding(.top, 8)
+        .padding(.bottom, 4)
+    }
+
+    private var actionsBar: some View {
         let none = selection.isEmpty
         return HStack {
             if exporting {
@@ -403,6 +524,24 @@ struct LibraryView: View {
                 .disabled(none)
                 .accessibilityLabel(L10n.share)
                 .accessibilityIdentifier("library.share")
+            }
+            if !model.filters.isEmpty {
+                if styling {
+                    ProgressView().frame(width: 44, height: 44)
+                } else {
+                    Menu {
+                        ForEach(model.filters) { style in
+                            Button(style.name) { apply(style) }
+                        }
+                    } label: {
+                        Image(systemName: "camera.filters").font(.body.weight(.semibold)).frame(width: 30, height: 30)
+                    }
+                    .buttonStyle(.glass)
+                    .buttonBorderShape(.circle)
+                    .disabled(none)
+                    .accessibilityLabel(L10n.applyStyle)
+                    .accessibilityIdentifier("library.styleMenu")
+                }
             }
             Spacer()
             Text(none ? L10n.selectPhotos : L10n.selectedCount(selection.count))
@@ -467,6 +606,46 @@ struct LibraryView: View {
             }
             if sources.count == 1, let document = added.first { path = [document.id] }
             if !failures.isEmpty { problem = failures.joined(separator: "\n") }
+        }
+    }
+}
+
+/// A style in the library: the picture it was learned from, or a plain tile; its name below.
+private struct StyleCard: View {
+    let title: String
+    let picture: URL?
+    let isNew: Bool
+    @State private var image: UIImage?
+
+    var body: some View {
+        VStack(spacing: 6) {
+            ZStack {
+                Color(white: isNew ? 0.09 : 0.13)
+                if let image {
+                    Image(uiImage: image).resizable().scaledToFill().transition(.opacity)
+                } else {
+                    Image(systemName: isNew ? "plus" : "camera.filters")
+                        .font(.title3.weight(.semibold))
+                        .foregroundStyle(isNew ? Color.accentColor : Color.secondary)
+                }
+            }
+            .frame(width: 84, height: 84)
+            .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
+            .overlay {
+                if isNew {
+                    RoundedRectangle(cornerRadius: 16, style: .continuous)
+                        .strokeBorder(Color(white: 0.3), style: StrokeStyle(lineWidth: 1.5, dash: [6, 5]))
+                }
+            }
+            Text(title)
+                .font(.caption.weight(.medium))
+                .lineLimit(1)
+                .frame(width: 84)
+        }
+        .contentShape(Rectangle())
+        .task(id: picture) {
+            guard let picture, FileManager.default.fileExists(atPath: picture.path) else { return }
+            image = await Task.detached { UIImage(contentsOfFile: picture.path) }.value
         }
     }
 }

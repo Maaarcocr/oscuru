@@ -61,6 +61,13 @@ final class OscuruUITests: XCTestCase {
         XCTAssertTrue(photo.waitForExistence(timeout: 30))
         capture("09-library")
 
+        // A new style, from the library: an edited photo, and its original for an exact copy.
+        element(app, "library.newStyle").tap()
+        XCTAssertTrue(element(app, "style.create").waitForExistence(timeout: 30))
+        sleep(1)
+        capture("09-new-style")
+        element(app, "style.cancel").tap()
+
         // Selecting, as in Photos: choose photos to share or delete.
         element(app, "library.select").tap()
         photo.tap()

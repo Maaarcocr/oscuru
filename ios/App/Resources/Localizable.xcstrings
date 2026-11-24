@@ -577,22 +577,6 @@
         }
       }
     },
-    "composer.attach": {
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Attach a Picture"
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Allega una foto"
-          }
-        }
-      }
-    },
     "composer.connect": {
       "localizations": {
         "en": {
@@ -609,22 +593,6 @@
         }
       }
     },
-    "composer.matchThisLook": {
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Match this look."
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Riprendi questo look."
-          }
-        }
-      }
-    },
     "composer.placeholder": {
       "localizations": {
         "en": {
@@ -637,22 +605,6 @@
           "stringUnit": {
             "state": "translated",
             "value": "Descrivi il look che vuoi"
-          }
-        }
-      }
-    },
-    "composer.removeAttachment": {
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Remove"
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Rimuovi"
           }
         }
       }
@@ -854,13 +806,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Save a look below to use it on other photos. You can also ask the assistant to save or apply one."
+            "value": "Save this photo's look below as a style for other photos. You can also make a style from any picture in the library."
           }
         },
         "it": {
           "stringUnit": {
             "state": "translated",
-            "value": "Salva qui sotto un look per usarlo su altre foto. Puoi anche chiedere all’assistente di salvarne o applicarne uno."
+            "value": "Salva qui sotto il look di questa foto come stile per le altre. Puoi anche creare uno stile da qualsiasi foto nella libreria."
           }
         }
       }
@@ -870,13 +822,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Name this look"
+            "value": "Name this style"
           }
         },
         "it": {
           "stringUnit": {
             "state": "translated",
-            "value": "Dai un nome a questo look"
+            "value": "Dai un nome a questo stile"
           }
         }
       }
@@ -886,13 +838,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Filters"
+            "value": "Styles"
           }
         },
         "it": {
           "stringUnit": {
             "state": "translated",
-            "value": "Filtri"
+            "value": "Stili"
           }
         }
       }
@@ -909,6 +861,70 @@
           "stringUnit": {
             "state": "translated",
             "value": "Aggiungi una foto"
+          }
+        }
+      }
+    },
+    "library.apply": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Apply"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Applica"
+          }
+        }
+      }
+    },
+    "library.applyStyle": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Apply a Style"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Applica uno stile"
+          }
+        }
+      }
+    },
+    "library.applyToPhotos": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Apply to Photos…"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Applica alle foto…"
+          }
+        }
+      }
+    },
+    "library.chooseFor %@": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Choose photos for “%@”"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Scegli le foto per «%@»"
           }
         }
       }
@@ -2333,6 +2349,310 @@
           "stringUnit": {
             "state": "translated",
             "value": "Passo %@"
+          }
+        }
+      }
+    },
+    "style.close": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Close to your edit. Changes made to only part of a photo can’t be part of a style."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Vicino alla tua modifica. Le modifiche a una sola parte della foto non possono far parte di uno stile."
+          }
+        }
+      }
+    },
+    "style.create": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Create Style"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Crea stile"
+          }
+        }
+      }
+    },
+    "style.edited": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Edited"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Modificata"
+          }
+        }
+      }
+    },
+    "style.edited.hint": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The look you want"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Il look che vuoi"
+          }
+        }
+      }
+    },
+    "style.failed": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The style could not be made"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Impossibile creare lo stile"
+          }
+        }
+      }
+    },
+    "style.framing": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The two photos don’t line up. Choose the original and the edit of the same shot, uncropped and the same way up."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Le due foto non coincidono. Scegli l’originale e la modifica dello stesso scatto, senza ritagli e con lo stesso orientamento."
+          }
+        }
+      }
+    },
+    "style.intro": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Make a style from a photo whose look you love. Oscuru can then give that look to any of your photos."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Crea uno stile da una foto di cui ami il look. Oscuru potrà poi dare quel look a qualsiasi tua foto."
+          }
+        }
+      }
+    },
+    "style.new": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "New Style"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nuovo stile"
+          }
+        }
+      }
+    },
+    "style.original": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Original"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Originale"
+          }
+        }
+      }
+    },
+    "style.original.hint": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Optional: the same photo before editing, for an exact copy"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Facoltativa: la stessa foto prima delle modifiche, per una copia esatta"
+          }
+        }
+      }
+    },
+    "style.pair": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Oscuru will learn exactly what the edit changed, and do the same to any photo."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Oscuru imparerà esattamente cosa ha cambiato la modifica, e farà lo stesso su qualsiasi foto."
+          }
+        }
+      }
+    },
+    "style.remove": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Remove"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Rimuovi"
+          }
+        }
+      }
+    },
+    "style.result.edit": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Your edit"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "La tua modifica"
+          }
+        }
+      }
+    },
+    "style.result.onYours": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "One of your photos with the style"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Una tua foto con lo stile"
+          }
+        }
+      }
+    },
+    "style.result.reference": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The look"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Il look"
+          }
+        }
+      }
+    },
+    "style.result.styled": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Your original with the style"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Il tuo originale con lo stile"
+          }
+        }
+      }
+    },
+    "style.saved": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "It’s in your styles: apply it from the library, or from any photo’s menu."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "È nei tuoi stili: applicalo dalla libreria o dal menu di qualsiasi foto."
+          }
+        }
+      }
+    },
+    "style.single": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Oscuru will match each photo's tones and colours to this one. Add the original too for an exact copy."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Oscuru adatterà toni e colori di ogni foto a questa. Aggiungi anche l’originale per una copia esatta."
+          }
+        }
+      }
+    },
+    "style.veryClose": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "A very close match to your edit."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Praticamente identico alla tua modifica."
           }
         }
       }

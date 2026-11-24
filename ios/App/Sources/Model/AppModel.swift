@@ -1,3 +1,4 @@
+import CoreGraphics
 import Foundation
 import Observation
 import OscuruCore
@@ -84,9 +85,99 @@ final class AppModel {
         return urls
     }
 
+    // MARK: Styles
+
+    struct StyleResult {
+        let style: SavedFilter
+        /// The original with the new style, or one of the person's photos for a style from one picture.
+        let styled: CGImage?
+        /// The picture the style was learned from.
+        let reference: CGImage?
+        /// For a pair: how far the original with the style is from the edit, in 8-bit levels.
+        let error: Double?
+    }
+
+    enum StyleError: Error {
+        case unnamed
+    }
+
+    /// Learns a style: exactly from an original and its edit, or as a fingerprint of one picture
+    /// that is matched on each photo it goes on. Saves it and returns a preview to show it worked.
+    func createStyle(name: String, edited: URL, original: URL?) async throws -> StyleResult {
+        let engine = engine
+        let latest = library.photos.first.map { (url: library.originalURL($0), state: $0.state) }
+        let made = try await Task.detached(priority: .userInitiated) { () throws -> (LookFit?, StyleFingerprint?, CGImage?, CGImage?, Data?) in
+            let editedID = "style-\(UUID().uuidString)"
+            _ = try engine.open(id: editedID, url: edited)
+            defer { engine.close(id: editedID) }
+            let editedPixels = try engine.displayPixels(id: editedID, recipe: RenderRecipe())
+            let reference = try? engine.image(id: editedID, recipe: RenderRecipe(), options: RenderOptions(maxEdge: 900))
+            let picture = try? engine.jpeg(id: editedID, recipe: RenderRecipe(), options: RenderOptions(maxEdge: 360), quality: 0.85)
+            if let original {
+                let originalID = "style-\(UUID().uuidString)"
+                let info = try engine.open(id: originalID, url: original)
+                defer { engine.close(id: originalID) }
+                // A RAW original is developed Oscuru's neutral way, so the style is learned in Oscuru's terms.
+                let base = try engine.displayPixels(id: originalID, recipe: RenderRecipe())
+                let fit = try LookFitting.fit(original: base, edited: editedPixels)
+                let state = try fit.applied(to: EditingState(defaults: info.defaults))
+                let styled = try? engine.image(id: originalID, recipe: RenderRecipe(state: state, defaults: info.defaults), options: RenderOptions(maxEdge: 900))
+                return (fit, nil, styled, reference, picture)
+            }
+            let fingerprint = LookFitting.fingerprint(of: editedPixels)
+            var styled: CGImage?
+            if let latest {
+                let photoID = "style-\(UUID().uuidString)"
+                if let info = try? engine.open(id: photoID, url: latest.url) {
+                    defer { engine.close(id: photoID) }
+                    let base = RenderRecipe(state: LookFit.base(latest.state, wholeFrame: false), defaults: info.defaults)
+                    if let source = try? engine.displayPixels(id: photoID, recipe: base),
+                        let state = try? LookFitting.match(source: source, fingerprint: fingerprint).applied(to: latest.state)
+                    {
+                        styled = try? engine.image(id: photoID, recipe: RenderRecipe(state: state, defaults: info.defaults), options: RenderOptions(maxEdge: 900))
+                    }
+                }
+            }
+            return (nil, fingerprint, styled, reference, picture)
+        }.value
+        let (fit, fingerprint, styled, reference, picture) = made
+        let look = Look(state: try fit?.applied(to: EditingState()) ?? EditingState(), defaults: PhotoDefaults())
+        guard let style = filterStore.saveStyle(name: name, look: look, fit: fit, match: fingerprint, picture: picture) else { throw StyleError.unnamed }
+        return StyleResult(style: style, styled: styled, reference: reference, error: fit?.error)
+    }
+
+    /// Puts a style on photos in the library, one at a time, as a step in each one's conversation.
+    func applyStyle(_ style: SavedFilter, to documents: [PhotoDocument]) async {
+        for document in documents {
+            let engine = engine
+            let url = library.originalURL(document)
+            let current = document.state
+            let outcome = await Task.detached(priority: .userInitiated) { () -> (state: EditingState, original: EditingState, thumbnail: Data?)? in
+                let id = "style-\(UUID().uuidString)"
+                guard let info = try? engine.open(id: id, url: url) else { return nil }
+                defer { engine.close(id: id) }
+                let measured = RenderRecipe(state: LookFit.base(current, wholeFrame: false), defaults: info.defaults)
+                guard let state = try? style.applied(to: current, defaults: info.defaults, source: { try? engine.displayPixels(id: id, recipe: measured) }) else {
+                    return nil
+                }
+                let thumbnail = try? engine.jpeg(id: id, recipe: RenderRecipe(state: state, defaults: info.defaults), options: RenderOptions(maxEdge: 480), quality: 0.8)
+                return (state, EditingState(defaults: info.defaults), thumbnail)
+            }.value
+            guard let outcome, outcome.state != current else { continue }
+            library.save(id: document.id, state: outcome.state, revision: document.revision + 1)
+            if let thumbnail = outcome.thumbnail { library.saveThumbnail(id: document.id, jpeg: thumbnail) }
+            var thread = library.loadThread(document.id)
+                ?? SavedThread(
+                    turns: [Turn(id: "original", kind: .original, result: outcome.original)]
+                        + (current != outcome.original ? [Turn(id: UUID().uuidString, kind: .earlier, result: current)] : []),
+                    conversation: [])
+            thread.turns.append(Turn(id: UUID().uuidString, kind: .filter(style.name), result: outcome.state))
+            library.saveThread(document.id, thread)
+        }
+    }
+
     func close(_ editor: PhotoEditor) {
         editor.stop()
-        editor.renderer.closeReferences()
         let engine = engine
         let id = editor.renderer.id
         Task {

@@ -19,8 +19,8 @@ The assistant never uses AI image generation and never invents content. It write
 - **Every version kept.** Nothing is lost: any earlier version in the thread can be brought back or shared, and the thread is saved with the photo.
 - **Edits to part of the photo.** The assistant can mask a subject or the people it finds on the phone, an oval or a gradient it places by looking, or a range of tones or colours, and change exposure, contrast, colour and clarity inside it. It checks every mask by looking at it.
 - **Film grain and halation.** Grain that scales with the photo and is strongest in the midtones, and the red glow film shows around bright light.
-- **Looks from pictures.** Attach the edit of a photo (or an original and its edit, or any photo whose look you like) and the assistant learns the look: exactly, by fitting curves between an original and its edit, or roughly, by matching tones and colours to a reference.
-- **Saved filters.** Save a look and apply it to any photo, yourself or by asking the assistant.
+- **Styles from pictures.** On the home screen, make a style from a photo whose look you love: from the edit alone, Oscuru matches each photo's tones and colours to it; add the original too and it learns exactly what the edit changed. Apply a style to many photos at once.
+- **Styles.** Save a photo's look as a style and apply it to any photo, yourself or by asking the assistant.
 - **Real RAW development, ours.** Apple ProRAW, DNG and the camera RAW formats iOS reads, plus JPEG and HEIC, developed on the phone with Core Image. Apple's decoder only does the maths the file dictates; its tone curve, noise reduction and sharpening are off, and Oscuru's own base curve keeps the light as measured. Originals are never changed. Export at full resolution to JPEG or HEIC.
 - **Your model, your account.** The assistant runs on any OpenRouter model that reads images and calls tools, with your own sign-in. The app records what it costs and sets no limits of its own.
 

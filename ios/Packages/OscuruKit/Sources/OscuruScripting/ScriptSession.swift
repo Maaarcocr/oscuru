@@ -77,44 +77,6 @@ final class ScriptSession {
         case "local.list": return .array(draft.local.map(\.json))
         case "local.remove": try draft.removeLocal(name: argument(0))
         case "local.reset": try draft.reset(section: "local", defaults: defaults)
-        case "references.list": return .array(host.references().enumerated().map { $0.element.json(index: $0.offset) })
-        case "references.fit":
-            let editedIndex = try referenceIndex(argument(1), "the edited picture")
-            let original: PixelBuffer?
-            if argument(0) == "photo" {
-                original = host.pixels(of: LookFit.base(draft, wholeFrame: true))
-            } else {
-                original = host.pixels(ofReference: try referenceIndex(argument(0), "the original"))
-            }
-            guard let original, let edited = host.pixels(ofReference: editedIndex) else { throw Failure(message: "The pictures could not be rendered.") }
-            do {
-                return try LookFitting.fit(original: original, edited: edited).json
-            } catch let failure as LookFitting.Failure {
-                throw Failure(message: failure.description)
-            }
-        case "references.match":
-            let index = try referenceIndex(argument(0), "the reference")
-            var strength = 1.0
-            if argument(1) != .null {
-                let options = try checkOptions(argument(1), ["strength"], "match")
-                if let value = options["strength"] {
-                    guard let number = value.doubleValue, number >= 0, number <= 1 else { throw StateError("match strength must be between 0 and 1, got \(value.described)") }
-                    strength = number
-                }
-            }
-            guard let source = host.pixels(of: LookFit.base(draft, wholeFrame: false)), let reference = host.pixels(ofReference: index) else {
-                throw Failure(message: "The pictures could not be rendered.")
-            }
-            do {
-                return try LookFitting.match(source: source, reference: reference, strength: strength).json
-            } catch let failure as LookFitting.Failure {
-                throw Failure(message: failure.description)
-            }
-        case "references.getStatistics":
-            let index = try referenceIndex(argument(0), "the reference")
-            guard let analysis = host.referenceAnalysis(index) else { throw Failure(message: "The reference could not be measured.") }
-            return analysis.statistics
-        case "applyLook": draft = try LookFit(json: argument(0)).applied(to: draft)
         case "crop": try draft.setCrop(argument(0))
         case "reset": try draft.reset(section: argument(0) == .null ? "all" : argument(0), defaults: defaults)
         case "revert": draft = request.state
@@ -123,11 +85,12 @@ final class ScriptSession {
         case "filters.list": return .array(host.filterNames().map { .string($0) })
         case "filters.apply":
             let wanted = try filterName(argument(0))
-            guard let look = host.look(named: wanted) else {
+            guard let filter = host.filter(named: wanted) else {
                 let names = host.filterNames()
                 throw Failure(message: "There is no saved filter named \"\(wanted)\". " + (names.isEmpty ? "No filters are saved yet." : "Saved filters: \(names.joined(separator: ", "))."))
             }
-            draft = look.applied(to: draft, defaults: defaults)
+            let current = draft
+            draft = try filter.applied(to: current, defaults: defaults) { host.pixels(of: LookFit.base(current, wholeFrame: false)) }
         case "filters.save":
             let wanted = try filterName(argument(0))
             guard host.saveFilter(name: wanted, look: Look(state: draft, defaults: defaults)) else { throw Failure(message: "The filter could not be saved under the name \"\(wanted)\".") }
@@ -151,23 +114,6 @@ final class ScriptSession {
             throw StateError("\(what) must be one of \(allowed.map { "\"\($0)\"" }.joined(separator: ", ")), got \(value.described)")
         }
         return text
-    }
-
-    private func referenceIndex(_ value: JSONValue, _ what: String) throws -> Int {
-        let count = host.references().count
-        guard count > 0 else { throw Failure(message: "The person attached no pictures to this instruction.") }
-        guard let number = value.doubleValue, number == number.rounded(), number >= 0, Int(number) < count else {
-            throw StateError("\(what) must be the index of an attached picture, 0 to \(count - 1), got \(value.described)")
-        }
-        return Int(number)
-    }
-
-    private func checkOptions(_ value: JSONValue, _ allowed: [String], _ what: String) throws -> [String: JSONValue] {
-        guard let members = value.objectValue else { throw StateError("\(what) options must be an object, got \(value.described)") }
-        for key in members.keys where !allowed.contains(key) {
-            throw StateError("\(what) has no option \"\(key)\". Valid options: \(allowed.joined(separator: ", "))")
-        }
-        return members
     }
 
     private func filterName(_ value: JSONValue) throws -> String {

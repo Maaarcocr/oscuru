@@ -1,7 +1,7 @@
 import Foundation
 import OscuruCore
 
-/// The person's saved filters, on disk. Scripts reach this from their own thread while the screen
+/// The person's saved styles (filters), on disk, with the picture each style learned from pictures came from. Scripts reach this from their own thread while the screen
 /// reads it from the main one, so every access goes through a lock.
 final class FilterStore: @unchecked Sendable {
     private let lock = NSLock()
@@ -44,12 +44,28 @@ final class FilterStore: @unchecked Sendable {
         change { $0.save(name: name, look: look, id: UUID().uuidString, now: Date()) != nil }
     }
 
+    /// Where a style's picture is kept: the edit or reference it was learned from.
+    func pictureURL(_ id: String) -> URL? {
+        file?.deletingLastPathComponent().appending(path: "styles", directoryHint: .isDirectory).appending(path: "\(id).jpg")
+    }
+
+    /// Saves a style learned from pictures, with a small copy of the picture for the library.
+    func saveStyle(name: String, look: Look, fit: LookFit?, match: StyleFingerprint?, picture: Data?) -> SavedFilter? {
+        let saved = change { $0.save(name: name, look: look, fit: fit, match: match, id: UUID().uuidString, now: Date()) }
+        if let saved, let picture, let url = pictureURL(saved.id) {
+            try? FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
+            try? picture.write(to: url, options: .atomic)
+        }
+        return saved
+    }
+
     func rename(id: String, to name: String) -> Bool {
         change { $0.rename(id: id, to: name) }
     }
 
     func delete(id: String) {
         change { $0.delete(id: id) }
+        if let url = pictureURL(id) { try? FileManager.default.removeItem(at: url) }
     }
 
     func delete(named name: String) -> Bool {

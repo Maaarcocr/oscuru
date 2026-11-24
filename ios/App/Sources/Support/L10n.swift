@@ -41,6 +41,31 @@ enum L10n {
         return String(localized: "library.delete \(text)")
     }
     static var deleteMessage: String { String(localized: "library.delete.message") }
+    static var applyStyle: String { String(localized: "library.applyStyle") }
+    static var applyToPhotos: String { String(localized: "library.applyToPhotos") }
+    static var apply: String { String(localized: "library.apply") }
+    static func chooseFor(_ name: String) -> String { String(localized: "library.chooseFor \(name)") }
+
+    // MARK: New style
+    static var newStyle: String { String(localized: "style.new") }
+    static var styleIntro: String { String(localized: "style.intro") }
+    static var styleSingle: String { String(localized: "style.single") }
+    static var stylePair: String { String(localized: "style.pair") }
+    static var styleEdited: String { String(localized: "style.edited") }
+    static var styleEditedHint: String { String(localized: "style.edited.hint") }
+    static var styleOriginal: String { String(localized: "style.original") }
+    static var styleOriginalHint: String { String(localized: "style.original.hint") }
+    static var removePicture: String { String(localized: "style.remove") }
+    static var createStyle: String { String(localized: "style.create") }
+    static var styleFailed: String { String(localized: "style.failed") }
+    static var styleFraming: String { String(localized: "style.framing") }
+    static var styleResultStyled: String { String(localized: "style.result.styled") }
+    static var styleResultEdit: String { String(localized: "style.result.edit") }
+    static var styleResultOnYours: String { String(localized: "style.result.onYours") }
+    static var styleResultReference: String { String(localized: "style.result.reference") }
+    static var styleVeryClose: String { String(localized: "style.veryClose") }
+    static var styleClose: String { String(localized: "style.close") }
+    static var styleSaved: String { String(localized: "style.saved") }
 
     // MARK: Camera
     static var camera: String { String(localized: "camera.title") }
@@ -73,10 +98,6 @@ enum L10n {
     static var composerPlaceholder: String { String(localized: "composer.placeholder") }
     static var composerConnect: String { String(localized: "composer.connect") }
     static var send: String { String(localized: "composer.send") }
-    static var attach: String { String(localized: "composer.attach") }
-    static var removeAttachment: String { String(localized: "composer.removeAttachment") }
-    /// Sent when the person attaches pictures and writes nothing.
-    static var matchThisLook: String { String(localized: "composer.matchThisLook") }
     static var stop: String { String(localized: "composer.stop") }
     /// Ideas for a first instruction: a short label, and what is sent.
     struct Suggestion: Hashable {

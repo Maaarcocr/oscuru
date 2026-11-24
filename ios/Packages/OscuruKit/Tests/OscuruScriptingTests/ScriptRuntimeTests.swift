@@ -10,8 +10,6 @@ private final class FakeHost: ScriptHost, @unchecked Sendable {
     var imageRequests: [(state: EditingState, region: ScriptRegion?, maxEdge: Int)] = []
     var maskRequests: [Mask] = []
     var maskCoverage = 0.25
-    var attached: [ReferenceInfo] = []
-    var referencePictures: [PixelBuffer] = []
     var photoPixelRequests: [EditingState] = []
 
     /// A grey ramp, transformed per pixel.
@@ -32,42 +30,13 @@ private final class FakeHost: ScriptHost, @unchecked Sendable {
         return PixelBuffer(rgba: data, width: width, height: height)
     }
 
-    func references() -> [ReferenceInfo] { attached }
-    func pixels(ofReference index: Int) -> PixelBuffer? { index < referencePictures.count ? referencePictures[index] : nil }
     func pixels(of state: EditingState) -> PixelBuffer? {
         photoPixelRequests.append(state)
         return FakeHost.ramp()
     }
-    func referenceAnalysis(_ index: Int) -> ImageAnalysis? {
-        guard let picture = pixels(ofReference: index) else { return nil }
-        return ImageAnalysis(pixels: picture.rgba, width: picture.width, height: picture.height)
-    }
-    var analysisCount = 0
-    var failRendering = false
-
-    func analysis(of state: EditingState) -> ImageAnalysis? {
-        if failRendering { return nil }
-        analysisCount += 1
-        let level = UInt8(max(0, min(255, (100 * pow(2, state.value("exposureEV"))).rounded())))
-        var pixels = Data()
-        for _ in 0..<16 { pixels.append(contentsOf: [level, level, level, 255]) }
-        return ImageAnalysis(pixels: pixels, width: 4, height: 4)
-    }
-
-    func image(of state: EditingState, region: ScriptRegion?, maxEdge: Int) -> Data? {
-        if failRendering { return nil }
-        imageRequests.append((state, region, maxEdge))
-        return Data("jpeg-\(imageRequests.count)".utf8)
-    }
-
-    func maskImage(of state: EditingState, mask: Mask, region: ScriptRegion?, maxEdge: Int) -> (jpeg: Data, coverage: Double)? {
-        if failRendering { return nil }
-        maskRequests.append(mask)
-        return (Data("mask-\(maskRequests.count)".utf8), maskCoverage)
-    }
 
     func filterNames() -> [String] { filters.filters.map(\.name) }
-    func look(named name: String) -> Look? { filters.named(name)?.look }
+    func filter(named name: String) -> SavedFilter? { filters.named(name) }
     func saveFilter(name: String, look: Look) -> Bool { filters.save(name: name, look: look, id: UUID().uuidString, now: Date(timeIntervalSince1970: 0)) != nil }
     func deleteFilter(name: String) -> Bool {
         guard let filter = filters.named(name) else { return false }
@@ -266,31 +235,18 @@ final class ScriptRuntimeTests: XCTestCase {
         XCTAssertTrue(mistake.error?.message.contains("needs a mask") ?? false)
     }
 
-    func testALookFromAttachedPicturesIsFittedAndApplied() async {
-        host.attached = [ReferenceInfo(fileName: "edit.jpg", isRaw: false, width: 4032, height: 3024)]
-        host.referencePictures = [FakeHost.ramp { (0.05 + $0 * 0.9, 0.04 + $0 * 0.85, 0.03 + $0 * 0.75) }]
-        let outcome = await run(
-            """
-            const look = photo.references.fit("photo", 0);
-            photo.current.applyLook(look);
-            const rough = photo.references.match(0, { strength: 0.5 });
-            ({ count: photo.references.list().length, error: look.error, rough: rough.saturation !== undefined });
-            """)
+    func testAStyleLearnedFromOnePictureIsMatchedToThePhoto() async {
+        // A fingerprint of a warm, dense picture: applying it measures this photo and curves it to match.
+        let warm = FakeHost.ramp { (0.08 + $0 * 0.85, 0.06 + $0 * 0.8, 0.05 + $0 * 0.7) }
+        let style = LookFitting.fingerprint(of: warm)
+        _ = host.filters.save(name: "Kyoto", look: Look(state: EditingState(), defaults: PhotoDefaults()), match: style, id: "k", now: Date(timeIntervalSince1970: 0))
+        var start = EditingState(defaults: info.defaults)
+        try! start.adjust(["exposureEV": 0.4])
+        let outcome = await run("photo.filters.apply('kyoto')", state: start)
         XCTAssertNil(outcome.error)
-        XCTAssertTrue(outcome.returnValue?.contains("\"count\":1") ?? false)
-        XCTAssertTrue(outcome.returnValue?.contains("\"rough\":true") ?? false)
-        XCTAssertFalse(outcome.state.isIdentityCurve("blue"), "the look's curves are in place")
-        XCTAssertTrue(outcome.changes.map(\.path).contains("curves.blue"))
-        // The photo was measured whole and without its own tone and colour settings.
-        XCTAssertEqual(host.photoPixelRequests.first?.crop, Crop())
-
-        let missing = await run("photo.references.fit('photo', 3)")
-        XCTAssertEqual(missing.error?.name, "RangeError")
-        XCTAssertTrue(missing.error?.message.contains("index of an attached picture, 0 to 0") ?? false)
-
-        host.attached = []
-        let none = await run("photo.references.match(0)")
-        XCTAssertTrue(none.error?.message.contains("attached no pictures") ?? false)
+        XCTAssertFalse(outcome.state.isIdentityCurve("blue"), "the style's curves are in place")
+        XCTAssertEqual(outcome.state.value("exposureEV"), 0.4, "the photo keeps its own exposure")
+        XCTAssertEqual(host.photoPixelRequests.count, 1, "the photo was measured to match it")
     }
 
     func testShowingAMaskSaysHowMuchItCovers() async {

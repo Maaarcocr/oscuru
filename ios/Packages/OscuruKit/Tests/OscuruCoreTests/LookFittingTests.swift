@@ -120,4 +120,53 @@ final class LookFittingTests: XCTestCase {
         XCTAssertThrowsError(try LookFit(json: ["curves": ["red": [[0, 0]]], "saturation": 0]))
         XCTAssertThrowsError(try LookFit(json: "warm"))
     }
+
+    // MARK: Styles
+
+    func testStylesFromPicturesApplyAndOldStylesStillLoad() throws {
+        var state = EditingState(defaults: PhotoDefaults(temperature: 5200))
+        try state.adjust(["exposureEV": 0.5, "contrast": 20])
+        let classicLook = Look(state: try edited(), defaults: PhotoDefaults())
+        let fit = try LookFitting.fit(original: scene(), edited: scene { ($0.0 * 0.8, $0.1 * 0.8, $0.2 * 0.7) })
+        let fingerprint = LookFitting.fingerprint(of: scene { (0.1 + $0.0 * 0.8, 0.08 + $0.1 * 0.75, 0.05 + $0.2 * 0.65) })
+
+        // A style from a pair: its curves, the photo's own exposure and white balance.
+        let pair = SavedFilter(id: "p", name: "Pair", createdAt: Date(), look: classicLook, fit: fit)
+        let fromPair = try pair.applied(to: state, defaults: PhotoDefaults(temperature: 5200)) { XCTFail("a fitted style needs no measuring"); return nil }
+        XCTAssertEqual(fromPair.value("exposureEV"), 0.5)
+        XCTAssertEqual(fromPair.value("contrast"), 0)
+        XCTAssertEqual(fromPair.curves["blue"], fit.curves["blue"])
+
+        // A style from one picture is matched on the photo it goes on.
+        var measured = 0
+        let single = SavedFilter(id: "s", name: "Single", createdAt: Date(), look: classicLook, match: fingerprint)
+        let fromSingle = try single.applied(to: state, defaults: PhotoDefaults()) {
+            measured += 1
+            return scene()
+        }
+        XCTAssertEqual(measured, 1)
+        XCTAssertFalse(fromSingle.isIdentityCurve("blue"))
+        XCTAssertEqual(fromSingle.value("exposureEV"), 0.5)
+
+        // A classic style is the whole look, as before.
+        let classic = SavedFilter(id: "c", name: "Classic", createdAt: Date(), look: classicLook)
+        XCTAssertEqual(try classic.applied(to: state, defaults: PhotoDefaults()) { nil }, classicLook.applied(to: state, defaults: PhotoDefaults()))
+
+        // Styles saved before pictures existed load, as classic styles.
+        var json = try JSONDecoder().decode(JSONValue.self, from: JSONEncoder().encode(classic))
+        guard var members = json.objectValue else { return XCTFail("not an object") }
+        members["fit"] = nil
+        members["match"] = nil
+        json = .object(members)
+        let old = try JSONDecoder().decode(SavedFilter.self, from: JSONEncoder().encode(json))
+        XCTAssertFalse(old.isFromPictures)
+        // And new ones round-trip.
+        XCTAssertEqual(try JSONDecoder().decode(SavedFilter.self, from: JSONEncoder().encode(single)), single)
+    }
+
+    private func edited() throws -> EditingState {
+        var state = EditingState()
+        try state.adjust(["exposureEV": -0.3, "saturation": 10])
+        return state
+    }
 }

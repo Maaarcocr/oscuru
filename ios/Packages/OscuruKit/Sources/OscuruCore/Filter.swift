@@ -68,17 +68,36 @@ public struct Look: Codable, Equatable, Sendable {
     }
 }
 
+/// A saved style. Most are a look taken from an edited photo. A style learned from pictures is
+/// instead a fitted look (from an original and its edit) or a fingerprint (from one picture,
+/// matched afresh on each photo); either replaces only tone and colour, keeping the photo's own
+/// exposure and white balance.
 public struct SavedFilter: Codable, Equatable, Sendable, Identifiable {
     public var id: String
     public var name: String
     public var createdAt: Date
     public var look: Look
+    public var fit: LookFit?
+    public var match: StyleFingerprint?
 
-    public init(id: String, name: String, createdAt: Date, look: Look) {
+    public init(id: String, name: String, createdAt: Date, look: Look, fit: LookFit? = nil, match: StyleFingerprint? = nil) {
         self.id = id
         self.name = name
         self.createdAt = createdAt
         self.look = look
+        self.fit = fit
+        self.match = match
+    }
+
+    /// Learned from pictures rather than from an edit in Oscuru.
+    public var isFromPictures: Bool { fit != nil || match != nil }
+
+    /// The photo's settings with this style in place. `source` renders the photo the way a
+    /// fingerprint is matched on (`LookFit.base`), and is only called for such a style.
+    public func applied(to state: EditingState, defaults: PhotoDefaults, source: () -> PixelBuffer?) throws -> EditingState {
+        if let fit { return try fit.applied(to: state) }
+        if let match, let pixels = source() { return try LookFitting.match(source: pixels, fingerprint: match).applied(to: state) }
+        return look.applied(to: state, defaults: defaults)
     }
 }
 
@@ -100,15 +119,17 @@ public struct FilterCollection: Codable, Equatable, Sendable {
 
     /// Saves a look under a name. Returns nil when the name is empty.
     @discardableResult
-    public mutating func save(name: String, look: Look, id: String, now: Date) -> SavedFilter? {
+    public mutating func save(name: String, look: Look, fit: LookFit? = nil, match: StyleFingerprint? = nil, id: String, now: Date) -> SavedFilter? {
         let clean = FilterCollection.cleanName(name)
         guard !clean.isEmpty else { return nil }
         if let index = filters.firstIndex(where: { $0.name.lowercased() == clean.lowercased() }) {
             filters[index].name = clean
             filters[index].look = look
+            filters[index].fit = fit
+            filters[index].match = match
             return filters[index]
         }
-        let filter = SavedFilter(id: id, name: clean, createdAt: now, look: look)
+        let filter = SavedFilter(id: id, name: clean, createdAt: now, look: look, fit: fit, match: match)
         filters.append(filter)
         return filter
     }

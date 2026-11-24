@@ -63,61 +63,12 @@ final class PhotoRenderer: ScriptHost, @unchecked Sendable {
         return try? engine.maskPreview(id: id, recipe: recipe(state), mask: mask, options: RenderOptions(maxEdge: Double(maxEdge), region: rect))
     }
 
-    // MARK: Attached pictures
-
-    private let referenceLock = NSLock()
-    /// The pictures attached to the current instruction, open in the engine under their own ids.
-    private var referenceSessions: [(engineID: String, info: ReferenceInfo)] = []
-
-    /// Opens the pictures attached to an instruction in place of the previous ones.
-    func setReferences(_ files: [(url: URL, name: String)]) {
-        closeReferences()
-        var opened: [(engineID: String, info: ReferenceInfo)] = []
-        for (index, file) in files.enumerated() {
-            let engineID = "\(id)-reference-\(index)-\(UUID().uuidString.prefix(6))"
-            guard let info = try? engine.open(id: engineID, url: file.url) else { continue }
-            opened.append((engineID, ReferenceInfo(fileName: file.name, isRaw: info.isRaw, width: info.width, height: info.height)))
-        }
-        referenceLock.withLock { referenceSessions = opened }
-    }
-
-    func closeReferences() {
-        let previous = referenceLock.withLock {
-            let sessions = referenceSessions
-            referenceSessions = []
-            return sessions
-        }
-        for session in previous { engine.close(id: session.engineID) }
-    }
-
-    private func referenceSession(_ index: Int) -> String? {
-        referenceLock.withLock { index >= 0 && index < referenceSessions.count ? referenceSessions[index].engineID : nil }
-    }
-
-    func references() -> [ReferenceInfo] { referenceLock.withLock { referenceSessions.map(\.info) } }
-
-    /// An attached picture as an sRGB JPEG for the model, a RAW one developed the neutral way.
-    func referenceImage(_ index: Int, maxEdge: Int) -> Data? {
-        guard let session = referenceSession(index) else { return nil }
-        return try? engine.jpeg(id: session, recipe: RenderRecipe(), options: RenderOptions(maxEdge: Double(maxEdge)))
-    }
-
-    func pixels(ofReference index: Int) -> PixelBuffer? {
-        guard let session = referenceSession(index) else { return nil }
-        return try? engine.displayPixels(id: session, recipe: RenderRecipe())
-    }
-
     func pixels(of state: EditingState) -> PixelBuffer? {
         try? engine.displayPixels(id: id, recipe: recipe(state))
     }
 
-    func referenceAnalysis(_ index: Int) -> ImageAnalysis? {
-        guard let session = referenceSession(index), let bitmap = try? engine.bitmap(id: session, recipe: RenderRecipe()) else { return nil }
-        return ImageAnalysis(pixels: bitmap.pixels, width: bitmap.width, height: bitmap.height)
-    }
-
     func filterNames() -> [String] { filters.filters.map(\.name) }
-    func look(named name: String) -> Look? { filters.named(name)?.look }
+    func filter(named name: String) -> SavedFilter? { filters.named(name) }
     func saveFilter(name: String, look: Look) -> Bool { filters.save(name: name, look: look) }
     func deleteFilter(name: String) -> Bool { filters.delete(named: name) }
 }
