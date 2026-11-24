@@ -408,6 +408,16 @@ final class AgentTests: XCTestCase {
         XCTAssertEqual(conversation.pendingCalls.map(\.id), ["c3"])
     }
 
+    func testRecordsWrittenByEarlierVersionsStillRead() throws {
+        // A style used to be called a filter, and going back to the original had a kind of its own.
+        func kind(_ json: String) throws -> Turn.Kind { try JSONDecoder().decode(Turn.Kind.self, from: Data(json.utf8)) }
+        XCTAssertEqual(try kind(#"{"filter":{"_0":"Dusk"}}"#), .style("Dusk"))
+        XCTAssertEqual(try kind(#"{"startOver":{}}"#), .startOver)
+        XCTAssertEqual(try kind(#"{"instruction":{"_0":"Warmer"}}"#), .instruction("Warmer"))
+        XCTAssertEqual(String(decoding: try JSONEncoder().encode(Turn.Kind.style("Dusk")), as: UTF8.self), #"{"filter":{"_0":"Dusk"}}"#)
+        XCTAssertEqual(try JSONDecoder().decode(Step.Outcome.self, from: Data(#"{"stale":{}}"#.utf8)), .stale)
+    }
+
     func testRecordsReadBackAsTheyWereWritten() async throws {
         let transcript = try Transcript(folder: folder)
         try await instruct(transcript)

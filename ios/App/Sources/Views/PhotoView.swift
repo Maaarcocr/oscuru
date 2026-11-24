@@ -168,8 +168,8 @@ private struct TurnView: View {
                 .overlay(alignment: .bottomLeading) { progress }
                 .accessibilityElement(children: .combine)
                 .accessibilityIdentifier("thread.working")
-            if let retry = editor.retry {
-                Text(retry.message)
+            if let problem = editor.retrying {
+                Text(problem)
                     .font(.caption)
                     .foregroundStyle(.secondary)
                     .lineLimit(2)
@@ -211,7 +211,7 @@ private struct TurnView: View {
     private var progress: some View {
         HStack(spacing: 8) {
             ProgressView().controlSize(.small).tint(.white)
-            Text(editor.retry != nil ? L10n.reconnecting : editor.summarizing ? L10n.summarizing : turn.steps.isEmpty ? L10n.looking : L10n.step(turn.steps.count))
+            Text(editor.retrying != nil ? L10n.reconnecting : editor.summarizing ? L10n.summarizing : turn.steps.isEmpty ? L10n.looking : L10n.step(turn.steps.count))
                 .font(.footnote.weight(.medium))
                 .monospacedDigit()
         }

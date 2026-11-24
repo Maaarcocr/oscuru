@@ -25,8 +25,8 @@ final class PhotoEditor {
     private(set) var queued: [String] = []
     /// An instruction on its way into the transcript, shown at once.
     private(set) var sending: String?
-    /// While a failed request waits to be sent again.
-    private(set) var retry: Retry?
+    /// While a failed request waits to be sent again: what went wrong.
+    private(set) var retrying: String?
     /// While older messages are being summarized to make room.
     private(set) var summarizing = false
     /// Whether a run ended without its answer and Continue can pick it up.
@@ -39,12 +39,6 @@ final class PhotoEditor {
     private(set) var threadVersion = 0
     /// Called when the assistant stops working, so a photo closed meanwhile can be let go.
     var onIdle: (() -> Void)?
-
-    struct Retry: Equatable {
-        var attempt: Int
-        var until: Date
-        var message: String
-    }
 
     private let runtime: ScriptRuntime
     private let library: Library
@@ -286,12 +280,9 @@ final class PhotoEditor {
         task = Task {
             do {
                 try await prepare()
-                // Messages that arrive as the loop ends start the next run at once.
-                repeat {
-                    try await Agent.run(transcript: transcript, client: client, model: model, contextWindow: window, port: port, sessionID: photo) { event in
-                        await self.handle(event)
-                    }
-                } while await PhotoEditor.hasFollowUp(transcript) && !Task.isCancelled
+                try await Agent.run(transcript: transcript, client: client, model: model, contextWindow: window, port: port, sessionID: photo) { event in
+                    await self.handle(event)
+                }
             } catch {
                 self.storageProblem = error.localizedDescription
             }
@@ -300,12 +291,8 @@ final class PhotoEditor {
         reproject()
     }
 
-    private nonisolated static func hasFollowUp(_ transcript: Transcript) async -> Bool {
-        let latest = Conversation(await transcript.entries)
-        return latest.halt == nil && !latest.queued.isEmpty
-    }
-
-    /// Answers messages that were sent while the assistant worked but arrived after its last step.
+    /// Answers messages that were sent while the assistant worked but arrived after its last step:
+    /// called when a run ends and when such a message is written with nobody working.
     private func followUp() {
         guard !isWorking, account.isConnected, conversation.halt == nil, !conversation.queued.isEmpty else { return }
         start {}
@@ -313,7 +300,7 @@ final class PhotoEditor {
 
     private func finish() {
         task = nil
-        retry = nil
+        retrying = nil
         summarizing = false
         sending = nil
         reproject()
@@ -333,10 +320,10 @@ final class PhotoEditor {
     private func handle(_ event: AgentEvent) {
         switch event {
         case .requesting, .running:
-            retry = nil
+            retrying = nil
             summarizing = false
-        case .retrying(let attempt, let delay, let message):
-            retry = Retry(attempt: attempt, until: Date().addingTimeInterval(delay), message: message)
+        case .retrying(_, _, let message):
+            retrying = message
         case .summarizing:
             summarizing = true
         }

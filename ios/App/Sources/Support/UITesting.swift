@@ -79,7 +79,8 @@ enum UITesting {
 /// (the second refines the first), then a closing note.
 struct ScriptedModel: ModelClient {
     func chat(_ request: ChatRequest) async throws -> ChatResponse {
-        try await Task.sleep(for: .milliseconds(600))
+        // Slow enough that the test can say something more while it works.
+        try await Task.sleep(for: .milliseconds(2500))
         // The latest instruction: its words come before the photo's context.
         var turnStart = 0
         var instruction = ""
