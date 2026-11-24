@@ -1,3 +1,4 @@
+import OscuruCore
 import OscuruEngine
 import PhotosUI
 import SwiftUI
@@ -84,49 +85,60 @@ struct LibraryView: View {
 
     var body: some View {
         NavigationStack(path: $path) {
-            Group {
-                if photos.isEmpty {
-                    VStack(spacing: 0) {
-                        stylesRow.padding(.top, 8)
-                    ContentUnavailableView {
-                        Label(L10n.libraryEmptyTitle, systemImage: "photo.on.rectangle.angled")
-                    } description: {
-                        Text(L10n.libraryEmptyMessage)
-                    } actions: {
-                        // The camera button below is the main way in; these bring in photos you have.
-                        PhotosPicker(selection: $picked, matching: .images, preferredItemEncoding: .current) {
-                            Text(L10n.fromPhotos)
-                        }
+            withDialogs(withPickers(screen))
+        }
+    }
+
+    /// The library itself: styles, the grid, the bar at the bottom, and where photos open.
+    private var screen: some View {
+        Group {
+            if photos.isEmpty {
+                VStack(spacing: 0) {
+                    stylesRow.padding(.top, 8)
+                ContentUnavailableView {
+                    Label(L10n.libraryEmptyTitle, systemImage: "photo.on.rectangle.angled")
+                } description: {
+                    Text(L10n.libraryEmptyMessage)
+                } actions: {
+                    // The camera button below is the main way in; these bring in photos you have.
+                    PhotosPicker(selection: $picked, matching: .images, preferredItemEncoding: .current) {
+                        Text(L10n.fromPhotos)
+                    }
+                    .buttonStyle(.glass)
+                    Button(L10n.fromFiles) { choosingFile = true }
                         .buttonStyle(.glass)
-                        Button(L10n.fromFiles) { choosingFile = true }
-                            .buttonStyle(.glass)
-                    }
-                    .frame(maxHeight: .infinity)
-                    }
-                } else {
-                    grid
                 }
-            }
-            .safeAreaInset(edge: .bottom, spacing: 0) {
-                if selecting { selectionBar } else { cameraButton }
-            }
-            .background(Color.black.ignoresSafeArea())
-            .navigationTitle(Text(verbatim: "Oscuru"))
-            .toolbar { toolbar }
-            .navigationDestination(for: String.self) { id in
-                if let document = model.library.document(id) {
-                    PhotoView(document: document)
+                .frame(maxHeight: .infinity)
                 }
+            } else {
+                grid
             }
-            .sheet(isPresented: $showingSettings) { SettingsView() }
-            .sheet(isPresented: $creatingStyle) { NewStyleView() }
-            .alert(L10n.rename, isPresented: Binding(get: { renamingStyle != nil }, set: { if !$0 { renamingStyle = nil } })) {
-                TextField(L10n.filterNamePlaceholder, text: $styleName)
-                Button(L10n.save) {
-                    if let renamingStyle { _ = model.filterStore.rename(id: renamingStyle.id, to: styleName) }
-                }
-                Button(L10n.cancel, role: .cancel) {}
+        }
+        .safeAreaInset(edge: .bottom, spacing: 0) {
+            if selecting { selectionBar } else { cameraButton }
+        }
+        .background(Color.black.ignoresSafeArea())
+        .navigationTitle(Text(verbatim: "Oscuru"))
+        .toolbar { toolbar }
+        .navigationDestination(for: String.self) { id in
+            if let document = model.library.document(id) {
+                PhotoView(document: document)
             }
+        }
+        .sheet(isPresented: $showingSettings) { SettingsView() }
+        .sheet(isPresented: $creatingStyle) { NewStyleView() }
+        .alert(L10n.rename, isPresented: Binding(get: { renamingStyle != nil }, set: { if !$0 { renamingStyle = nil } })) {
+            TextField(L10n.filterNamePlaceholder, text: $styleName)
+            Button(L10n.save) {
+                if let renamingStyle { _ = model.filterStore.rename(id: renamingStyle.id, to: styleName) }
+            }
+            Button(L10n.cancel, role: .cancel) {}
+        }
+    }
+
+    /// The share sheet, the camera and the ways to add photos.
+    private func withPickers(_ content: some View) -> some View {
+        content
             .sheet(item: $shared) { files in
                 ShareSheet(urls: files.urls).presentationDetents([.medium, .large])
             }
@@ -168,6 +180,11 @@ struct LibraryView: View {
             .onChange(of: photos.isEmpty) { _, empty in
                 if empty { endSelecting() }
             }
+    }
+
+    /// Questions and problems.
+    private func withDialogs(_ content: some View) -> some View {
+        content
             .alert(L10n.importFailed, isPresented: Binding(get: { problem != nil }, set: { if !$0 { problem = nil } })) {
                 Button(L10n.ok, role: .cancel) {}
             } message: {
@@ -182,7 +199,6 @@ struct LibraryView: View {
             } message: {
                 Text(L10n.deleteMessage)
             }
-        }
     }
 
     // MARK: Grid
