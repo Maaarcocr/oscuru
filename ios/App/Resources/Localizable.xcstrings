@@ -1,6 +1,70 @@
 {
   "sourceLanguage": "en",
   "strings": {
+    "camera.aperture": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Aperture"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Diaframma"
+          }
+        }
+      }
+    },
+    "camera.auto": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Auto"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Auto"
+          }
+        }
+      }
+    },
+    "camera.auto.hint": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Hands this value back to the camera."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Riaffida questo valore alla fotocamera."
+          }
+        }
+      }
+    },
+    "camera.automatic": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "automatic"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "automatico"
+          }
+        }
+      }
+    },
     "camera.denied.message": {
       "localizations": {
         "en": {
@@ -65,6 +129,22 @@
         }
       }
     },
+    "camera.focus": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Focus"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Messa a fuoco"
+          }
+        }
+      }
+    },
     "camera.guides": {
       "localizations": {
         "en": {
@@ -81,6 +161,38 @@
         }
       }
     },
+    "camera.highlightsBlown": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Highlights blown"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Alte luci bruciate"
+          }
+        }
+      }
+    },
+    "camera.histogram": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Histogram"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Istogramma"
+          }
+        }
+      }
+    },
     "camera.lastShot": {
       "localizations": {
         "en": {
@@ -93,6 +205,22 @@
           "stringUnit": {
             "state": "translated",
             "value": "Apri l’ultima foto"
+          }
+        }
+      }
+    },
+    "camera.meter": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Meter"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Esposimetro"
           }
         }
       }
@@ -177,6 +305,38 @@
         }
       }
     },
+    "camera.proRAW.setHint": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "With a time or ISO set by hand, Apple shoots at exactly that and skips most of its merging."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Con tempo o ISO impostati a mano, Apple scatta esattamente così e salta gran parte della sua fusione."
+          }
+        }
+      }
+    },
+    "camera.setByHand": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "set by hand"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "impostato a mano"
+          }
+        }
+      }
+    },
     "camera.shutter": {
       "localizations": {
         "en": {
@@ -189,6 +349,22 @@
           "stringUnit": {
             "state": "translated",
             "value": "Scatta"
+          }
+        }
+      }
+    },
+    "camera.time": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Shutter time"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tempo di posa"
           }
         }
       }

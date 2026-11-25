@@ -16,6 +16,13 @@ struct Lens: Identifiable, Equatable, Sendable {
     var proRAW = false
 }
 
+/// A value of the camera the person can set by hand, or leave to the camera.
+enum CameraValue: String, CaseIterable, Identifiable, Sendable {
+    case aperture, time, iso, focus
+
+    var id: String { rawValue }
+}
+
 /// How the camera shoots, as the person chooses.
 enum ShootingMode: String, Sendable {
     /// Single-frame Bayer RAW: the sensor's data with nothing done to it, each lens at its own zoom.
@@ -31,6 +38,9 @@ enum ShootingMode: String, Sendable {
 /// ProRAW it is Apple's processed RAW at full size, and the viewfinder zooms anywhere between the
 /// lenses: the shot is the lens's whole frame, and the zoom is the crop the photo starts with.
 /// Each shot is kept as a DNG and goes into the library as an untouched original.
+///
+/// The exposure is the photographer's: aperture (where the lens has one), time and ISO are each
+/// left to the camera or set by hand, and whatever is set is what is shot. Focus likewise.
 @MainActor
 @Observable
 final class Camera {
@@ -53,8 +63,20 @@ final class Camera {
     private(set) var zoom: Double = 1
     /// The thirds grid and the level over the viewfinder. Kept between launches.
     private(set) var showsGuides = UserDefaults.standard.bool(forKey: Camera.guidesKey)
-    /// Exposure compensation, in stops.
-    private(set) var exposureBias: Float = 0
+    /// What is set by hand of the exposure (a value left nil is the camera's), and the compensation
+    /// for whatever is left to the camera.
+    private(set) var exposure = ExposureSettings()
+    /// The focus set by hand, as a lens position (0 its nearest, 1 its farthest); nil while the camera focuses.
+    private(set) var focusSet: Double?
+    /// What the lens in use lets a photographer set.
+    private(set) var limits = ExposureLimits()
+    /// What the camera is doing now.
+    private(set) var reading = ExposureReading()
+    /// The latest live frame as the instruments read it: its histogram and where it is blown.
+    private(set) var statistics: FrameStatistics?
+    /// How far the sensor's picture is turned to stand upright in the viewfinder, in degrees
+    /// clockwise: what the instruments' map of the frame needs to lie over it.
+    private(set) var frameRotation: Double = 90
     /// Goes up as each shot is taken, for the shutter blink and the haptic.
     private(set) var shots = 0
     /// Shots taken and not yet in the library.
@@ -68,6 +90,8 @@ final class Camera {
     @ObservationIgnored let service = CaptureService()
     @ObservationIgnored private let library: Library
     @ObservationIgnored private var rotation: AVCaptureDevice.RotationCoordinator?
+    /// Counts the exposures asked for, so an answer to an older one never undoes a newer one.
+    @ObservationIgnored private var exposureChanges = 0
     @ObservationIgnored weak var previewLayer: AVCaptureVideoPreviewLayer? {
         didSet { followRotation() }
     }
@@ -161,8 +185,7 @@ final class Camera {
         let next = usable.last { $0.zoom <= target * 1.001 } ?? usable[0]
         guard next != lens else { return }
         lens = next
-        let bias = exposureBias
-        switchLens(to: next) { await self.service.use(lensID: next.id, exposureBias: bias) }
+        switchLens(to: next) { self.adopt(await self.service.use(lensID: next.id)) }
     }
 
     /// Changes how the camera shoots. The viewfinder goes back to a lens's own view: this one when
@@ -181,8 +204,7 @@ final class Camera {
         zoom = next?.zoom ?? 1
         guard let next else { return }
         let proRAW = mode == .proRAW
-        let bias = exposureBias
-        switchLens(to: next) { await self.service.configure(proRAW: proRAW, lensID: next.id, exposureBias: bias) }
+        switchLens(to: next) { self.adopt(await self.service.configure(proRAW: proRAW, lensID: next.id)) }
     }
 
     /// "0.5", "1", "2.5", "2.7": a zoom as the camera shows it.
@@ -202,7 +224,12 @@ final class Camera {
             lens = lenses[1]
             previewLens = lenses[1]
             zoom = 1
+            // A lens with an aperture to set, and a still picture for the instruments to read.
+            limits = ExposureLimits(aperture: 1.5...4, apertureStops: [1.5, 2, 2.8, 4], time: (1.0 / 8000)...1, iso: 50...6400)
+            reading = ExposureReading(aperture: 1.8, time: 1.0 / 125, iso: 80, offset: 0, focus: 0.7)
+            frameRotation = 0
             status = .ready
+            statistics = await Task.detached { UITesting.sampleStatistics() }.value
             return
         }
         if status == .ready {
@@ -220,12 +247,19 @@ final class Camera {
             status = .denied
             return
         }
-        let (lenses, current) = await service.configure()
+        service.onReading = { [weak self] reading in
+            Task { @MainActor in self?.reading = reading }
+        }
+        service.onStatistics = { [weak self] statistics in
+            Task { @MainActor in self?.statistics = statistics }
+        }
+        let (lenses, current, limits) = await service.configure()
         guard !lenses.isEmpty else {
             status = .unavailable
             return
         }
         self.lenses = lenses
+        self.limits = limits
         lens = current
         previewLens = current
         zoom = current?.zoom ?? 1
@@ -242,19 +276,117 @@ final class Camera {
 
     // MARK: Controls
 
-    /// Focuses and meters on a point of the viewfinder (in the preview layer's coordinates).
+    /// Focuses and meters on a point of the viewfinder (in the preview layer's coordinates). A
+    /// focus set by hand goes back to the camera.
     func focus(at layerPoint: CGPoint) {
+        focusSet = nil
         guard !simulated, let previewLayer else { return }
         service.focus(at: previewLayer.captureDevicePointConverted(fromLayerPoint: layerPoint))
     }
+
+    /// Exposure compensation, in stops.
+    var exposureBias: Float { Float(exposure.bias) }
 
     func setExposureBias(_ bias: Float) {
         let clamped = min(max(bias, Self.exposureRange.lowerBound), Self.exposureRange.upperBound)
         // Third-stops, like a camera dial.
         let stepped = (clamped * 3).rounded() / 3
         guard stepped != exposureBias else { return }
-        exposureBias = stepped
+        exposure.bias = Double(stepped)
         if !simulated { service.setExposureBias(stepped) }
+    }
+
+    /// Whether nothing of the exposure is left to the camera: compensation then has nothing to act
+    /// on, and the meter says how far the picture is from what the camera would choose.
+    var isManual: Bool { exposure.isManual(with: limits) }
+
+    func isSet(_ value: CameraValue) -> Bool {
+        switch value {
+        case .aperture: return exposure.aperture != nil
+        case .time: return exposure.time != nil
+        case .iso: return exposure.iso != nil
+        case .focus: return focusSet != nil
+        }
+    }
+
+    /// Whether this lens lets the value be set at all: most have one aperture.
+    func canSet(_ value: CameraValue) -> Bool {
+        switch value {
+        case .aperture: return !limits.apertureIsFixed
+        case .time, .iso: return true
+        case .focus: return limits.focus
+        }
+    }
+
+    /// The value as it is now: what is set, or else what the camera is doing.
+    func shown(_ value: CameraValue) -> Double {
+        switch value {
+        case .aperture: return exposure.aperture ?? reading.aperture
+        case .time: return exposure.time ?? reading.time
+        case .iso: return exposure.iso ?? reading.iso
+        case .focus: return focusSet ?? reading.focus
+        }
+    }
+
+    /// The values its dial stops at, smallest first. Focus has none: it turns smoothly.
+    func stops(_ value: CameraValue) -> [Double] {
+        switch value {
+        case .aperture: return limits.apertures
+        case .time: return limits.times
+        case .iso: return limits.isos
+        case .focus: return []
+        }
+    }
+
+    /// Sets a value by hand, at the stop nearest `amount`; nil hands it back to the camera.
+    func set(_ value: CameraValue, to amount: Double?) {
+        if value == .focus {
+            let position = amount.map { min(max($0, 0), 1) }
+            guard position != focusSet else { return }
+            focusSet = position
+            if !simulated { service.setFocus(position) }
+            return
+        }
+        guard canSet(value) || amount == nil else { return }
+        var next = exposure
+        let stop = amount.map { ExposureScale.nearest($0, in: stops(value)) }
+        switch value {
+        case .aperture: next.aperture = stop
+        case .time: next.time = stop
+        case .iso: next.iso = stop
+        case .focus: break
+        }
+        guard next != exposure else { return }
+        exposure = next
+        guard !simulated else { return }
+        exposureChanges += 1
+        let change = exposureChanges
+        Task {
+            // Where this lens cannot leave the rest to the camera beside what is set, it holds the
+            // rest where it is, and that shows as set; handing a value back then hands back all.
+            var applied = await service.apply(next, holding: amount != nil)
+            applied.bias = exposure.bias
+            if change == exposureChanges, applied != exposure { exposure = applied }
+        }
+    }
+
+    /// One stop of its dial up or down, for VoiceOver.
+    func step(_ value: CameraValue, by count: Int) {
+        if value == .focus {
+            set(.focus, to: shown(.focus) + Double(count) * 0.05)
+        } else {
+            set(value, to: ExposureScale.step(shown(value), by: count, in: stops(value)))
+        }
+    }
+
+    /// After a change of lens or of mode: what the new lens allows, and the exposure as it took it.
+    private func adopt(_ state: LensState) {
+        limits = state.limits
+        exposureChanges += 1
+        var taken = state.exposure
+        taken.bias = exposure.bias
+        if taken != exposure { exposure = taken }
+        focusSet = nil
     }
 
     /// Takes a picture and puts it in the library. Several can be on their way at once.
@@ -296,6 +428,7 @@ final class Camera {
         guard !simulated, let previewLayer, let device = service.currentDevice else { return }
         let coordinator = AVCaptureDevice.RotationCoordinator(device: device, previewLayer: previewLayer)
         rotation = coordinator
+        frameRotation = Double(coordinator.videoRotationAngleForHorizonLevelPreview)
         if let connection = previewLayer.connection, connection.isVideoRotationAngleSupported(coordinator.videoRotationAngleForHorizonLevelPreview) {
             connection.videoRotationAngle = coordinator.videoRotationAngleForHorizonLevelPreview
         }
@@ -311,242 +444,6 @@ enum CameraError: Error {
         switch self {
         case .noRAW: return L10n.cameraNoRAW
         case .noPhoto: return L10n.cameraFailed
-        }
-    }
-}
-
-/// The capture session and everything that touches it, on one queue of its own.
-final class CaptureService: @unchecked Sendable {
-    let session = AVCaptureSession()
-    private let output = AVCapturePhotoOutput()
-    private let queue = DispatchQueue(label: "oscuru.camera")
-    private var input: AVCaptureDeviceInput?
-    private var devices: [String: AVCaptureDevice] = [:]
-    /// Each capture's delegate, kept alive until its photo has been delivered.
-    private var inFlight: [Int64: PhotoCapture] = [:]
-    /// Whether shots are ProRAW rather than Bayer RAW. Read and changed on the queue.
-    private var proRAW = false
-    private let lock = NSLock()
-    private var device: AVCaptureDevice?
-
-    var currentDevice: AVCaptureDevice? { lock.withLock { device } }
-
-    /// Sets up the session and finds the back lenses that can shoot Bayer RAW or ProRAW, widest
-    /// first. Starts on the main lens, shooting Bayer RAW.
-    func configure() async -> ([Lens], Lens?) {
-        await withCheckedContinuation { continuation in
-            queue.async { continuation.resume(returning: self.configureNow()) }
-        }
-    }
-
-    private func configureNow() -> ([Lens], Lens?) {
-        let all = AVCaptureDevice.DiscoverySession(
-            deviceTypes: [.builtInUltraWideCamera, .builtInWideAngleCamera, .builtInTelephotoCamera], mediaType: .video, position: .back
-        ).devices
-        guard let main = all.first(where: { $0.deviceType == .builtInWideAngleCamera }) ?? all.first else { return ([], nil) }
-
-        session.beginConfiguration()
-        session.sessionPreset = .photo
-        if session.canAddOutput(output) { session.addOutput(output) }
-        session.commitConfiguration()
-        // Bayer RAW is only offered while ProRAW is off.
-        output.isAppleProRAWEnabled = false
-
-        let mainField = Self.fieldOfView(main)
-        var lenses: [Lens] = []
-        for device in all {
-            guard use(device) else { continue }
-            let bayer = bayerFormat != nil
-            let proRAW = output.isAppleProRAWSupported
-            guard bayer || proRAW else { continue }
-            devices[device.uniqueID] = device
-            let zoom = tan(mainField / 2) / tan(Self.fieldOfView(device) / 2)
-            lenses.append(Lens(id: device.uniqueID, label: Self.label(zoom: zoom), zoom: zoom, bayer: bayer, proRAW: proRAW))
-        }
-        if lenses.isEmpty {
-            // Some iPhones only list RAW formats once the session runs: offer the main lens, and
-            // say so at the shutter if it really has none.
-            devices[main.uniqueID] = main
-            lenses = [Lens(id: main.uniqueID, label: "1", zoom: 1)]
-        }
-        lenses.sort { $0.zoom < $1.zoom }
-        let start = lenses.first { $0.id == main.uniqueID } ?? lenses[0]
-        if let device = devices[start.id] { _ = use(device) }
-        return (lenses, start)
-    }
-
-    /// Makes this device the session's camera. Call on the queue.
-    @discardableResult
-    private func use(_ device: AVCaptureDevice) -> Bool {
-        if input?.device == device { return true }
-        guard let newInput = try? AVCaptureDeviceInput(device: device) else { return false }
-        session.beginConfiguration()
-        defer { session.commitConfiguration() }
-        if let input { session.removeInput(input) }
-        guard session.canAddInput(newInput) else {
-            if let input, session.canAddInput(input) { session.addInput(input) }
-            return false
-        }
-        session.addInput(newInput)
-        input = newInput
-        lock.withLock { self.device = device }
-        return true
-    }
-
-    private var bayerFormat: OSType? {
-        output.availableRawPhotoPixelFormatTypes.first { AVCapturePhotoOutput.isBayerRAWPixelFormat($0) }
-    }
-
-    func use(lensID: String, exposureBias: Float) async {
-        await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
-            queue.async {
-                if let device = self.devices[lensID] {
-                    self.use(device)
-                    self.prepareOutput()
-                    self.applyExposureBias(exposureBias)
-                }
-                continuation.resume()
-            }
-        }
-    }
-
-    /// Switches between Bayer RAW and ProRAW, on this lens.
-    func configure(proRAW: Bool, lensID: String, exposureBias: Float) async {
-        await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
-            queue.async {
-                self.proRAW = proRAW
-                if let device = self.devices[lensID] { self.use(device) }
-                self.prepareOutput()
-                self.applyExposureBias(exposureBias)
-                continuation.resume()
-            }
-        }
-    }
-
-    /// After a change of lens or of mode: ProRAW at the lens's largest size and best quality, or
-    /// Bayer RAW (only offered while ProRAW is off). Call on the queue.
-    private func prepareOutput() {
-        let on = proRAW && output.isAppleProRAWSupported
-        if output.isAppleProRAWEnabled != on { output.isAppleProRAWEnabled = on }
-        guard on, let device = input?.device else { return }
-        if let largest = device.activeFormat.supportedMaxPhotoDimensions.max(by: { Int($0.width) * Int($0.height) < Int($1.width) * Int($1.height) }) {
-            output.maxPhotoDimensions = largest
-        }
-        if output.maxPhotoQualityPrioritization != .quality { output.maxPhotoQualityPrioritization = .quality }
-    }
-
-    func start() {
-        queue.async { if !self.session.isRunning { self.session.startRunning() } }
-    }
-
-    func stop() {
-        queue.async { if self.session.isRunning { self.session.stopRunning() } }
-    }
-
-    /// Focuses and meters on a point in device coordinates (0...1, landscape, home button right).
-    func focus(at point: CGPoint) {
-        queue.async {
-            guard let device = self.input?.device, (try? device.lockForConfiguration()) != nil else { return }
-            defer { device.unlockForConfiguration() }
-            if device.isFocusPointOfInterestSupported, device.isFocusModeSupported(.continuousAutoFocus) {
-                device.focusPointOfInterest = point
-                device.focusMode = .continuousAutoFocus
-            }
-            if device.isExposurePointOfInterestSupported, device.isExposureModeSupported(.continuousAutoExposure) {
-                device.exposurePointOfInterest = point
-                device.exposureMode = .continuousAutoExposure
-            }
-        }
-    }
-
-    func setExposureBias(_ bias: Float) {
-        queue.async { self.applyExposureBias(bias) }
-    }
-
-    private func applyExposureBias(_ bias: Float) {
-        guard let device = input?.device, (try? device.lockForConfiguration()) != nil else { return }
-        defer { device.unlockForConfiguration() }
-        device.setExposureTargetBias(min(max(bias, device.minExposureTargetBias), device.maxExposureTargetBias), completionHandler: nil)
-    }
-
-    /// Takes one RAW photo (Bayer, or ProRAW when `proRAW` and the lens offers it) and returns it as
-    /// DNG data. `didCapture` runs when the sensor has been read, which is when the shutter should
-    /// look and feel taken.
-    func capture(rotationAngle: CGFloat, proRAW: Bool, didCapture: @escaping @Sendable () -> Void) async throws -> Data {
-        try await withCheckedThrowingContinuation { continuation in
-            queue.async {
-                let useProRAW = proRAW && self.output.isAppleProRAWEnabled
-                let format =
-                    useProRAW
-                    ? self.output.availableRawPhotoPixelFormatTypes.first { AVCapturePhotoOutput.isAppleProRAWPixelFormat($0) } : self.bayerFormat
-                guard let format else {
-                    continuation.resume(throwing: CameraError.noRAW)
-                    return
-                }
-                // RAW only: no processed image is asked for. In zero processing none of Apple's
-                // processing runs; quality prioritization, stabilization, depth and distortion
-                // correction only apply to processed photos and are left alone. ProRAW is Apple's
-                // processing by nature: asked for at the lens's full size and best quality.
-                let settings = AVCapturePhotoSettings(rawPixelFormatType: format)
-                if useProRAW {
-                    settings.maxPhotoDimensions = self.output.maxPhotoDimensions
-                    if self.output.maxPhotoQualityPrioritization == .quality { settings.photoQualityPrioritization = .quality }
-                }
-                if let connection = self.output.connection(with: .video), connection.isVideoRotationAngleSupported(rotationAngle) {
-                    connection.videoRotationAngle = rotationAngle
-                }
-                let id = settings.uniqueID
-                let delegate = PhotoCapture(didCapture: didCapture) { result in
-                    self.queue.async { self.inFlight[id] = nil }
-                    continuation.resume(with: result)
-                }
-                self.inFlight[id] = delegate
-                self.output.capturePhoto(with: settings, delegate: delegate)
-            }
-        }
-    }
-
-    /// The widest field of view any of the device's formats has, in radians.
-    private static func fieldOfView(_ device: AVCaptureDevice) -> Double {
-        let degrees = device.formats.map(\.videoFieldOfView).max() ?? device.activeFormat.videoFieldOfView
-        return Double(degrees) * .pi / 180
-    }
-
-    /// "0.5", "1", "2", "3", "5": the zoom rounded the way the Camera app shows it.
-    static func label(zoom: Double) -> String {
-        let rounded = zoom < 0.8 ? 0.5 : (zoom * 2).rounded() / 2
-        return rounded == rounded.rounded() ? String(Int(rounded)) : String(rounded)
-    }
-}
-
-private final class PhotoCapture: NSObject, AVCapturePhotoCaptureDelegate {
-    private let didCapture: @Sendable () -> Void
-    private let completion: (Result<Data, Error>) -> Void
-    private var data: Data?
-    private var failure: Error?
-
-    init(didCapture: @escaping @Sendable () -> Void, completion: @escaping (Result<Data, Error>) -> Void) {
-        self.didCapture = didCapture
-        self.completion = completion
-    }
-
-    func photoOutput(_ output: AVCapturePhotoOutput, didCapturePhotoFor resolvedSettings: AVCaptureResolvedPhotoSettings) {
-        didCapture()
-    }
-
-    func photoOutput(_ output: AVCapturePhotoOutput, didFinishProcessingPhoto photo: AVCapturePhoto, error: Error?) {
-        if let error {
-            failure = error
-        } else if photo.isRawPhoto {
-            data = photo.fileDataRepresentation()
-        }
-    }
-
-    func photoOutput(_ output: AVCapturePhotoOutput, didFinishCaptureFor resolvedSettings: AVCaptureResolvedPhotoSettings, error: Error?) {
-        if let data {
-            completion(.success(data))
-        } else {
-            completion(.failure(error ?? failure ?? CameraError.noPhoto))
         }
     }
 }

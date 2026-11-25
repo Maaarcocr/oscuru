@@ -1,12 +1,13 @@
 import AVFoundation
 import AVKit
-import CoreMotion
+import OscuruCore
 import SwiftUI
 
 /// The camera, in the app's own terms: a viewfinder card like the photos in a thread, the lenses
 /// on it, a shutter where the library's camera button was, and the last shot beside it, one tap
 /// from its conversation. At the top, how it shoots: zero processing, or ProRAW with zoom between
-/// the lenses (pinch, or tap a stop).
+/// the lenses (pinch, or tap a stop), and a histogram of the live picture. Under the viewfinder,
+/// the exposure as a line of values: each is the camera's until it is tapped and set on its dial.
 struct CameraView: View {
     @Environment(\.dismiss) private var dismiss
     @Environment(\.openURL) private var openURL
@@ -24,9 +25,16 @@ struct CameraView: View {
     @State private var dialOpen = false
     @State private var dialStart: Double?
     @State private var dialUse = 0
+    /// The value whose dial is open; where a drag on that dial started, and where it has turned to
+    /// (the dial follows the finger smoothly while the value goes from stop to stop).
+    @State private var openValue: CameraValue?
+    @State private var turnStart: Double?
+    @State private var turned: Double?
+    /// While the focus is turned by hand, the viewfinder shows its middle larger.
+    @State private var loupe = false
     @State private var blink = false
-    /// What the mode just chosen means, shown for a moment under the switch.
-    @State private var modeHint: String?
+    /// What a choice just made means, shown for a moment under the top bar.
+    @State private var hint: String?
 
     init(library: Library, simulated: Bool, open: @escaping (String) -> Void) {
         _camera = State(initialValue: Camera(library: library, simulated: simulated))
@@ -40,8 +48,10 @@ struct CameraView: View {
             viewfinder
                 .padding(.top, 8)
                 .layoutPriority(1)
+            valuesLine
+                .padding(.top, 6)
             bottomBar
-                .frame(minHeight: 104, maxHeight: .infinity)
+                .frame(minHeight: 96, maxHeight: .infinity)
         }
         .background(Color.black.ignoresSafeArea())
         .statusBarHidden()
@@ -63,7 +73,13 @@ struct CameraView: View {
         .sensoryFeedback(.selection, trigger: camera.lens)
         // A tick as the zoom lands on a stop, like a dial's detent.
         .sensoryFeedback(.selection, trigger: camera.stops.first { abs($0 - camera.zoom) < 0.001 }) { _, stop in stop != nil }
+        // And as an exposure dial goes from one stop to the next.
+        .sensoryFeedback(.selection, trigger: camera.exposure)
         .onChange(of: camera.mode) { dialOpen = false }
+        .onChange(of: camera.limits) {
+            // Another lens may not have what this dial sets.
+            if let openValue, !camera.canSet(openValue) { self.openValue = nil }
+        }
         .onChange(of: camera.shots) {
             blink = true
             Task {
@@ -94,14 +110,14 @@ struct CameraView: View {
             Spacer()
             modeSwitch
             Spacer()
-            exposure
-                .frame(width: 52, alignment: .trailing)
+            Histogram(statistics: camera.statistics)
+                .opacity(camera.status == .ready ? 1 : 0)
         }
         .padding(.horizontal, 16)
         .frame(height: 52)
         .overlay(alignment: .bottom) {
-            if let modeHint {
-                Text(modeHint)
+            if let hint {
+                Text(hint)
                     .font(.caption)
                     .multilineTextAlignment(.center)
                     .padding(.horizontal, 12)
@@ -142,15 +158,8 @@ struct CameraView: View {
         let selected = camera.mode == mode
         return Button {
             guard !selected else { return }
-            withAnimation(.snappy) {
-                camera.setMode(mode)
-                modeHint = hint
-            }
-            Task {
-                try? await Task.sleep(for: .seconds(2.5))
-                guard modeHint == hint else { return }
-                withAnimation(.easeOut(duration: 0.3)) { modeHint = nil }
-            }
+            withAnimation(.snappy) { camera.setMode(mode) }
+            show(hint: hint)
         } label: {
             Text(verbatim: title)
                 .font(.caption.weight(.semibold))
@@ -167,34 +176,14 @@ struct CameraView: View {
         .accessibilityIdentifier(identifier)
     }
 
-    /// The exposure compensation, when there is any: tap to go back to zero.
-    @ViewBuilder
-    private var exposure: some View {
-        if camera.exposureBias != 0 {
-            Button {
-                withAnimation(.snappy) { camera.setExposureBias(0) }
-            } label: {
-                Text(verbatim: Self.stops(camera.exposureBias))
-                    .font(.footnote.weight(.semibold))
-                    .monospacedDigit()
-                    .foregroundStyle(Color.accentColor)
-                    .padding(.horizontal, 10)
-                    .padding(.vertical, 6)
-            }
-            .buttonStyle(.glass)
-            .buttonBorderShape(.capsule)
-            .transition(.scale.combined(with: .opacity))
-            .accessibilityLabel(L10n.cameraExposure)
-            .accessibilityValue(Text(verbatim: Self.stops(camera.exposureBias)))
-        } else {
-            Color.clear.frame(width: 44, height: 44)
+    /// Says for a moment, under the top bar, what a choice just made means.
+    private func show(hint text: String) {
+        withAnimation(.snappy) { hint = text }
+        Task {
+            try? await Task.sleep(for: .seconds(2.5))
+            guard hint == text else { return }
+            withAnimation(.easeOut(duration: 0.3)) { hint = nil }
         }
-    }
-
-    /// "+0.7", "−1.3": stops, as a camera shows them.
-    private static func stops(_ value: Float) -> String {
-        let text = String(format: "%.1f", abs(value))
-        return value > 0 ? "+\(text)" : "−\(text)"
     }
 
     // MARK: Viewfinder
@@ -221,7 +210,13 @@ struct CameraView: View {
             .overlay { Color.black.opacity(blink ? 1 : 0).allowsHitTesting(false) }
             .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
             .overlay(alignment: .bottom) {
-                if camera.status == .ready, camera.mode == .proRAW || camera.shootingLenses.count > 1 { zoomControl }
+                if camera.status == .ready {
+                    if let openValue {
+                        valueDial(openValue)
+                    } else if camera.mode == .proRAW || camera.shootingLenses.count > 1 {
+                        zoomControl
+                    }
+                }
             }
     }
 
@@ -237,7 +232,11 @@ struct CameraView: View {
                         PreviewLayerView(camera: camera)
                     }
                 }
-                .scaleEffect(camera.magnification)
+                // Stripes where the picture is blown, on the picture, so they follow its zoom.
+                .overlay {
+                    if let statistics = camera.statistics { BlownMarks(statistics: statistics, rotation: camera.frameRotation) }
+                }
+                .scaleEffect(camera.magnification * (loupe ? 2.5 : 1))
                 // The moment one lens's picture gives way to the next is softened rather than seen.
                 .blur(radius: camera.switchingLens ? 14 : 0)
                 .animation(.easeInOut(duration: 0.15), value: camera.switchingLens)
@@ -258,7 +257,7 @@ struct CameraView: View {
             .onTapGesture(coordinateSpace: .local) { location in
                 // Where that point is in the lens's whole picture, before the viewfinder's zoom.
                 let middle = CGPoint(x: geometry.size.width / 2, y: geometry.size.height / 2)
-                let scale = camera.magnification
+                let scale = camera.magnification * (loupe ? 2.5 : 1)
                 camera.focus(at: CGPoint(x: middle.x + (location.x - middle.x) / scale, y: middle.y + (location.y - middle.y) / scale))
                 show(focusAt: location)
             }
@@ -275,6 +274,8 @@ struct CameraView: View {
             .gesture(
                 DragGesture(minimumDistance: 12)
                     .onChanged { value in
+                        // With nothing left to the camera there is nothing to compensate.
+                        guard !camera.isManual else { return }
                         let start = dragStart ?? camera.exposureBias
                         dragStart = start
                         // One stop for every 120 points, brighter upwards.
@@ -325,8 +326,10 @@ struct CameraView: View {
     private var zoomControl: some View {
         ZStack(alignment: .bottom) {
             if dialOpen {
-                ZoomDial(zoom: camera.zoom, stops: camera.stops, range: camera.zoomRange) { camera.setZoom($0) }
-                    .transition(.opacity.combined(with: .scale(scale: 0.92, anchor: .bottom)))
+                CameraDial(position: log2(camera.zoom), marks: zoomMarks, text: "\(Camera.zoomText(camera.zoom))×", name: L10n.cameraZoom) { step in
+                    camera.setZoom(camera.zoom * pow(2, Double(step) / 8))
+                }
+                .transition(.opacity.combined(with: .scale(scale: 0.92, anchor: .bottom)))
             } else {
                 lensPicker
                     .padding(.bottom, 14)
@@ -341,8 +344,7 @@ struct CameraView: View {
                     dialUse += 1
                     let start = dialStart ?? camera.zoom
                     dialStart = start
-                    let travel = -(value.translation.width + value.translation.height)
-                    camera.setZoom(camera.snapped(start * pow(2, travel / ZoomDial.pointsPerDoubling)))
+                    camera.setZoom(camera.snapped(start * pow(2, CameraDial.turn(value.translation))))
                 }
                 .onEnded { _ in
                     dialStart = nil
@@ -351,14 +353,33 @@ struct CameraView: View {
             including: camera.mode == .proRAW ? .all : .subviews)
     }
 
-    /// Closes the dial when it has not been used for a while.
+    /// The lens stops (and the far end) labelled; small marks every eighth of a doubling between.
+    private var zoomMarks: [DialMark] {
+        let range = camera.zoomRange
+        var marks = camera.stops.map { DialMark(position: log2($0), label: Camera.zoomText($0)) }
+        if !camera.stops.contains(where: { abs($0 / range.upperBound - 1) < 0.1 }) {
+            marks.append(DialMark(position: log2(range.upperBound), label: Camera.zoomText(range.upperBound)))
+        }
+        let labelled = marks
+        var value = range.lowerBound
+        while value <= range.upperBound * 1.0001 {
+            if !labelled.contains(where: { abs($0.position - log2(value)) < 0.057 }) { marks.append(DialMark(position: log2(value))) }
+            value *= pow(2, 1.0 / 8)
+        }
+        return marks
+    }
+
+    /// Closes the dial that is open when it has not been used for a while.
     private func closeDial(after delay: Duration) {
         dialUse += 1
         let use = dialUse
         Task {
             try? await Task.sleep(for: delay)
-            guard use == dialUse, dialStart == nil else { return }
-            withAnimation(.snappy(duration: 0.25)) { dialOpen = false }
+            guard use == dialUse, dialStart == nil, turnStart == nil else { return }
+            withAnimation(.snappy(duration: 0.25)) {
+                dialOpen = false
+                openValue = nil
+            }
         }
     }
 
@@ -396,6 +417,211 @@ struct CameraView: View {
         .padding(4)
         .glassEffect(.regular, in: .capsule)
         .accessibilityIdentifier("camera.lenses")
+    }
+
+    // MARK: Exposure
+
+    /// The exposure as a camera shows it: aperture, time, ISO and focus, then the compensation.
+    /// White is the camera's choice, changing as the light does; the accent colour is set by hand
+    /// and stays. Tap one for its dial.
+    private var valuesLine: some View {
+        HStack(spacing: 0) {
+            ForEach(CameraValue.allCases) { valueButton($0) }
+            compensation
+        }
+        .padding(.horizontal, 10)
+        .frame(height: 38)
+        .opacity(camera.status == .ready ? 1 : 0)
+    }
+
+    private func valueButton(_ value: CameraValue) -> some View {
+        let isSet = camera.isSet(value)
+        let can = camera.canSet(value)
+        return Button {
+            withAnimation(.snappy(duration: 0.2)) {
+                dialOpen = false
+                turned = nil
+                openValue = openValue == value ? nil : value
+            }
+            closeDial(after: .seconds(5))
+        } label: {
+            Text(verbatim: dialText(value))
+                .font(.footnote.weight(.semibold))
+                .monospacedDigit()
+                .lineLimit(1)
+                .minimumScaleFactor(0.7)
+                .foregroundStyle(isSet ? Color.accentColor : Color.white.opacity(can ? 1 : 0.45))
+                .frame(maxWidth: .infinity, minHeight: 30)
+                .background(Color.white.opacity(openValue == value ? 0.16 : 0), in: Capsule())
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .disabled(!can)
+        .accessibilityLabel(name(value))
+        .accessibilityValue(Text(verbatim: "\(dialText(value)), \(isSet ? L10n.cameraSetByHand : L10n.cameraAutomatic)"))
+        .accessibilityAddTraits(openValue == value ? .isSelected : [])
+        .accessibilityIdentifier("camera.value.\(value.rawValue)")
+    }
+
+    /// The compensation for whatever is left to the camera: tap to go back to zero. With nothing
+    /// left to it, the meter instead: how far the picture is from what the camera would choose.
+    @ViewBuilder
+    private var compensation: some View {
+        if camera.isManual {
+            HStack(spacing: 3) {
+                Image(systemName: "camera.metering.center.weighted").font(.system(size: 11, weight: .semibold))
+                Text(verbatim: ExposureScale.stopsText(camera.reading.offset))
+            }
+            .font(.footnote.weight(.semibold))
+            .monospacedDigit()
+            .foregroundStyle(Color.white.opacity(0.75))
+            .frame(maxWidth: .infinity, minHeight: 30)
+            .accessibilityElement(children: .ignore)
+            .accessibilityLabel(L10n.cameraMeter)
+            .accessibilityValue(Text(verbatim: ExposureScale.stopsText(camera.reading.offset)))
+            .accessibilityIdentifier("camera.meter")
+        } else {
+            Button {
+                withAnimation(.snappy) { camera.setExposureBias(0) }
+            } label: {
+                Text(verbatim: ExposureScale.stopsText(Double(camera.exposureBias)))
+                    .font(.footnote.weight(.semibold))
+                    .monospacedDigit()
+                    .foregroundStyle(camera.exposureBias != 0 ? Color.accentColor : Color.white)
+                    .frame(maxWidth: .infinity, minHeight: 30)
+                    .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel(L10n.cameraExposure)
+            .accessibilityValue(Text(verbatim: ExposureScale.stopsText(Double(camera.exposureBias))))
+            .accessibilityIdentifier("camera.compensation")
+        }
+    }
+
+    private func name(_ value: CameraValue) -> String {
+        switch value {
+        case .aperture: return L10n.cameraAperture
+        case .time: return L10n.cameraTime
+        case .iso: return "ISO"
+        case .focus: return L10n.cameraFocus
+        }
+    }
+
+    /// A value as the line and its dial write it: "ƒ1.8", "1/60", "ISO 400", "MF".
+    private func dialText(_ value: CameraValue) -> String {
+        switch value {
+        case .aperture: return "ƒ" + ExposureScale.apertureText(camera.shown(.aperture))
+        case .time: return ExposureScale.timeText(camera.shown(.time))
+        case .iso: return "ISO " + ExposureScale.isoText(camera.shown(.iso))
+        case .focus: return camera.isSet(.focus) ? "MF" : "AF"
+        }
+    }
+
+    /// Where a value sits on its dial. A unit is a stop of light, or a third of the lens's focus travel.
+    private static func position(_ value: CameraValue, _ amount: Double) -> Double {
+        switch value {
+        case .aperture: return 2 * log2(max(amount, 0.1))
+        case .time, .iso: return log2(max(amount, 1e-9))
+        case .focus: return amount * 3
+        }
+    }
+
+    private static func amount(_ value: CameraValue, at position: Double) -> Double {
+        switch value {
+        case .aperture: return pow(2, position / 2)
+        case .time, .iso: return pow(2, position)
+        case .focus: return position / 3
+        }
+    }
+
+    /// The stops of a value's dial: whole stops named, the thirds between as small marks. Focus has
+    /// no stops, only its nearest and its farthest.
+    private func marks(_ value: CameraValue) -> [DialMark] {
+        if value == .focus {
+            return (0...20).map { step in
+                DialMark(position: Double(step) * 3 / 20, symbol: step == 0 ? "camera.macro" : step == 20 ? "mountain.2.fill" : nil)
+            }
+        }
+        let stops = camera.stops(value)
+        return stops.enumerated().map { index, stop in
+            let named: Bool
+            switch value {
+            case .time: named = index == 0 || index == stops.count - 1 || ExposureScale.isWholeTime(stop)
+            case .iso: named = index == 0 || index == stops.count - 1 || ExposureScale.isWholeISO(stop)
+            default: named = true
+            }
+            let text: String
+            switch value {
+            case .time: text = ExposureScale.timeText(stop)
+            case .iso: text = ExposureScale.isoText(stop)
+            default: text = ExposureScale.apertureText(stop)
+            }
+            return DialMark(position: Self.position(value, stop), label: named ? text : nil)
+        }
+    }
+
+    /// Sets a value by hand, saying once what that means in ProRAW.
+    private func set(_ value: CameraValue, to amount: Double?) {
+        let wasSet = camera.isSet(value)
+        camera.set(value, to: amount)
+        if amount != nil, !wasSet, camera.isSet(value), camera.mode == .proRAW, value == .time || value == .iso {
+            show(hint: L10n.cameraProRAWSetHint)
+        }
+    }
+
+    /// The dial of the value tapped in the line. Turning it sets the value by hand; Auto hands it
+    /// back to the camera.
+    private func valueDial(_ value: CameraValue) -> some View {
+        let dialMarks = marks(value)
+        let low = dialMarks.map(\.position).min() ?? 0
+        let high = dialMarks.map(\.position).max() ?? 0
+        return CameraDial(
+            position: turned ?? Self.position(value, camera.shown(value)), marks: dialMarks, text: dialText(value), name: name(value)
+        ) { step in
+            dialUse += 1
+            camera.step(value, by: step)
+        }
+        .overlay(alignment: .topLeading) {
+            if camera.isSet(value) {
+                Button {
+                    withAnimation(.snappy) { set(value, to: nil) }
+                    closeDial(after: .seconds(2))
+                } label: {
+                    Text(L10n.cameraAuto)
+                        .font(.caption.weight(.bold))
+                        .padding(.horizontal, 6)
+                        .padding(.vertical, 3)
+                }
+                .buttonStyle(.glass)
+                .buttonBorderShape(.capsule)
+                .padding(.leading, 12)
+                .padding(.top, 6)
+                .transition(.scale.combined(with: .opacity))
+                .accessibilityHint(L10n.cameraAutoHint)
+                .accessibilityIdentifier("camera.auto")
+            }
+        }
+        .simultaneousGesture(
+            DragGesture(minimumDistance: 4)
+                .onChanged { drag in
+                    dialUse += 1
+                    let start = turnStart ?? Self.position(value, camera.shown(value))
+                    turnStart = start
+                    let position = min(max(start + CameraDial.turn(drag.translation), low), high)
+                    turned = position
+                    if value == .focus, !loupe { withAnimation(.snappy(duration: 0.2)) { loupe = true } }
+                    set(value, to: Self.amount(value, at: position))
+                }
+                .onEnded { _ in
+                    turnStart = nil
+                    withAnimation(.snappy(duration: 0.2)) {
+                        turned = nil
+                        loupe = false
+                    }
+                    closeDial(after: .seconds(4))
+                }
+        )
+        .transition(.opacity.combined(with: .scale(scale: 0.92, anchor: .bottom)))
     }
 
     // MARK: Bottom
@@ -439,170 +665,6 @@ struct CameraView: View {
         .accessibilityLabel(L10n.cameraGuides)
         .accessibilityAddTraits(camera.showsGuides ? .isSelected : [])
         .accessibilityIdentifier("camera.guides")
-    }
-}
-
-/// Lines at the thirds of the viewfinder, for composing.
-private struct ThirdsGrid: View {
-    var body: some View {
-        Canvas { context, size in
-            var lines = Path()
-            for third in [1.0 / 3, 2.0 / 3] {
-                lines.move(to: CGPoint(x: size.width * third, y: 0))
-                lines.addLine(to: CGPoint(x: size.width * third, y: size.height))
-                lines.move(to: CGPoint(x: 0, y: size.height * third))
-                lines.addLine(to: CGPoint(x: size.width, y: size.height * third))
-            }
-            context.stroke(lines, with: .color(.black.opacity(0.25)), lineWidth: 1.5)
-            context.stroke(lines, with: .color(.white.opacity(0.55)), lineWidth: 0.5)
-        }
-        .allowsHitTesting(false)
-        .accessibilityHidden(true)
-    }
-}
-
-/// Which way the horizon runs across the screen, from the phone's motion sensor.
-@MainActor
-@Observable
-final class Level {
-    /// The horizon's angle on the screen, clockwise, in radians: 0 when the phone is held upright and
-    /// level, about ±π/2 when it is level on its side. Nil while the phone lies flat, or has no sensor.
-    private(set) var angle: Double?
-    @ObservationIgnored private let motion = CMMotionManager()
-
-    func start() {
-        guard motion.isDeviceMotionAvailable, !motion.isDeviceMotionActive else { return }
-        motion.deviceMotionUpdateInterval = 1.0 / 30
-        motion.startDeviceMotionUpdates(to: .main) { [weak self] data, _ in
-            guard let gravity = data?.gravity else { return }
-            MainActor.assumeIsolated {
-                // Lying flat, there is no horizon to show.
-                self?.angle = abs(gravity.z) > 0.85 ? nil : -atan2(gravity.x, -gravity.y)
-            }
-        }
-    }
-
-    func stop() {
-        motion.stopDeviceMotionUpdates()
-        angle = nil
-    }
-
-    /// How far the horizon is from the nearest level way of holding the phone (upright or on its side).
-    nonisolated static func tilt(_ angle: Double) -> Double {
-        angle - (angle / (.pi / 2)).rounded() * (.pi / 2)
-    }
-
-    /// Within a degree of level.
-    nonisolated static func isLevel(_ angle: Double) -> Bool { abs(tilt(angle)) < .pi / 180 }
-
-    /// Close enough to level for the mark to help; beyond that it is a different way of holding the phone.
-    nonisolated static func isNearLevel(_ angle: Double) -> Bool { abs(tilt(angle)) < .pi / 9 }
-}
-
-/// The level, as in the Camera app: short marks where level is and a line that follows the horizon;
-/// within a degree they meet in one yellow line.
-private struct LevelMark: View {
-    let angle: Double
-
-    var body: some View {
-        let level = Level.isLevel(angle)
-        let square = angle - Level.tilt(angle)
-        ZStack {
-            HStack(spacing: 74) {
-                Capsule().frame(width: 16, height: 1.5)
-                Capsule().frame(width: 16, height: 1.5)
-            }
-            .rotationEffect(.radians(square))
-            Capsule()
-                .frame(width: level ? 106 : 60, height: 1.5)
-                .rotationEffect(.radians(level ? square : angle))
-        }
-        .foregroundStyle(level ? Color.accentColor : Color.white)
-        .shadow(color: .black.opacity(0.4), radius: 1)
-        .animation(.snappy(duration: 0.15), value: level)
-        .allowsHitTesting(false)
-        .accessibilityHidden(true)
-    }
-}
-
-/// The zoom as a dial, as in the Camera app: an arc of marks that turns under the finger, with the
-/// zoom now at its top and the lens stops labelled. Each doubling of the zoom is the same turn.
-private struct ZoomDial: View {
-    let zoom: Double
-    let stops: [Double]
-    let range: ClosedRange<Double>
-    /// For VoiceOver, which turns it a step at a time.
-    let setZoom: (Double) -> Void
-
-    static let degreesPerDoubling = 34.0
-    /// How far a finger moves for a doubling: about the same turn on the dial.
-    static let pointsPerDoubling = 180.0
-
-    var body: some View {
-        GeometryReader { geometry in
-            let width = geometry.size.width
-            let radius = width * 0.85
-            let centre = CGPoint(x: width / 2, y: 46 + radius)
-            ZStack {
-                Circle()
-                    .fill(Color.black.opacity(0.55))
-                    .overlay(Circle().strokeBorder(Color.white.opacity(0.15), lineWidth: 1))
-                    .frame(width: radius * 2 + 56, height: radius * 2 + 56)
-                    .position(centre)
-                Canvas { context, _ in
-                    for mark in marks {
-                        let angle = (log2(mark.zoom) - log2(zoom)) * ZoomDial.degreesPerDoubling * .pi / 180
-                        guard abs(angle) < 1.1 else { continue }
-                        func point(_ distance: Double) -> CGPoint {
-                            CGPoint(x: centre.x + distance * sin(angle), y: centre.y - distance * cos(angle))
-                        }
-                        var line = Path()
-                        line.move(to: point(radius))
-                        line.addLine(to: point(radius - (mark.isStop ? 14 : 7)))
-                        context.stroke(line, with: .color(.white.opacity(mark.isStop ? 0.95 : 0.45)), lineWidth: mark.isStop ? 2 : 1)
-                        if mark.isStop {
-                            let label = Text(verbatim: Camera.zoomText(mark.zoom)).font(.caption.weight(.semibold)).foregroundStyle(Color.white)
-                            context.draw(context.resolve(label), at: point(radius - 30), anchor: .center)
-                        }
-                    }
-                }
-                // The zoom now, over the top of the dial.
-                VStack(spacing: 3) {
-                    Text(verbatim: "\(Camera.zoomText(zoom))×")
-                        .font(.subheadline.weight(.bold))
-                        .monospacedDigit()
-                        .foregroundStyle(Color.accentColor)
-                    Capsule().fill(Color.accentColor).frame(width: 3, height: 14)
-                }
-                .position(x: width / 2, y: 27)
-            }
-        }
-        .frame(height: 150)
-        .clipped()
-        .contentShape(Rectangle())
-        .accessibilityElement()
-        .accessibilityLabel(L10n.cameraZoom)
-        .accessibilityValue(Text(verbatim: "\(Camera.zoomText(zoom))×"))
-        .accessibilityAdjustableAction { direction in
-            switch direction {
-            case .increment: setZoom(zoom * pow(2, 1.0 / 8))
-            case .decrement: setZoom(zoom / pow(2, 1.0 / 8))
-            @unknown default: break
-            }
-        }
-        .accessibilityIdentifier("camera.dial")
-    }
-
-    /// The stops (and the far end) labelled; small marks every eighth of a doubling between.
-    private var marks: [(zoom: Double, isStop: Bool)] {
-        var marks = stops.map { (zoom: $0, isStop: true) }
-        if !stops.contains(where: { abs($0 / range.upperBound - 1) < 0.1 }) { marks.append((range.upperBound, true)) }
-        var value = range.lowerBound
-        while value <= range.upperBound * 1.0001 {
-            if !marks.contains(where: { $0.isStop && abs($0.zoom / value - 1) < 0.04 }) { marks.append((value, false)) }
-            value *= pow(2, 1.0 / 8)
-        }
-        return marks
     }
 }
 

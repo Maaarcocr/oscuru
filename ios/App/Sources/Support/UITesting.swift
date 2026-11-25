@@ -73,6 +73,24 @@ enum UITesting {
         CGImageDestinationAddImage(destination, image, [kCGImageDestinationLossyCompressionQuality: 0.92] as CFDictionary)
         return CGImageDestinationFinalize(destination) ? url : nil
     }
+
+    /// The sample photo as the stand-in viewfinder shows it (upright, filling a 3:4 frame),
+    /// measured the way the camera's live frames are: something for the instruments to show.
+    static func sampleStatistics() -> FrameStatistics? {
+        let width = 240
+        let height = 320
+        guard let url = samplePhoto(), let source = CGImageSourceCreateWithURL(url as CFURL, nil),
+            let image = CGImageSourceCreateImageAtIndex(source, 0, nil), let space = CGColorSpace(name: CGColorSpace.sRGB),
+            let context = CGContext(
+                data: nil, width: width, height: height, bitsPerComponent: 8, bytesPerRow: width * 4, space: space,
+                bitmapInfo: CGImageAlphaInfo.noneSkipLast.rawValue)
+        else { return nil }
+        let scale = max(Double(width) / Double(image.width), Double(height) / Double(image.height))
+        let size = CGSize(width: Double(image.width) * scale, height: Double(image.height) * scale)
+        context.draw(image, in: CGRect(x: (Double(width) - size.width) / 2, y: (Double(height) - size.height) / 2, width: size.width, height: size.height))
+        guard let pixels = context.data else { return nil }
+        return FrameStatistics.measure(rgba: UnsafeRawPointer(pixels), rowBytes: context.bytesPerRow, width: width, height: height)
+    }
 }
 
 /// A model that edits like a colourist would, from a script: one look at the photo, two scripts

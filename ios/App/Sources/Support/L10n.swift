@@ -99,6 +99,17 @@ enum L10n {
     static var captureOpen: String { String(localized: "capture.open") }
     static var captureFailed: String { String(localized: "capture.failed") }
     static var cameraGuides: String { String(localized: "camera.guides") }
+    static var cameraAperture: String { String(localized: "camera.aperture") }
+    static var cameraTime: String { String(localized: "camera.time") }
+    static var cameraFocus: String { String(localized: "camera.focus") }
+    static var cameraAuto: String { String(localized: "camera.auto") }
+    static var cameraAutoHint: String { String(localized: "camera.auto.hint") }
+    static var cameraAutomatic: String { String(localized: "camera.automatic") }
+    static var cameraSetByHand: String { String(localized: "camera.setByHand") }
+    static var cameraMeter: String { String(localized: "camera.meter") }
+    static var cameraHistogram: String { String(localized: "camera.histogram") }
+    static var cameraHighlightsBlown: String { String(localized: "camera.highlightsBlown") }
+    static var cameraProRAWSetHint: String { String(localized: "camera.proRAW.setHint") }
     static var cameraZoom: String { String(localized: "camera.zoom") }
     static var cameraZeroProcessing: String { String(localized: "camera.mode.zero") }
     static var cameraZeroProcessingHint: String { String(localized: "camera.mode.zero.hint") }
