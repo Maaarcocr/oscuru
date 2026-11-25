@@ -473,6 +473,11 @@ interface ImageMetadata {
   focalLength?: number;
   focalLength35mm?: number;
   dateTaken?: string;
+  /**
+   * Only when the photo was taken zoomed between two lenses: the crop that framing gave, which its
+   * settings start with. The whole frame is still in the file: widen the crop to zoom out.
+   */
+  framedInCamera?: { x: number; y: number; width: number; height: number };
   /** Only on a collage: the photos it is made of, in order, at the size they were added. */
   pieces?: { piece: number; name: string; width: number; height: number }[];
 }

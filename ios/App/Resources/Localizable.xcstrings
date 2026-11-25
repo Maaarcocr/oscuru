@@ -81,6 +81,54 @@
         }
       }
     },
+    "camera.mode.proRAW.hint": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Apple ProRAW at full size, processed by Apple. Pinch to zoom between the lenses."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Apple ProRAW a piena risoluzione, elaborato da Apple. Pizzica per lo zoom tra gli obiettivi."
+          }
+        }
+      }
+    },
+    "camera.mode.zero": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Zero processing"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nessuna elaborazione"
+          }
+        }
+      }
+    },
+    "camera.mode.zero.hint": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Single-frame RAW straight from the sensor. Each lens at its own zoom."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "RAW di un solo scatto, direttamente dal sensore. Ogni obiettivo al suo zoom."
+          }
+        }
+      }
+    },
     "camera.noRAW": {
       "localizations": {
         "en": {

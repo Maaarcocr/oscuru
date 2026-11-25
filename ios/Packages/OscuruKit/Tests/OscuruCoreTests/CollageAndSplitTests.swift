@@ -74,6 +74,22 @@ final class CollageAndSplitTests: XCTestCase {
         XCTAssertNil(EditingState().json["layout"], "a photo has no layout")
     }
 
+    func testAPhotoFramedInTheCameraStartsWithThatCrop() throws {
+        let framing = Crop.centered(zoom: 2.5)
+        XCTAssertEqual(framing.width, 0.4, accuracy: 1e-9)
+        XCTAssertEqual(framing.x, 0.3, accuracy: 1e-9)
+        let defaults = PhotoDefaults(framing: framing)
+        var state = EditingState(defaults: defaults)
+        XCTAssertEqual(state.crop, framing, "it opens framed as it was taken")
+        try state.setCrop(["x": 0, "y": 0, "width": 1, "height": 1])
+        try state.reset(section: "crop", defaults: defaults)
+        XCTAssertEqual(state.crop, framing, "and goes back to that framing, not to the whole frame")
+        var info = PhotoInfo(fileName: "IMG.DNG", typeIdentifier: "com.adobe.raw-image", isRaw: true, width: 8064, height: 6048, defaults: defaults)
+        XCTAssertEqual(info.json["framedInCamera"]?["width"], .number(0.4))
+        info.defaults.framing = nil
+        XCTAssertNil(info.json["framedInCamera"])
+    }
+
     func testSplittingMakesEqualPartsOrTheRegionsAsked() throws {
         let three = try FrameRegion.parts(["columns": 3])
         XCTAssertEqual(three.count, 3)

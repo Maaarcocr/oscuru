@@ -52,6 +52,9 @@ public struct PhotoInfo: Codable, Equatable, Sendable {
         if let focalLength { members["focalLength"] = .number(focalLength) }
         if let focalLength35mm { members["focalLength35mm"] = .number(focalLength35mm) }
         if let dateTaken { members["dateTaken"] = .string(dateTaken) }
+        if let framing = defaults.framing {
+            members["framedInCamera"] = ["x": .number(framing.x), "y": .number(framing.y), "width": .number(framing.width), "height": .number(framing.height)]
+        }
         if let pieces {
             members["pieces"] = .array(
                 pieces.enumerated().map { ["piece": .number(Double($0.offset)), "name": .string($0.element.name), "width": .number(Double($0.element.width)), "height": .number(Double($0.element.height))] })

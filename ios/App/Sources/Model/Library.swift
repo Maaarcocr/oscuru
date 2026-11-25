@@ -101,10 +101,11 @@ final class Library {
         }
     }
 
-    /// Copies a picked file into the library and opens it once to learn what it is.
-    func add(from source: URL, name: String) async throws -> PhotoDocument {
+    /// Copies a picked file (or a shot) into the library and opens it once to learn what it is.
+    /// `framing` is the crop a camera zoomed between lenses framed it with.
+    func add(from source: URL, name: String, framing: Crop? = nil) async throws -> PhotoDocument {
         let originalFile = "original.\(source.pathExtension.isEmpty ? "img" : source.pathExtension.lowercased())"
-        return try await create(name: name) { folder in
+        return try await create(name: name, framing: framing) { folder in
             try FileManager.default.copyItem(at: source, to: folder.appending(path: originalFile))
             return originalFile
         }
@@ -134,7 +135,7 @@ final class Library {
     func duplicate(_ document: PhotoDocument, state: EditingState, name: String) async throws -> PhotoDocument {
         let source = folder(document.id)
         let originalFile = document.originalFile
-        return try await create(name: name, state: { _ in state }) { folder in
+        return try await create(name: name, framing: document.info.defaults.framing, state: { _ in state }) { folder in
             // Copies on the phone's own disk are clones: they take no space, and originals never change.
             try FileManager.default.copyItem(at: source.appending(path: originalFile), to: folder.appending(path: originalFile))
             let pieces = source.appending(path: "pieces", directoryHint: .isDirectory)
@@ -148,8 +149,9 @@ final class Library {
     /// The one way a photo comes into the library: `fill` puts its original (and anything beside it)
     /// into a new folder and returns the original's name; the photo is opened once to learn what it
     /// is and draw its thumbnail with the settings `state` gives it (untouched, unless said otherwise).
+    /// A camera's `framing` is kept in its record and is where its settings start.
     private func create(
-        name: String, state: @escaping @Sendable (PhotoInfo) -> EditingState = { EditingState(defaults: $0.defaults) },
+        name: String, framing: Crop? = nil, state: @escaping @Sendable (PhotoInfo) -> EditingState = { EditingState(defaults: $0.defaults) },
         fill: @escaping @Sendable (URL) throws -> String
     ) async throws -> PhotoDocument {
         let id = UUID().uuidString
@@ -162,6 +164,7 @@ final class Library {
                 return try engine.with(folder.appending(path: originalFile)) { session, opened in
                     var info = opened
                     info.fileName = name
+                    info.defaults.framing = framing
                     let start = state(info)
                     let recipe = RenderRecipe(state: start, defaults: info.defaults)
                     let jpeg = try engine.jpeg(id: session, recipe: recipe, options: RenderOptions(maxEdge: PhotoRenderer.thumbnailEdge), quality: 0.8)

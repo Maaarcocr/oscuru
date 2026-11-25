@@ -125,10 +125,13 @@ public struct PhotoDefaults: Codable, Equatable, Sendable {
     public var colorNoiseReduction: Double
     /// A collage's arrangement as it was made; nil for a photo.
     public var layout: CollageLayout?
+    /// How the camera framed the photo when it was zoomed between lenses: its settings start with
+    /// this crop, and the rest of the frame is still there to zoom out to. Nil for the whole frame.
+    public var framing: Crop?
 
     public init(
         temperature: Double = 6500, tint: Double = 0, sharpening: Double = 0, noiseReduction: Double = 0, colorNoiseReduction: Double = 0,
-        layout: CollageLayout? = nil
+        layout: CollageLayout? = nil, framing: Crop? = nil
     ) {
         self.temperature = temperature
         self.tint = tint
@@ -136,6 +139,7 @@ public struct PhotoDefaults: Codable, Equatable, Sendable {
         self.noiseReduction = noiseReduction
         self.colorNoiseReduction = colorNoiseReduction
         self.layout = layout
+        self.framing = framing
     }
 }
 
@@ -168,6 +172,17 @@ public struct Crop: Codable, Equatable, Sendable {
     public var flipVertical = false
 
     public init() {}
+
+    /// The middle of the frame, `zoom` times closer: what a camera zoomed past its lens frames.
+    public static func centered(zoom: Double) -> Crop {
+        var crop = Crop()
+        let side = 1 / max(1, zoom)
+        crop.x = (1 - side) / 2
+        crop.y = (1 - side) / 2
+        crop.width = side
+        crop.height = side
+        return crop
+    }
 }
 
 /// The non-destructive editing state: plain, serializable data that fully describes how a photo is
@@ -236,7 +251,7 @@ public struct EditingState: Codable, Equatable, Sendable {
         grain = EditingState.defaults(Specs.grain)
         halation = EditingState.defaults(Specs.halation)
         local = []
-        crop = Crop()
+        crop = defaults.framing ?? Crop()
         layout = defaults.layout
     }
 

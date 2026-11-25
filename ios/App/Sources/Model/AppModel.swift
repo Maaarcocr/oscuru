@@ -57,6 +57,8 @@ final class AppModel {
             let engine = engine
             var info = try await Task.detached(priority: .userInitiated) { try engine.open(id: id, url: url) }.value
             info.fileName = document.name
+            // How the camera framed it lives in the photo's record, not in the file.
+            info.defaults.framing = document.info.defaults.framing
             let transcript = try await openTranscript(for: document, original: EditingState(defaults: info.defaults))
             if let editor = editors[document.id] {
                 // Opened twice at once: the first one won.

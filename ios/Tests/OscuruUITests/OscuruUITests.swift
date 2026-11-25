@@ -111,6 +111,12 @@ final class OscuruUITests: XCTestCase {
         XCTAssertTrue(shutter.waitForExistence(timeout: 30))
         sleep(1)
         capture("10-camera")
+        // Two ways to shoot; ProRAW zooms anywhere between the lenses, and the shot is framed that way.
+        element(app, "camera.mode.proRAW").tap()
+        XCTAssertTrue(element(app, "camera.lenses").waitForExistence(timeout: 10))
+        element(app, "camera.viewfinder").pinch(withScale: 2.5, velocity: 1)
+        sleep(1)
+        capture("10b-camera-proraw")
         shutter.tap()
         let lastShot = element(app, "camera.lastShot")
         XCTAssertTrue(waitUntil(timeout: 60) { lastShot.exists && lastShot.isEnabled }, "the shot lands in the library")

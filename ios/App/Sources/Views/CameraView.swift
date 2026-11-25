@@ -4,7 +4,8 @@ import SwiftUI
 
 /// The camera, in the app's own terms: a viewfinder card like the photos in a thread, the lenses
 /// on it, a shutter where the library's camera button was, and the last shot beside it, one tap
-/// from its conversation.
+/// from its conversation. At the top, how it shoots: zero processing, or ProRAW with zoom between
+/// the lenses (pinch, or tap a stop).
 struct CameraView: View {
     @Environment(\.dismiss) private var dismiss
     @Environment(\.openURL) private var openURL
@@ -15,7 +16,10 @@ struct CameraView: View {
     @State private var focusPoint: CGPoint?
     @State private var focusStamp = 0
     @State private var dragStart: Float?
+    @State private var pinchStart: Double?
     @State private var blink = false
+    /// What the mode just chosen means, shown for a moment under the switch.
+    @State private var modeHint: String?
 
     init(library: Library, simulated: Bool, open: @escaping (String) -> Void) {
         _camera = State(initialValue: Camera(library: library, simulated: simulated))
@@ -41,6 +45,7 @@ struct CameraView: View {
             if event.phase == .ended { camera.shoot() }
         }
         .sensoryFeedback(.impact(weight: .light), trigger: camera.shots)
+        .sensoryFeedback(.selection, trigger: camera.lens)
         .onChange(of: camera.shots) {
             blink = true
             Task {
@@ -69,18 +74,79 @@ struct CameraView: View {
             .accessibilityLabel(L10n.close)
             .accessibilityIdentifier("camera.close")
             Spacer()
-            Text(verbatim: "RAW")
-                .font(.caption.weight(.bold))
-                .padding(.horizontal, 10)
-                .padding(.vertical, 5)
-                .glassEffect(.regular, in: .capsule)
-                .accessibilityHidden(true)
+            modeSwitch
             Spacer()
             exposure
                 .frame(width: 52, alignment: .trailing)
         }
         .padding(.horizontal, 16)
         .frame(height: 52)
+        .overlay(alignment: .bottom) {
+            if let modeHint {
+                Text(modeHint)
+                    .font(.caption)
+                    .multilineTextAlignment(.center)
+                    .padding(.horizontal, 12)
+                    .padding(.vertical, 6)
+                    .glassEffect(.regular, in: .capsule)
+                    .padding(.horizontal, 24)
+                    .offset(y: 40)
+                    .transition(.opacity)
+                    .allowsHitTesting(false)
+                    .zIndex(1)
+            }
+        }
+        .zIndex(1)
+    }
+
+    /// How the camera shoots: zero processing or ProRAW, when this iPhone can shoot ProRAW; otherwise
+    /// just RAW.
+    @ViewBuilder
+    private var modeSwitch: some View {
+        if camera.status == .ready, camera.canShootProRAW {
+            HStack(spacing: 2) {
+                modeButton(.zero, title: L10n.cameraZeroProcessing, hint: L10n.cameraZeroProcessingHint, identifier: "camera.mode.zero")
+                modeButton(.proRAW, title: "ProRAW", hint: L10n.cameraProRAWHint, identifier: "camera.mode.proRAW")
+            }
+            .padding(3)
+            .glassEffect(.regular, in: .capsule)
+        } else {
+            Text(verbatim: "RAW")
+                .font(.caption.weight(.bold))
+                .padding(.horizontal, 10)
+                .padding(.vertical, 5)
+                .glassEffect(.regular, in: .capsule)
+                .accessibilityHidden(true)
+        }
+    }
+
+    private func modeButton(_ mode: ShootingMode, title: String, hint: String, identifier: String) -> some View {
+        let selected = camera.mode == mode
+        return Button {
+            guard !selected else { return }
+            withAnimation(.snappy) {
+                camera.setMode(mode)
+                modeHint = hint
+            }
+            Task {
+                try? await Task.sleep(for: .seconds(2.5))
+                guard modeHint == hint else { return }
+                withAnimation(.easeOut(duration: 0.3)) { modeHint = nil }
+            }
+        } label: {
+            Text(verbatim: title)
+                .font(.caption.weight(.semibold))
+                .lineLimit(1)
+                .foregroundStyle(selected ? Color.black : Color.white)
+                .padding(.horizontal, 10)
+                .padding(.vertical, 6)
+                .background(selected ? Color.accentColor : Color.clear, in: Capsule())
+                .contentShape(Capsule())
+        }
+        .buttonStyle(.plain)
+        .accessibilityHint(hint)
+        .accessibilityAddTraits(selected ? .isSelected : [])
+        .accessibilityIdentifier(identifier)
     }
 
     /// The exposure compensation, when there is any: tap to go back to zero.
@@ -137,7 +203,7 @@ struct CameraView: View {
             .overlay { Color.black.opacity(blink ? 1 : 0).allowsHitTesting(false) }
             .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
             .overlay(alignment: .bottom) {
-                if camera.status == .ready, camera.lenses.count > 1 { lensPicker.padding(.bottom, 14) }
+                if camera.status == .ready, camera.mode == .proRAW || camera.shootingLenses.count > 1 { lensPicker.padding(.bottom, 14) }
             }
     }
 
@@ -145,11 +211,15 @@ struct CameraView: View {
     private var live: some View {
         GeometryReader { geometry in
             ZStack {
-                if camera.simulated {
-                    SamplePreview()
-                } else {
-                    PreviewLayerView(camera: camera)
+                // Zoomed past the lens, the viewfinder shows the middle of its picture, which is what the shot is cropped to.
+                Group {
+                    if camera.simulated {
+                        SamplePreview()
+                    } else {
+                        PreviewLayerView(camera: camera)
+                    }
                 }
+                .scaleEffect(camera.magnification)
                 if let focusPoint {
                     FocusMark()
                         .position(focusPoint)
@@ -159,9 +229,22 @@ struct CameraView: View {
             }
             .contentShape(Rectangle())
             .onTapGesture(coordinateSpace: .local) { location in
-                camera.focus(at: location)
+                // Where that point is in the lens's whole picture, before the viewfinder's zoom.
+                let middle = CGPoint(x: geometry.size.width / 2, y: geometry.size.height / 2)
+                let scale = camera.magnification
+                camera.focus(at: CGPoint(x: middle.x + (location.x - middle.x) / scale, y: middle.y + (location.y - middle.y) / scale))
                 show(focusAt: location)
             }
+            .simultaneousGesture(
+                MagnifyGesture()
+                    .onChanged { value in
+                        guard camera.mode == .proRAW else { return }
+                        let start = pinchStart ?? camera.zoom
+                        pinchStart = start
+                        camera.setZoom(camera.snapped(start * value.magnification))
+                    }
+                    .onEnded { _ in pinchStart = nil }
+            )
             .gesture(
                 DragGesture(minimumDistance: 12)
                     .onChanged { value in
@@ -210,23 +293,29 @@ struct CameraView: View {
         .padding(32)
     }
 
+    /// The lenses, or in ProRAW the zoom stops; the one in use shows the zoom now ("2.5×" between stops).
     private var lensPicker: some View {
-        HStack(spacing: 4) {
-            ForEach(camera.lenses) { lens in
-                let selected = lens == camera.lens
+        let stops = camera.stops
+        let active = stops.last { $0 <= camera.zoom * 1.001 } ?? stops.first
+        return HStack(spacing: 4) {
+            ForEach(stops, id: \.self) { stop in
+                let selected = stop == active
+                let text = Camera.zoomText(selected ? camera.zoom : stop)
                 Button {
-                    withAnimation(.snappy) { camera.select(lens) }
+                    withAnimation(.snappy) { camera.setZoom(stop) }
                 } label: {
-                    Text(verbatim: selected ? "\(lens.label)×" : lens.label)
+                    Text(verbatim: selected ? "\(text)×" : text)
                         .font(.footnote.weight(.semibold))
                         .monospacedDigit()
+                        .lineLimit(1)
+                        .minimumScaleFactor(0.7)
                         .foregroundStyle(selected ? Color.accentColor : Color.white)
                         .frame(width: 38, height: 38)
                         .background(Color.black.opacity(selected ? 0.35 : 0), in: Circle())
                         .contentShape(Circle())
                 }
                 .buttonStyle(.plain)
-                .accessibilityLabel(Text(verbatim: "\(lens.label)×"))
+                .accessibilityLabel(Text(verbatim: "\(text)×"))
                 .accessibilityAddTraits(selected ? .isSelected : [])
             }
         }
