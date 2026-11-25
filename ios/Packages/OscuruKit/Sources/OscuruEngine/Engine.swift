@@ -3,6 +3,7 @@ import CoreImage.CIFilterBuiltins
 import Foundation
 import ImageIO
 import OscuruCore
+import UniformTypeIdentifiers
 
 /// Opens photos and renders recipes with Core Image. Safe to call from any thread: calls are
 /// carried out one at a time.
@@ -153,31 +154,76 @@ public final class Engine: @unchecked Sendable {
     return Double(min(1, max(0, pixel[0])))
   }
 
+  /// How many pixels a full-size export develops at a time. A large photo is drawn in bands of
+  /// about this many, so no step of its development needs the whole of it in graphics memory at
+  /// once (a 48 MP photo with masks and blurs can exceed what a phone allows).
+  nonisolated(unsafe) static var exportBandPixels = 8_000_000
+
   /// Develops the photo at full resolution into a JPEG file, in Display P3, carrying the capture details over.
   public func export(id: String, recipe: RenderRecipe, to url: URL, quality: Double = 0.95) throws -> (width: Int, height: Int) {
     try locked {
       let session = try session(id)
       let image = try buildImage(session: session, recipe: recipe, options: RenderOptions())
-      // The orientation is already applied to the pixels.
-      var properties = session.properties
-      properties[kCGImagePropertyOrientation as String] = 1
-      properties[kCGImagePropertyPixelWidth as String] = nil
-      properties[kCGImagePropertyPixelHeight as String] = nil
-      if var tiff = properties[kCGImagePropertyTIFFDictionary as String] as? [String: Any] {
-        tiff[kCGImagePropertyTIFFOrientation as String] = 1
-        properties[kCGImagePropertyTIFFDictionary as String] = tiff
+      let extent = image.extent
+      let width = Int(extent.width.rounded())
+      let height = Int(extent.height.rounded())
+      guard width > 0, height > 0,
+        let canvas = CGContext(
+          data: nil, width: width, height: height, bitsPerComponent: 8, bytesPerRow: 0, space: tableColorSpace,
+          bitmapInfo: CGImageAlphaInfo.noneSkipLast.rawValue)
+      else { throw EngineError.renderFailed("there is no room for a picture of \(width) × \(height)") }
+      canvas.interpolationQuality = .none
+      canvas.setBlendMode(.copy)
+      // Band by band from the bottom: Core Image and Core Graphics both count up from there, and
+      // each band is developed with as much of its surroundings as its blurs and masks reach.
+      let rows = max(16, Engine.exportBandPixels / width)
+      var row = 0
+      while row < height {
+        let count = min(rows, height - row)
+        let band = CGRect(x: extent.minX, y: extent.minY + CGFloat(row), width: CGFloat(width), height: CGFloat(count))
+        guard let part = context.createCGImage(image, from: band, format: .RGBA8, colorSpace: tableColorSpace) else {
+          throw EngineError.renderFailed("rows \(row) to \(row + count) of \(height) could not be developed")
+        }
+        canvas.draw(part, in: CGRect(x: 0, y: row, width: width, height: count))
+        row += count
       }
-      let output = image.settingProperties(properties)
-      let writeOptions: [CIImageRepresentationOption: Any] = [
-        CIImageRepresentationOption(rawValue: kCGImageDestinationLossyCompressionQuality as String): min(1, max(0.1, quality))
-      ]
-      do {
-        try context.writeJPEGRepresentation(of: output, to: url, colorSpace: tableColorSpace, options: writeOptions)
-      } catch {
-        throw EngineError.renderFailed(error.localizedDescription)
+      guard let picture = canvas.makeImage() else { throw EngineError.renderFailed("the developed picture could not be kept") }
+      let properties = Engine.exportProperties(session.properties, width: width, height: height, quality: quality)
+      guard let destination = CGImageDestinationCreateWithURL(url as CFURL, UTType.jpeg.identifier as CFString, 1, nil) else {
+        throw EngineError.renderFailed("the JPEG file could not be created")
       }
-      return (Int(image.extent.width), Int(image.extent.height))
+      CGImageDestinationAddImage(destination, picture, properties as CFDictionary)
+      guard CGImageDestinationFinalize(destination) else { throw EngineError.renderFailed("the JPEG could not be written") }
+      return (width, height)
     }
+  }
+
+  /// The capture details of the file a photo was opened from, for a JPEG of it: what describes the
+  /// original's own pixels (a RAW's sensor layout, its size, bit depth and turn) is left out or
+  /// made true of the JPEG.
+  static func exportProperties(_ source: [String: Any], width: Int, height: Int, quality: Double) -> [String: Any] {
+    var properties = source
+    for key in [
+      kCGImagePropertyPixelWidth, kCGImagePropertyPixelHeight, kCGImagePropertyDepth, kCGImagePropertyColorModel, kCGImagePropertyProfileName,
+      kCGImagePropertyHasAlpha, kCGImagePropertyIsFloat, kCGImagePropertyIsIndexed, kCGImagePropertyDNGDictionary, kCGImagePropertyRawDictionary,
+    ] {
+      properties[key as String] = nil
+    }
+    // The turn is already in the pixels.
+    properties[kCGImagePropertyOrientation as String] = 1
+    if var tiff = properties[kCGImagePropertyTIFFDictionary as String] as? [String: Any] {
+      tiff[kCGImagePropertyTIFFOrientation as String] = 1
+      tiff[kCGImagePropertyTIFFCompression as String] = nil
+      tiff[kCGImagePropertyTIFFPhotometricInterpretation as String] = nil
+      properties[kCGImagePropertyTIFFDictionary as String] = tiff
+    }
+    if var exif = properties[kCGImagePropertyExifDictionary as String] as? [String: Any] {
+      exif[kCGImagePropertyExifPixelXDimension as String] = width
+      exif[kCGImagePropertyExifPixelYDimension as String] = height
+      properties[kCGImagePropertyExifDictionary as String] = exif
+    }
+    properties[kCGImageDestinationLossyCompressionQuality as String] = min(1, max(0.1, quality))
+    return properties
   }
 
   /// The fully processed image, with its extent starting at the origin. With `options.mask`, the

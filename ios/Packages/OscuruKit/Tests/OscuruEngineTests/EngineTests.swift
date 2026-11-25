@@ -175,6 +175,85 @@ final class EngineTests: XCTestCase {
     XCTAssertEqual(try Data(contentsOf: url), original)
   }
 
+  /// A full-size export is developed in bands. Across the seams it must be the very picture
+  /// developed whole, with blurs, halation and a grown, feathered local adjustment reaching over them,
+  /// and it keeps the original's capture details.
+  func testAnExportDevelopedInBandsIsThePictureDevelopedWhole() throws {
+    // Stripes and a gradient, so a misplaced or cut-off band would show.
+    let url = try makePNG("bands.png", width: 240, height: 360) { x, y in
+      let stripe = (x / 12 + y / 20) % 2 == 0 ? 0.25 : 0.0
+      return (0.2 + stripe + Double(x) / 600, 0.3 + Double(y) / 900, 0.6 - stripe)
+    }
+    _ = try engine.open(id: "a", url: url)
+    var recipe = RenderRecipe()
+    recipe.exposureEV = 0.3
+    recipe.localContrast = [.init(radius: 0.05, intensity: 0.6)]
+    recipe.halation = .init(strength: 0.5, radius: 0.04, threshold: 0.3, color: [1, 0.4, 0.2])
+    var lift = RenderRecipe.LocalPass(
+      mask: try Mask.parse("mask", ["area": ["type": "radial", "x": 0.5, "y": 0.45, "width": 0.6, "height": 0.4, "feather": 0.5], "grow": 0.03]))
+    lift.gains = [1.4, 1.1, 0.8]
+    recipe.local = [lift]
+    recipe.vignette = 0.4
+
+    let saved = Engine.exportBandPixels
+    defer { Engine.exportBandPixels = saved }
+    func export(bandPixels: Int, to name: String) throws -> CGImageSource {
+      Engine.exportBandPixels = bandPixels
+      let target = directory.appendingPathComponent(name)
+      let size = try engine.export(id: "a", recipe: recipe, to: target)
+      XCTAssertEqual(size.width, 240)
+      XCTAssertEqual(size.height, 360)
+      return try XCTUnwrap(CGImageSourceCreateWithURL(target as CFURL, nil))
+    }
+    let once = try export(bandPixels: 1 << 40, to: "whole.jpg")
+    let written = try export(bandPixels: 240 * 50, to: "bands.jpg")  // eight bands, the last one short
+    func pixels(_ source: CGImageSource) throws -> [UInt8] {
+      let image = try XCTUnwrap(CGImageSourceCreateImageAtIndex(source, 0, nil))
+      var data = [UInt8](repeating: 0, count: 240 * 360 * 4)
+      let space = try XCTUnwrap(CGColorSpace(name: CGColorSpace.displayP3))
+      let context = try XCTUnwrap(
+        CGContext(data: &data, width: 240, height: 360, bitsPerComponent: 8, bytesPerRow: 240 * 4, space: space, bitmapInfo: CGImageAlphaInfo.noneSkipLast.rawValue))
+      context.draw(image, in: CGRect(x: 0, y: 0, width: 240, height: 360))
+      return data
+    }
+    let a = try pixels(once)
+    let b = try pixels(written)
+    var worst = 0
+    var total = 0
+    for index in 0..<a.count where index % 4 != 3 {
+      let difference = abs(Int(a[index]) - Int(b[index]))
+      worst = max(worst, difference)
+      total += difference
+    }
+    XCTAssertLessThan(Double(total) / Double(240 * 360 * 3), 0.3, "developed in bands, it is the picture developed whole")
+    XCTAssertLessThanOrEqual(worst, 6, "and no seam or band out of place shows")
+
+    let properties = try XCTUnwrap(CGImageSourceCopyPropertiesAtIndex(written, 0, nil) as? [String: Any])
+    XCTAssertEqual(properties[kCGImagePropertyOrientation as String] as? Int ?? 1, 1)
+    XCTAssertEqual(properties[kCGImagePropertyPixelWidth as String] as? Int, 240)
+  }
+
+  func testTheCaptureDetailsOfARawAreMadeTrueOfItsJPEG() {
+    let source: [String: Any] = [
+      kCGImagePropertyPixelWidth as String: 4032, kCGImagePropertyDepth as String: 16, kCGImagePropertyOrientation as String: 6,
+      kCGImagePropertyDNGDictionary as String: ["DNGVersion": [1, 4, 0, 0]],
+      kCGImagePropertyTIFFDictionary as String: [kCGImagePropertyTIFFOrientation as String: 6, kCGImagePropertyTIFFModel as String: "iPhone", kCGImagePropertyTIFFCompression as String: 7],
+      kCGImagePropertyExifDictionary as String: [kCGImagePropertyExifISOSpeedRatings as String: [1600], kCGImagePropertyExifPixelXDimension as String: 4032],
+    ]
+    let made = Engine.exportProperties(source, width: 3024, height: 4032, quality: 0.95)
+    XCTAssertNil(made[kCGImagePropertyPixelWidth as String])
+    XCTAssertNil(made[kCGImagePropertyDepth as String])
+    XCTAssertNil(made[kCGImagePropertyDNGDictionary as String], "the sensor's layout is not the JPEG's")
+    XCTAssertEqual(made[kCGImagePropertyOrientation as String] as? Int, 1, "the turn is in the pixels")
+    let tiff = made[kCGImagePropertyTIFFDictionary as String] as? [String: Any]
+    XCTAssertEqual(tiff?[kCGImagePropertyTIFFOrientation as String] as? Int, 1)
+    XCTAssertEqual(tiff?[kCGImagePropertyTIFFModel as String] as? String, "iPhone", "the camera is still named")
+    XCTAssertNil(tiff?[kCGImagePropertyTIFFCompression as String])
+    let exif = made[kCGImagePropertyExifDictionary as String] as? [String: Any]
+    XCTAssertEqual(exif?[kCGImagePropertyExifISOSpeedRatings as String] as? [Int], [1600], "and how it was taken")
+    XCTAssertEqual(exif?[kCGImagePropertyExifPixelXDimension as String] as? Int, 3024)
+  }
+
   func testThePictureForTheModelIsAJPEGOfTheRequestedSize() throws {
     let url = try makePNG("big.png", width: 400, height: 200, paint: grey(0.4))
     _ = try engine.open(id: "a", url: url)
