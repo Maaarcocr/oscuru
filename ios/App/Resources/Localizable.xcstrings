@@ -881,6 +881,22 @@
         }
       }
     },
+    "library.deselectDay": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Deselect"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Deseleziona"
+          }
+        }
+      }
+    },
     "library.empty.message": {
       "localizations": {
         "en": {
@@ -1041,6 +1057,22 @@
         }
       }
     },
+    "library.today": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Today"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Oggi"
+          }
+        }
+      }
+    },
     "library.working": {
       "localizations": {
         "en": {
@@ -1053,6 +1085,22 @@
           "stringUnit": {
             "state": "translated",
             "value": "L'assistente sta lavorando a questa foto"
+          }
+        }
+      }
+    },
+    "library.yesterday": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Yesterday"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ieri"
           }
         }
       }

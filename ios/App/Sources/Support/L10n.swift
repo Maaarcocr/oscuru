@@ -24,6 +24,9 @@ enum L10n {
     static var select: String { String(localized: "library.select") }
     static var selectAll: String { String(localized: "library.selectAll") }
     static var deselectAll: String { String(localized: "library.deselectAll") }
+    static var deselectDay: String { String(localized: "library.deselectDay") }
+    static var today: String { String(localized: "library.today") }
+    static var yesterday: String { String(localized: "library.yesterday") }
     static var selectPhotos: String { String(localized: "library.selectPhotos") }
     static func selectedCount(_ count: Int) -> String {
         if count == 1 { return String(localized: "library.selectedOne") }

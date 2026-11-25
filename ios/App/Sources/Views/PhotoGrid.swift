@@ -5,11 +5,13 @@ import UIKit
 private let gridSpace = "library.grid"
 private let viewportSpace = "library.viewport"
 
-/// The library's photos, three squares a row with hairline gaps, as in Photos. A photo opens on
-/// a tap; holding one starts selecting, with that photo chosen. While `selection` is set, photos are
-/// chosen instead: by tapping them, or by running a finger across them.
+/// The library's photos, three squares a row with hairline gaps, split into the days they were
+/// taken, as in Photos. A photo opens on a tap; holding one starts selecting, with that photo chosen.
+/// While `selection` is set, photos are chosen instead: by tapping them, by running a finger across
+/// them, or a whole day at once from its header.
 struct PhotoGrid<Header: View>: View {
     @Environment(AppModel.self) private var model
+    /// Newest first, as the library keeps them.
     let photos: [PhotoDocument]
     /// Nil while photos open on a tap; otherwise the chosen ones.
     @Binding var selection: Set<String>?
@@ -18,7 +20,8 @@ struct PhotoGrid<Header: View>: View {
 
     /// A finger run across the grid, selecting (or deselecting) everything it passes.
     @State private var run: SelectionRun?
-    @State private var gridWidth: CGFloat = 0
+    /// Where each photo on screen is in the grid, for finding the one under a finger.
+    @State private var frames: [String: CGRect] = [:]
     @State private var scrollMetrics = ScrollMetrics()
     @State private var autoScroll: Task<Void, Never>?
     /// Counts photos held to start selecting, for the tap felt in the hand.
@@ -53,7 +56,6 @@ struct PhotoGrid<Header: View>: View {
                 header
                 tiles
                     .coordinateSpace(.named(gridSpace))
-                    .onGeometryChange(for: CGFloat.self) { $0.size.width } action: { gridWidth = $0 }
                     .gesture(
                         SelectionPan(
                             isEnabled: selection != nil,
@@ -79,47 +81,117 @@ struct PhotoGrid<Header: View>: View {
         }
     }
 
+    /// Photos in a row taken on the same day, newest day first.
+    private struct Day: Identifiable {
+        let id: Date
+        var photos: [PhotoDocument]
+    }
+
+    private var days: [Day] {
+        var days: [Day] = []
+        for photo in photos {
+            let day = Calendar.current.startOfDay(for: photo.takenAt)
+            if days.last?.id == day {
+                days[days.count - 1].photos.append(photo)
+            } else {
+                days.append(Day(id: day, photos: [photo]))
+            }
+        }
+        return days
+    }
+
     private var tiles: some View {
         LazyVGrid(columns: columns, spacing: gap) {
-            ForEach(photos) { photo in
-                let thumbnail = Thumbnail(
-                    url: model.library.thumbnailURL(photo.id), stamp: photo.thumbnailStamp, isRaw: photo.info.isRaw,
-                    working: model.isWorking(on: photo.id), selected: selection.map { $0.contains(photo.id) })
-                Group {
-                    if selection != nil {
-                        Button {
-                            toggle(photo.id)
-                        } label: {
-                            thumbnail
-                        }
-                        .accessibilityAddTraits(chosen.contains(photo.id) ? .isSelected : [])
-                    } else {
-                        NavigationLink(value: photo.id) {
-                            thumbnail
-                        }
-                        .accessibilityAction(named: L10n.select) { selection = [photo.id] }
+            ForEach(days) { day in
+                Section {
+                    ForEach(day.photos) { photo in
+                        tile(photo)
                     }
+                } header: {
+                    dayHeader(day)
                 }
-                .buttonStyle(.plain)
-                .accessibilityIdentifier("library.photo")
-                .accessibilityLabel(photo.name)
             }
         }
         // New shots slide in when the camera closes.
         .animation(.snappy, value: photos.map(\.id))
     }
 
+    private func tile(_ photo: PhotoDocument) -> some View {
+        let thumbnail = Thumbnail(
+            url: model.library.thumbnailURL(photo.id), stamp: photo.thumbnailStamp, isRaw: photo.info.isRaw,
+            working: model.isWorking(on: photo.id), selected: selection.map { $0.contains(photo.id) })
+        return Group {
+            if selection != nil {
+                Button {
+                    toggle(photo.id)
+                } label: {
+                    thumbnail
+                }
+                .accessibilityAddTraits(chosen.contains(photo.id) ? .isSelected : [])
+            } else {
+                NavigationLink(value: photo.id) {
+                    thumbnail
+                }
+                .accessibilityAction(named: L10n.select) { selection = [photo.id] }
+            }
+        }
+        .buttonStyle(.plain)
+        .accessibilityIdentifier("library.photo")
+        .accessibilityLabel(photo.name)
+        .onGeometryChange(for: CGRect.self) { $0.frame(in: .named(gridSpace)) } action: { frames[photo.id] = $0 }
+        .onDisappear { frames[photo.id] = nil }
+    }
+
+    /// The day's date and, while selecting, a way to choose all of it or none.
+    private func dayHeader(_ day: Day) -> some View {
+        HStack(alignment: .firstTextBaseline) {
+            Text(title(of: day.id))
+                .font(.headline)
+                .accessibilityAddTraits(.isHeader)
+            Spacer()
+            if selection != nil {
+                let ids = day.photos.map(\.id)
+                let all = chosen.isSuperset(of: ids)
+                Button(all ? L10n.deselectDay : L10n.select) {
+                    selection = all ? chosen.subtracting(ids) : chosen.union(ids)
+                }
+                .font(.subheadline.weight(.semibold))
+                .accessibilityIdentifier("library.selectDay")
+            }
+        }
+        .padding(.horizontal, 16)
+        .padding(.top, 14)
+        .padding(.bottom, 6)
+    }
+
+    /// Today, Yesterday, a weekday within the last week, then the date (with the year when it is not this one).
+    private func title(of day: Date) -> String {
+        let calendar = Calendar.current
+        if calendar.isDateInToday(day) { return L10n.today }
+        if calendar.isDateInYesterday(day) { return L10n.yesterday }
+        let today = calendar.startOfDay(for: Date())
+        let text: String
+        if let weekAgo = calendar.date(byAdding: .day, value: -6, to: today), day >= weekAgo, day < today {
+            text = day.formatted(.dateTime.weekday(.wide))
+        } else if calendar.isDate(day, equalTo: today, toGranularity: .year) {
+            text = day.formatted(.dateTime.weekday(.abbreviated).day().month(.wide))
+        } else {
+            text = day.formatted(.dateTime.day().month(.wide).year())
+        }
+        // Some languages write weekdays and months in lower case; a heading starts with a capital.
+        return text.prefix(1).uppercased() + text.dropFirst()
+    }
+
     // MARK: Finger runs
 
-    /// The photo under a point of the grid. Unless `exactly`, below the last photo counts as the last photo.
+    /// The photo under a point of the grid (the hairline gaps count as the photos beside them).
+    /// Unless `exactly`, below the last photo counts as the last photo; over a day's header, none.
     private func index(at point: CGPoint, exactly: Bool = false) -> Int? {
-        guard gridWidth > 0, !photos.isEmpty else { return nil }
-        let pitch = (gridWidth - 2 * gap) / 3 + gap
-        let column = min(2, max(0, Int(point.x / pitch)))
-        let row = max(0, Int((point.y / pitch).rounded(.down)))
-        let index = row * 3 + column
-        if exactly { return point.y >= 0 && index < photos.count ? index : nil }
-        return min(photos.count - 1, index)
+        if let hit = photos.firstIndex(where: { frames[$0.id]?.insetBy(dx: -gap, dy: -gap).contains(point) ?? false }) {
+            return hit
+        }
+        if !exactly, let last = photos.last, let frame = frames[last.id], point.y > frame.maxY { return photos.count - 1 }
+        return nil
     }
 
     /// A photo held: selecting starts, with it chosen, as in Photos.

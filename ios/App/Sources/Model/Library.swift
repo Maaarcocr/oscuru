@@ -30,6 +30,32 @@ extension PhotoDocument {
             .replacingOccurrences(of: "/", with: "-")
         return name.isEmpty ? "Oscuru" : name
     }
+
+    /// When the photo was taken, from its capture details (the camera's local time); when it has
+    /// none, when it was added. The library is ordered and split into days by it, as in Photos.
+    @MainActor var takenAt: Date {
+        guard let text = info.dateTaken else { return addedAt }
+        if let known = PhotoDocument.captureTimes[text] { return known ?? addedAt }
+        let parsed = PhotoDocument.captureTime.date(from: text)
+        PhotoDocument.captureTimes[text] = parsed
+        return parsed ?? addedAt
+    }
+
+    /// Newest first: by when taken, then by when added.
+    @MainActor func isBefore(_ other: PhotoDocument) -> Bool {
+        (takenAt, addedAt) > (other.takenAt, other.addedAt)
+    }
+
+    /// Capture times read so far, so sorting and drawing the grid parse each once.
+    @MainActor private static var captureTimes: [String: Date?] = [:]
+
+    /// EXIF's DateTimeOriginal, e.g. "2026:11:24 17:05:31".
+    private static let captureTime: DateFormatter = {
+        let formatter = DateFormatter()
+        formatter.locale = Locale(identifier: "en_US_POSIX")
+        formatter.dateFormat = "yyyy:MM:dd HH:mm:ss"
+        return formatter
+    }()
 }
 
 @MainActor
@@ -57,7 +83,7 @@ final class Library {
         photos = folders.compactMap { folder in
             guard let data = try? Data(contentsOf: folder.appending(path: "doc.json")) else { return nil }
             return try? decoder.decode(PhotoDocument.self, from: data)
-        }.sorted { $0.addedAt > $1.addedAt }
+        }.sorted { $0.isBefore($1) }
     }
 
     private func write(_ document: PhotoDocument) {
@@ -66,7 +92,7 @@ final class Library {
         if let index = photos.firstIndex(where: { $0.id == document.id }) {
             photos[index] = document
         } else {
-            photos.insert(document, at: 0)
+            photos.insert(document, at: photos.firstIndex { document.isBefore($0) } ?? photos.count)
         }
     }
 

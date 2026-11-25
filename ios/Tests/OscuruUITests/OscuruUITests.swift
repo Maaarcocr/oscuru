@@ -96,6 +96,7 @@ final class OscuruUITests: XCTestCase {
         XCTAssertTrue(element(app, "library.endSelect").waitForExistence(timeout: 30), "holding a photo starts selecting")
         XCTAssertTrue(photo.isSelected, "with the photo held chosen")
         XCTAssertFalse(element(app, "composer.field").exists, "and without opening it")
+        XCTAssertTrue(element(app, "library.selectDay").exists, "a whole day can be chosen from its header")
         capture("09-select")
         element(app, "library.endSelect").tap()
         element(app, "library.camera").tap()
