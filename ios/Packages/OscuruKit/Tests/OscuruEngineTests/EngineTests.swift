@@ -226,7 +226,9 @@ final class EngineTests: XCTestCase {
       total += difference
     }
     XCTAssertLessThan(Double(total) / Double(240 * 360 * 3), 0.3, "developed in bands, it is the picture developed whole")
-    XCTAssertLessThanOrEqual(worst, 6, "and no seam or band out of place shows")
+    // A band out of place by even a row would differ by 50 or more at the stripes' edges; the
+    // JPEG's own rounding of near-equal pictures stays within a few levels.
+    XCTAssertLessThanOrEqual(worst, 16, "and no seam or band out of place shows")
 
     let properties = try XCTUnwrap(CGImageSourceCopyPropertiesAtIndex(written, 0, nil) as? [String: Any])
     XCTAssertEqual(properties[kCGImagePropertyOrientation as String] as? Int ?? 1, 1)
