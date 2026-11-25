@@ -30,6 +30,8 @@ final class Segmenter {
   private let encoder: MLModel
   private let prompts: MLModel
   private let decoder: MLModel
+  /// One prediction at a time: photos render at the same time, and share the models.
+  private let lock = NSLock()
 
   /// Loads the models from `folder` (see `Models.load`).
   init(folder: URL) throws {
@@ -40,6 +42,8 @@ final class Segmenter {
 
   /// Reads a picture once, for any number of selections in it.
   func encode(_ image: CGImage) throws -> Encoding {
+    lock.lock()
+    defer { lock.unlock() }
     guard let constraint = encoder.modelDescription.inputDescriptionsByName["image"]?.imageConstraint else {
       throw EngineError.renderFailed("the segmentation model takes no image")
     }
@@ -57,6 +61,8 @@ final class Segmenter {
   /// The object at `points`, without what is at `exclude`; points are fractions of the picture
   /// from its top-left corner.
   func select(_ encoding: Encoding, points: [[Double]], exclude: [[Double]]) throws -> Logits {
+    lock.lock()
+    defer { lock.unlock() }
     let all = points.map { ($0, Float(1)) } + exclude.map { ($0, Float(0)) }
     let coordinates = try MLMultiArray(shape: [1, NSNumber(value: all.count), 2], dataType: .float32)
     let labels = try MLMultiArray(shape: [1, NSNumber(value: all.count)], dataType: .float32)

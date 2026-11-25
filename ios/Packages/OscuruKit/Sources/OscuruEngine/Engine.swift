@@ -5,16 +5,27 @@ import ImageIO
 import OscuruCore
 import UniformTypeIdentifiers
 
-/// Opens photos and renders recipes with Core Image. Safe to call from any thread: calls are
-/// carried out one at a time.
+/// Opens photos and renders recipes with Core Image. Safe to call from any thread: each photo
+/// renders one thing at a time, and different photos render at the same time, so one photo's long
+/// render does not hold up the others. Full-size work (exports, zooms) runs one at a time across
+/// all photos, so two of them never need their memory at once.
 ///
 /// Pipeline, in order: develop (exposure, white balance, noise reduction, in linear light; for RAW
 /// files, Apple's decoder with its looks off, then Oscuru's base curve) → local highlight and shadow recovery → local contrast → tone tables → colour cube →
 /// halation → flips, rotation, straightening, crop → local adjustments → vignette → grain → output.
 public final class Engine: @unchecked Sendable {
-  public let context: CIContext
+  /// Draws on the graphics processor.
+  private let gpu: CIContext
+  /// Draws on the processor: for while the app is in the background, where iOS does not let it use
+  /// the graphics processor (Core Image's drawing there fails).
+  private let cpu: CIContext
+
+  /// Guards `sessions` and `background`; never held while anything renders.
   private let lock = NSLock()
   private var sessions: [String: PhotoSession] = [:]
+  private var background = false
+  /// Held by full-size work, one at a time (see `using`).
+  private let large = NSLock()
 
   /// Tables are defined in gamma-encoded Display P3.
   private let tableColorSpace = CGColorSpace(name: CGColorSpace.displayP3)!
@@ -25,9 +36,13 @@ public final class Engine: @unchecked Sendable {
 
   /// Where the on-device models are (see `Segmenter`, `DepthEstimator`); nil when this build has none.
   private let models: URL?
-  /// Loaded on first use; nil when the models are missing or would not load.
-  private lazy var segmenter: Segmenter? = models.flatMap { try? Segmenter(folder: $0) }
-  private lazy var depthEstimator: DepthEstimator? = models.flatMap { try? DepthEstimator(folder: $0) }
+  /// Guards loading the models.
+  private let modelLock = NSLock()
+  private var loadedSegmenter: Segmenter?
+  private var loadedDepthEstimator: DepthEstimator?
+  /// When loading each last failed: tried again a little later, not on every render, and not never.
+  private var segmenterFailed: Date?
+  private var depthEstimatorFailed: Date?
 
   /// `models` is the folder holding the models that tapping an object and depth ranges need.
   public init(useSoftwareRenderer: Bool = false, models: URL? = nil) {
@@ -39,34 +54,82 @@ public final class Engine: @unchecked Sendable {
     if let working = CGColorSpace(name: CGColorSpace.extendedLinearSRGB) {
       options[.workingColorSpace] = working
     }
-    if useSoftwareRenderer {
-      options[.useSoftwareRenderer] = true
+    var software = options
+    software[.useSoftwareRenderer] = true
+    gpu = CIContext(options: useSoftwareRenderer ? software : options)
+    cpu = CIContext(options: software)
+  }
+
+  /// The context renders draw with now.
+  public var context: CIContext { isInBackground ? cpu : gpu }
+
+  /// Set while the app is in the background: renders then draw on the processor, slower but drawn.
+  public var isInBackground: Bool {
+    get { lock.withLock { background } }
+    set { lock.withLock { background = newValue } }
+  }
+
+  /// Runs `work` on an open photo, holding it: a photo renders one thing at a time, while other
+  /// photos render. `large` work (`isLarge`) also waits for other large work, and lets go of what
+  /// it left in Core Image's cache when done.
+  private func using<T>(_ id: String, large isLarge: Bool = false, _ work: (PhotoSession) throws -> T) throws -> T {
+    let session = try lock.withLock { () throws -> PhotoSession in
+      guard let session = sessions[id] else { throw EngineError.unknownPhoto(id) }
+      return session
     }
-    context = CIContext(options: options)
+    session.lock.lock()
+    defer { session.lock.unlock() }
+    guard isLarge else { return try work(session) }
+    large.lock()
+    defer {
+      gpu.clearCaches()
+      cpu.clearCaches()
+      large.unlock()
+    }
+    return try work(session)
   }
 
-  private func locked<T>(_ work: () throws -> T) rethrows -> T {
-    lock.lock()
-    defer { lock.unlock() }
-    return try work()
+  /// A render that develops more than a preview's worth: at full size, larger than a preview, or a
+  /// part of the frame (developed at whatever size the part needs).
+  static func isLarge(_ options: RenderOptions) -> Bool {
+    options.maxEdge <= 0 || options.maxEdge > previewEdge || options.region != nil
   }
 
-  private func session(_ id: String) throws -> PhotoSession {
-    guard let session = sessions[id] else { throw EngineError.unknownPhoto(id) }
-    return session
+  private var segmenter: Segmenter? {
+    modelLock.withLock {
+      if loadedSegmenter == nil, let models, Engine.mayRetry(segmenterFailed) {
+        loadedSegmenter = try? Segmenter(folder: models)
+        segmenterFailed = loadedSegmenter == nil ? Date() : nil
+      }
+      return loadedSegmenter
+    }
+  }
+
+  private var depthEstimator: DepthEstimator? {
+    modelLock.withLock {
+      if loadedDepthEstimator == nil, let models, Engine.mayRetry(depthEstimatorFailed) {
+        loadedDepthEstimator = try? DepthEstimator(folder: models)
+        depthEstimatorFailed = loadedDepthEstimator == nil ? Date() : nil
+      }
+      return loadedDepthEstimator
+    }
+  }
+
+  private static func mayRetry(_ failed: Date?) -> Bool {
+    guard let failed else { return true }
+    return Date().timeIntervalSince(failed) > 30
   }
 
   /// Opens a photo under an id of the caller's choosing and reports what it is.
   public func open(id: String, url: URL) throws -> PhotoInfo {
-    try locked {
-      let session = try PhotoSession(url: url)
-      sessions[id] = session
-      return session.info
-    }
+    let session = try PhotoSession(url: url)
+    lock.withLock { sessions[id] = session }
+    return session.info
   }
 
+  /// Closes a photo. A render of it already under way finishes first.
   public func close(id: String) {
-    locked { sessions[id] = nil }
+    lock.withLock { sessions[id] = nil }
   }
 
   /// Opens a file for as long as `work` runs, under an id of its own: for a look at a photo that
@@ -80,43 +143,34 @@ public final class Engine: @unchecked Sendable {
 
   /// The photo for the screen, in Display P3.
   public func image(id: String, recipe: RenderRecipe, options: RenderOptions) throws -> CGImage {
-    try locked {
-      let image = try buildImage(session: try session(id), recipe: recipe, options: options)
-      guard let rendered = context.createCGImage(image, from: image.extent, format: .RGBA8, colorSpace: tableColorSpace) else {
-        throw EngineError.renderFailed("the image could not be drawn")
-      }
-      return rendered
+    try using(id, large: Engine.isLarge(options)) { session in
+      let image = try buildImage(session: session, recipe: recipe, options: options)
+      return try context.picture(of: image, space: tableColorSpace)
     }
   }
 
   /// The photo as an sRGB JPEG: what a model is shown. (Models read sRGB; a wide-gamut file would look washed out to them.)
   public func jpeg(id: String, recipe: RenderRecipe, options: RenderOptions, quality: Double = 0.85) throws -> Data {
-    try locked {
-      let image = try buildImage(session: try session(id), recipe: recipe, options: options)
-      let writeOptions: [CIImageRepresentationOption: Any] = [
-        CIImageRepresentationOption(rawValue: kCGImageDestinationLossyCompressionQuality as String): min(1, max(0.1, quality))
-      ]
-      guard let data = context.jpegRepresentation(of: image, colorSpace: sRGB, options: writeOptions) else {
-        throw EngineError.renderFailed("the image could not be encoded")
-      }
-      return data
+    try using(id, large: Engine.isLarge(options)) { session in
+      let image = try buildImage(session: session, recipe: recipe, options: options)
+      return try JPEG.data(of: try context.picture(of: image, space: sRGB), quality: quality)
     }
   }
 
   /// A small sRGB RGBA8 bitmap of the photo, top row first, for histograms and statistics.
   public func bitmap(id: String, recipe: RenderRecipe, options: RenderOptions = RenderOptions(maxEdge: 256), longEdge: Int = 192) throws -> (pixels: Data, width: Int, height: Int) {
-    try locked {
-      let image = try buildImage(session: try session(id), recipe: recipe, options: options)
-      return bitmap(of: image, longEdge: longEdge)
+    try using(id, large: Engine.isLarge(options)) { session in
+      let image = try buildImage(session: session, recipe: recipe, options: options)
+      return try bitmap(of: image, longEdge: longEdge)
     }
   }
 
   /// A small Display P3 RGBA8 bitmap of the photo, top row first: the values the tone and colour
   /// stages work on, which looks are fitted to.
   public func displayPixels(id: String, recipe: RenderRecipe, longEdge: Int = 384) throws -> PixelBuffer {
-    try locked {
-      let image = try buildImage(session: try session(id), recipe: recipe, options: RenderOptions(maxEdge: Double(longEdge)))
-      let bitmap = bitmap(of: image, longEdge: longEdge, space: tableColorSpace)
+    try using(id) { session in
+      let image = try buildImage(session: session, recipe: recipe, options: RenderOptions(maxEdge: Double(longEdge)))
+      let bitmap = try bitmap(of: image, longEdge: longEdge, space: tableColorSpace)
       return PixelBuffer(rgba: bitmap.pixels, width: bitmap.width, height: bitmap.height)
     }
   }
@@ -124,33 +178,32 @@ public final class Engine: @unchecked Sendable {
   /// The photo with the area a mask covers painted red, as an sRGB JPEG, and the share of the
   /// frame the mask covers (0 to 1).
   public func maskPreview(id: String, recipe: RenderRecipe, mask: Mask, options: RenderOptions, quality: Double = 0.85) throws -> (jpeg: Data, coverage: Double) {
-    try locked {
+    try using(id, large: Engine.isLarge(options)) { session in
       var options = options
       options.mask = mask
       var coverage = 0.0
-      let image = try buildImage(session: try session(id), recipe: recipe, options: options) { shown in
+      let image = try buildImage(session: session, recipe: recipe, options: options) { shown in
         coverage = self.average(of: shown)
       }
-      let writeOptions: [CIImageRepresentationOption: Any] = [
-        CIImageRepresentationOption(rawValue: kCGImageDestinationLossyCompressionQuality as String): min(1, max(0.1, quality))
-      ]
-      guard let data = context.jpegRepresentation(of: image, colorSpace: sRGB, options: writeOptions) else {
-        throw EngineError.renderFailed("the image could not be encoded")
-      }
-      return (data, coverage)
+      return (try JPEG.data(of: try context.picture(of: image, space: sRGB), quality: quality), coverage)
     }
   }
 
-  /// The mean of a grey mask's first channel.
+  /// The mean of a grey mask's first channel (0 when it could not be measured).
   private func average(of mask: CIImage) -> Double {
     let average = CIFilter.areaAverage()
     average.inputImage = mask
     average.extent = mask.extent
     guard let output = average.outputImage else { return 0 }
     var pixel = [Float](repeating: 0, count: 4)
-    context.render(
-      output, toBitmap: &pixel, rowBytes: 16, bounds: CGRect(x: output.extent.minX, y: output.extent.minY, width: 1, height: 1), format: .RGBAf,
-      colorSpace: nil)
+    let drawn: ()? = pixel.withUnsafeMutableBytes { buffer in
+      buffer.baseAddress.flatMap { base in
+        try? context.draw(
+          output, into: base, rowBytes: 16, bounds: CGRect(x: output.extent.minX, y: output.extent.minY, width: 1, height: 1), format: .RGBAf,
+          colorSpace: nil)
+      }
+    }
+    guard drawn != nil else { return 0 }
     return Double(min(1, max(0, pixel[0])))
   }
 
@@ -161,8 +214,7 @@ public final class Engine: @unchecked Sendable {
 
   /// Develops the photo at full resolution into a JPEG file, in Display P3, carrying the capture details over.
   public func export(id: String, recipe: RenderRecipe, to url: URL, quality: Double = 0.95) throws -> (width: Int, height: Int) {
-    try locked {
-      let session = try session(id)
+    try using(id, large: true) { session in
       let image = try buildImage(session: session, recipe: recipe, options: RenderOptions())
       let extent = image.extent
       let width = Int(extent.width.rounded())
@@ -170,21 +222,25 @@ public final class Engine: @unchecked Sendable {
       guard width > 0, height > 0,
         let canvas = CGContext(
           data: nil, width: width, height: height, bitsPerComponent: 8, bytesPerRow: 0, space: tableColorSpace,
-          bitmapInfo: CGImageAlphaInfo.noneSkipLast.rawValue)
+          bitmapInfo: CGImageAlphaInfo.noneSkipLast.rawValue),
+        let memory = canvas.data
       else { throw EngineError.renderFailed("there is no room for a picture of \(width) × \(height)") }
-      canvas.interpolationQuality = .none
-      canvas.setBlendMode(.copy)
-      // Band by band from the bottom: Core Image and Core Graphics both count up from there, and
-      // each band is developed with as much of its surroundings as its blurs and masks reach.
+      let rowBytes = canvas.bytesPerRow
+      // Band by band from the bottom, as Core Image counts, each drawn straight into its rows of
+      // the picture (which are kept top row first) with as much of its surroundings as its blurs
+      // and masks reach.
       let rows = max(16, Engine.exportBandPixels / width)
       var row = 0
       while row < height {
         let count = min(rows, height - row)
         let band = CGRect(x: extent.minX, y: extent.minY + CGFloat(row), width: CGFloat(width), height: CGFloat(count))
-        guard let part = context.createCGImage(image, from: band, format: .RGBA8, colorSpace: tableColorSpace) else {
+        let start = memory.advanced(by: (height - row - count) * rowBytes)
+        start.initializeMemory(as: UInt8.self, repeating: 0, count: count * rowBytes)
+        do {
+          try context.draw(image, into: start, rowBytes: rowBytes, bounds: band, format: .RGBA8, colorSpace: tableColorSpace)
+        } catch {
           throw EngineError.renderFailed("rows \(row) to \(row + count) of \(height) could not be developed")
         }
-        canvas.draw(part, in: CGRect(x: 0, y: row, width: width, height: count))
         row += count
       }
       guard let picture = canvas.makeImage() else { throw EngineError.renderFailed("the developed picture could not be kept") }
@@ -194,8 +250,6 @@ public final class Engine: @unchecked Sendable {
       }
       CGImageDestinationAddImage(destination, picture, properties as CFDictionary)
       guard CGImageDestinationFinalize(destination) else { throw EngineError.renderFailed("the JPEG could not be written") }
-      // A full-size development leaves large intermediates in Core Image's cache: let them go.
-      context.clearCaches()
       return (width, height)
     }
   }
@@ -389,21 +443,9 @@ public final class Engine: @unchecked Sendable {
     let black = CIImage(color: CIColor(red: 0, green: 0, blue: 0)).cropped(to: frame)
     guard let small = found, !small.extent.isEmpty, !small.extent.isInfinite, !frame.isEmpty, !frame.isInfinite else { return black }
     // Kept as pixels, so the large render does not develop the small one again.
-    let width = max(1, Int(small.extent.width.rounded()))
-    let height = max(1, Int(small.extent.height.rounded()))
-    var bytes = [UInt8](repeating: 0, count: width * height)
-    bytes.withUnsafeMutableBytes { buffer in
-      guard let base = buffer.baseAddress else { return }
-      context.render(
-        small, toBitmap: base, rowBytes: width, bounds: CGRect(x: small.extent.minX, y: small.extent.minY, width: CGFloat(width), height: CGFloat(height)),
-        format: .R8, colorSpace: nil)
-    }
-    guard let provider = CGDataProvider(data: Data(bytes) as CFData),
-      let picture = CGImage(
-        width: width, height: height, bitsPerComponent: 8, bitsPerPixel: 8, bytesPerRow: width, space: CGColorSpaceCreateDeviceGray(),
-        bitmapInfo: CGBitmapInfo(rawValue: CGImageAlphaInfo.none.rawValue), provider: provider, decode: nil, shouldInterpolate: true,
-        intent: .defaultIntent)
-    else { return black }
+    let picture = try context.picture(of: small.atOrigin(), space: nil)
+    let width = picture.width
+    let height = picture.height
     return Effects.opaque(
       CIImage(cgImage: picture, options: [.colorSpace: NSNull()])
         .clampedToExtent()
@@ -429,7 +471,7 @@ public final class Engine: @unchecked Sendable {
   private func selectionPicture(session: PhotoSession, recipe: RenderRecipe, fullFrame: Bool) -> CGImage? {
     guard let picture = session.analysisImage(context: context) else { return nil }
     let framed = geometry(CIImage(cgImage: picture), recipe: recipe, fullFrame: fullFrame)
-    return context.createCGImage(framed, from: framed.extent, format: .RGBA8, colorSpace: sRGB)
+    return try? context.picture(of: framed, space: sRGB)
   }
 
   /// Flips, quarter turns, straightening and the crop rectangle. All sizes are relative, so the
@@ -497,7 +539,7 @@ public final class Engine: @unchecked Sendable {
   }
 
   /// A small RGBA8 copy of the image, top row first, in sRGB unless another space is given.
-  func bitmap(of image: CIImage, longEdge: Int, space: CGColorSpace? = nil) -> (pixels: Data, width: Int, height: Int) {
+  func bitmap(of image: CIImage, longEdge: Int, space: CGColorSpace? = nil) throws -> (pixels: Data, width: Int, height: Int) {
     let extent = image.extent
     let factor = min(1, CGFloat(longEdge) / max(extent.width, extent.height))
     var small = image
@@ -511,12 +553,10 @@ public final class Engine: @unchecked Sendable {
     let width = max(1, Int(small.extent.width.rounded(.down)))
     let height = max(1, Int(small.extent.height.rounded(.down)))
     var data = Data(count: width * height * 4)
-    data.withUnsafeMutableBytes { buffer in
-      if let base = buffer.baseAddress {
-        context.render(
-          small, toBitmap: base, rowBytes: width * 4, bounds: CGRect(x: 0, y: 0, width: width, height: height),
-          format: .RGBA8, colorSpace: space ?? sRGB)
-      }
+    try data.withUnsafeMutableBytes { buffer in
+      guard let base = buffer.baseAddress else { throw EngineError.renderFailed("there is no room for the picture") }
+      try context.draw(
+        small, into: base, rowBytes: width * 4, bounds: CGRect(x: 0, y: 0, width: width, height: height), format: .RGBA8, colorSpace: space ?? sRGB)
     }
     return (data, width, height)
   }

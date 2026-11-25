@@ -153,7 +153,7 @@ private struct StyleStrip: View {
                         Task { await editor.apply(style) }
                     } label: {
                         // Tried on the photo as it is now, so the tile shows what a tap would give.
-                        StyleTile(title: style.name, version: "\(style.id) \(editor.stateVersion)") { await editor.preview(of: style) }
+                        StyleTile(title: style.name, version: "\(model.styleStore.version(of: style.id)) \(editor.stateVersion)") { await editor.preview(of: style) }
                     }
                     .buttonStyle(.plain)
                     .disabled(editor.isWorking)

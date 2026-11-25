@@ -181,7 +181,7 @@ struct LibraryView: View {
                         applying = style
                         selection = []
                     } label: {
-                        StyleTile(title: style.name, version: style.id) { [store = model.styleStore] in
+                        StyleTile(title: style.name, version: model.styleStore.version(of: style.id)) { [store = model.styleStore] in
                             guard let url = store.pictureURL(style.id) else { return nil }
                             return await Task.detached { UIImage(contentsOfFile: url.path)?.cgImage }.value
                         }

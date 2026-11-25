@@ -160,7 +160,7 @@ final class Library {
         let engine = engine
         do {
             try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
-            let (originalFile, info, start, thumbnail) = try await Task.detached(priority: .userInitiated) {
+            let (originalFile, info, start, thumbnail) = try await Rendering.run(for: id) {
                 let originalFile = try fill(folder)
                 return try engine.with(folder.appending(path: originalFile)) { session, opened in
                     var info = opened
@@ -172,7 +172,7 @@ final class Library {
                     let jpeg = try engine.jpeg(id: session, recipe: recipe, options: RenderOptions(maxEdge: PhotoRenderer.thumbnailEdge), quality: 0.8)
                     return (originalFile, info, start, jpeg)
                 }
-            }.value
+            }
             try thumbnail.write(to: thumbnailURL(id), options: .atomic)
             let document = PhotoDocument(id: id, name: name, addedAt: Date(), originalFile: originalFile, info: info, state: start)
             write(document)

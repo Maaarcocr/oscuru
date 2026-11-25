@@ -4,6 +4,7 @@ import Observation
 import OscuruCore
 import OscuruEngine
 import Photos
+import UIKit
 
 /// The app's composition root: the library, the account, the styles and the engine, and the one
 /// place photos are opened, exported and deleted.
@@ -40,6 +41,12 @@ final class AppModel {
                 self.styles = self.styleStore.styles
             }
         }
+        // iOS does not let an app in the background use the graphics processor: the assistant's
+        // renders there are drawn on the processor instead.
+        let engine = engine
+        let center = NotificationCenter.default
+        center.addObserver(forName: UIApplication.didEnterBackgroundNotification, object: nil, queue: nil) { _ in engine.isInBackground = true }
+        center.addObserver(forName: UIApplication.willEnterForegroundNotification, object: nil, queue: nil) { _ in engine.isInBackground = false }
     }
 
     /// Set when something outside the app asks for its camera (see `CameraLaunch`); the library opens
@@ -49,9 +56,10 @@ final class AppModel {
     // MARK: Photos
 
     /// Opens a photo for editing, or the editor it already has (the assistant may still be at
-    /// work on it). Work the app was closed during carries on. The engine keeps the photo open
-    /// until it is closed and the assistant is done.
-    func open(_ document: PhotoDocument) async throws -> PhotoEditor {
+    /// work on it). Work the app was closed during carries on, when `resuming`: when the person
+    /// opens the photo, not when something is done to it from the library. The engine keeps the
+    /// photo open until it is closed and the assistant is done.
+    func open(_ document: PhotoDocument, resuming: Bool = true) async throws -> PhotoEditor {
         viewers[document.id, default: 0] += 1
         if let editor = editors[document.id] { return editor }
         do {
@@ -59,7 +67,7 @@ final class AppModel {
             let id = "\(document.id)-\(UUID().uuidString.prefix(8))"
             let url = library.originalURL(document)
             let engine = engine
-            var info = try await Task.detached(priority: .userInitiated) { try engine.open(id: id, url: url) }.value
+            var info = try await Rendering.run(for: id) { try engine.open(id: id, url: url) }
             info.fileName = document.name
             // How the camera framed it lives in the photo's record, not in the file.
             info.defaults.framing = document.info.defaults.framing
@@ -67,7 +75,7 @@ final class AppModel {
             let transcript = try await openTranscript(for: document, original: EditingState(defaults: info.defaults))
             if let editor = editors[document.id] {
                 // Opened twice at once: the first one won.
-                engine.close(id: id)
+                Rendering.later(for: id) { engine.close(id: id) }
                 return editor
             }
             let renderer = PhotoRenderer(engine: engine, id: id, info: info, styles: styleStore)
@@ -82,7 +90,7 @@ final class AppModel {
             }
             editor.onIdle = { [weak self] in self?.releaseIfUnused(document.id) }
             editors[document.id] = editor
-            editor.resumeIfInterrupted()
+            if resuming { editor.resumeIfInterrupted() }
             return editor
         } catch {
             viewers[document.id, default: 1] -= 1
@@ -106,7 +114,9 @@ final class AppModel {
         let session = editor.renderer.id
         Task {
             await editor.saveThumbnail()
-            engine.close(id: session)
+            // In its turn, after any picture of it still waiting: never on the main thread, which
+            // would wait for whatever the photo is rendering.
+            Rendering.later(for: session) { engine.close(id: session) }
         }
     }
 
@@ -150,7 +160,9 @@ final class AppModel {
                 editor.onIdle = nil
                 editor.stop()
                 editor.detach()
-                engine.close(id: editor.renderer.id)
+                let engine = engine
+                let session = editor.renderer.id
+                Rendering.later(for: session) { engine.close(id: session) }
                 editors[id] = nil
             }
             viewers[id] = nil
@@ -159,17 +171,18 @@ final class AppModel {
         }
     }
 
-    /// Runs `work` with a renderer for a photo: its editor's while it is open, otherwise one
-    /// opened for the occasion.
-    private func render<T: Sendable>(_ document: PhotoDocument, _ work: @escaping @Sendable (PhotoRenderer) throws -> T) async throws -> T {
-        let open = editors[document.id]?.renderer
+    /// Runs `work` with a renderer for a photo: its editor's while it is open, otherwise (or for
+    /// work of its `own`) one opened for the occasion.
+    private func render<T: Sendable>(_ document: PhotoDocument, own: Bool = false, _ work: @escaping @Sendable (PhotoRenderer) throws -> T) async throws -> T {
+        let open = own ? nil : editors[document.id]?.renderer
         let engine = engine
         let styles = styleStore
         let url = library.originalURL(document)
-        return try await Task.detached(priority: .userInitiated) {
+        // In the photo's turn, so a photo closing meanwhile closes after this is done.
+        return try await Rendering.run(for: open?.id ?? (own ? "own \(document.id)" : document.id)) {
             if let open { return try work(open) }
             return try PhotoRenderer.with(url, engine: engine, styles: styles, work)
-        }.value
+        }
     }
 
     /// Files for the share sheet, one per photo, in the order given: each developed at full
@@ -197,7 +210,8 @@ final class AppModel {
                 try await Task.detached(priority: .userInitiated) { try FileManager.default.copyItem(at: source, to: url) }.value
             } else {
                 let state = original ? EditingState(defaults: document.info.defaults) : document.state
-                try await render(document) { try $0.export(state, to: url) }
+                // On a copy of its own, so the photo's pictures keep coming while it is developed at full size.
+                try await render(document, own: true) { try $0.export(state, to: url) }
             }
             urls.append(url)
         }
@@ -235,7 +249,7 @@ final class AppModel {
     /// photo's editor, like every other change.
     func apply(_ style: Style, to ids: [String]) async {
         for document in ids.compactMap({ library.document($0) }) {
-            guard let editor = try? await open(document) else { continue }
+            guard let editor = try? await open(document, resuming: false) else { continue }
             await editor.apply(style)
             close(editor)
         }
@@ -264,7 +278,7 @@ final class AppModel {
         let styles = styleStore
         let latest = library.photos.first.map { (url: library.originalURL($0), state: $0.state) }
         let preview = 900.0
-        return try await Task.detached(priority: .userInitiated) {
+        return try await Rendering.run(for: "new style") {
             try PhotoRenderer.with(edited, engine: engine, styles: styles) { look in
                 guard let wanted = look.pixels(of: look.original) else { throw LookFitting.Failure.empty }
                 var recipe = Style.Recipe.match(LookFitting.fingerprint(of: wanted))
@@ -290,7 +304,7 @@ final class AppModel {
                 }
                 return StyleResult(style: style, styled: styled, reference: try? look.picture(of: look.original, edge: preview), error: error)
             }
-        }.value
+        }
     }
 }
 

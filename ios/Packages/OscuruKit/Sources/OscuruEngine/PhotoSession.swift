@@ -7,8 +7,9 @@ import UniformTypeIdentifiers
 
 /// One opened photo. The original file is only ever read.
 ///
-/// Not thread-safe: `Engine` uses each session from one queue.
+/// Not thread-safe: `Engine` uses each session only while holding its `lock`.
 public final class PhotoSession {
+  let lock = NSLock()
   public let url: URL
   public let isRaw: Bool
   /// Full-resolution size after the file's own orientation is applied; for a collage, its canvas in
@@ -43,6 +44,10 @@ public final class PhotoSession {
   private var estimatedDepth = false
 
   private static let previewLongEdge: CGFloat = 2560
+  /// The largest development kept for previews, on its long edge: a closely cropped photo's
+  /// preview develops more of the photo, and kept at that size it would hold hundreds of megabytes
+  /// for each photo open. Larger ones are developed for each render instead.
+  private static let keptEdge: CGFloat = 3072
   private static let rawExtensions: Set<String> = [
     "dng", "cr2", "cr3", "crw", "nef", "nrw", "arw", "srf", "sr2", "raf", "orf", "rw2", "pef", "srw", "3fr", "erf", "mos", "mrw", "x3f", "iiq", "gpr", "raw",
   ]
@@ -156,13 +161,15 @@ public final class PhotoSession {
       // Cached previews are developed once at a fixed size and scaled down from there, so renders of
       // different sizes (screen, statistics, the model's pictures) share one decode.
       let baseScale = min(1, Engine.previewEdge / max(size.width, size.height))
-      let developScale = cache ? max(scale, baseScale) : scale
+      var developScale = cache ? max(scale, baseScale) : scale
+      let keep = cache && developScale * max(size.width, size.height) <= PhotoSession.keptEdge
+      if !keep { developScale = scale }
       let key = [
         Double(developScale), recipe.exposureEV, recipe.temperature ?? -1, recipe.tint ?? -1000, recipe.sharpening ?? -1,
         recipe.noiseReduction ?? -1, recipe.colorNoiseReduction ?? -1,
       ].map { String($0) }.joined(separator: "|")
       var image: CIImage
-      if cache, let cached = developedCache, cached.key == key {
+      if keep, let cached = developedCache, cached.key == key {
         image = cached.image
       } else {
         filter.scaleFactor = Float(min(1, developScale))
@@ -182,7 +189,7 @@ public final class PhotoSession {
           throw EngineError.renderFailed("the RAW decoder produced no image")
         }
         image = PhotoSession.applyBaseCurve(to: output.atOrigin())
-        if cache {
+        if keep {
           image = try PhotoSession.bake(image, context: context)
           developedCache = (key, image)
         }
@@ -257,11 +264,11 @@ public final class PhotoSession {
   /// The subject or people Vision finds in the photo, as a grey mask covering `extent` (the
   /// developed photo at the size being rendered). Nil when there is nothing of that kind.
   func foundMask(_ kind: String, extent: CGRect, context: CIContext) -> CIImage? {
-    if !searched.contains(kind) {
+    // Searched for once there is a picture to search: a picture that could not be drawn is looked
+    // for again next time, instead of the photo having no subject from then on.
+    if !searched.contains(kind), let picture = analysisImage(context: context) {
       searched.insert(kind)
-      if let picture = analysisImage(context: context) {
-        found[kind] = kind == "people" ? Effects.findPeople(in: picture) : Effects.findSubject(in: picture)
-      }
+      found[kind] = kind == "people" ? Effects.findPeople(in: picture) : Effects.findSubject(in: picture)
     }
     guard let mask = found[kind] else { return nil }
     let size = mask.extent.size
@@ -293,9 +300,9 @@ public final class PhotoSession {
   /// How far each part of the photo is, over the whole picture as opened (before any crop, so a
   /// crop does not change the scale). Nil when the model cannot run.
   func depth(estimator: DepthEstimator, context: CIContext) -> DepthMap? {
-    if !estimatedDepth {
+    if !estimatedDepth, let picture = analysisImage(context: context) {
       estimatedDepth = true
-      depthMap = analysisImage(context: context).flatMap { try? estimator.depth(of: $0) }
+      depthMap = try? estimator.depth(of: picture)
     }
     return depthMap
   }
@@ -306,7 +313,7 @@ public final class PhotoSession {
     guard let image = try? developed(recipe: RenderRecipe(), scale: scale, cache: false, context: context),
       let space = CGColorSpace(name: CGColorSpace.sRGB)
     else { return nil }
-    analysisPicture = context.createCGImage(image, from: image.extent, format: .RGBA8, colorSpace: space)
+    analysisPicture = try? context.picture(of: image, space: space)
     return analysisPicture
   }
 
@@ -345,12 +352,9 @@ public final class PhotoSession {
     }
     let rowBytes = width * 8
     var data = Data(count: rowBytes * height)
-    data.withUnsafeMutableBytes { buffer in
-      if let base = buffer.baseAddress {
-        context.render(
-          image, toBitmap: base, rowBytes: rowBytes, bounds: CGRect(x: 0, y: 0, width: width, height: height),
-          format: .RGBAh, colorSpace: colorSpace)
-      }
+    try data.withUnsafeMutableBytes { buffer in
+      guard let base = buffer.baseAddress else { throw EngineError.renderFailed("there is no room for the developed image") }
+      try context.draw(image, into: base, rowBytes: rowBytes, bounds: CGRect(x: 0, y: 0, width: width, height: height), format: .RGBAh, colorSpace: colorSpace)
     }
     return CIImage(
       bitmapData: data, bytesPerRow: rowBytes, size: CGSize(width: width, height: height), format: .RGBAh,

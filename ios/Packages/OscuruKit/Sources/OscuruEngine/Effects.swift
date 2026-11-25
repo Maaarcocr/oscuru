@@ -219,22 +219,26 @@ enum Effects {
     let scale = min(1, 1024 / max(frame.width, frame.height))
     let width = max(1, Int((frame.width * scale).rounded()))
     let height = max(1, Int((frame.height * scale).rounded()))
-    func values(_ image: CIImage) -> [Float] {
+    /// The first channel, drawn; nil when it could not be.
+    func values(_ image: CIImage) -> [Float]? {
       let placed = image
         .transformed(by: CGAffineTransform(translationX: -frame.minX, y: -frame.minY))
         .transformed(by: CGAffineTransform(scaleX: CGFloat(width) / frame.width, y: CGFloat(height) / frame.height))
-      var out = [Float](repeating: 0, count: width * height)
-      out.withUnsafeMutableBytes { buffer in
-        guard let base = buffer.baseAddress else { return }
-        context.render(placed, toBitmap: base, rowBytes: width * 4, bounds: CGRect(x: 0, y: 0, width: width, height: height), format: .Rf, colorSpace: nil)
+      var pixels = [Float](repeating: 0, count: width * height * 4)
+      let drawn: ()? = pixels.withUnsafeMutableBytes { buffer in
+        buffer.baseAddress.flatMap { base in
+          try? context.draw(placed, into: base, rowBytes: width * 16, bounds: CGRect(x: 0, y: 0, width: width, height: height), format: .RGBAf, colorSpace: nil)
+        }
       }
-      return out
+      guard drawn != nil else { return nil }
+      return (0..<(width * height)).map { pixels[$0 * 4] }
     }
     let luminance = CIFilter.colorMatrix()
     luminance.inputImage = guide
     luminance.rVector = CIVector(x: 0.2126, y: 0.7152, z: 0.0722, w: 0)
-    let snapped = EdgeSnap.snap(
-      mask: values(opaque(mask)), guide: values(luminance.outputImage ?? guide), width: width, height: height, strength: strength)
+    // A mask that could not be drawn to snap stays as it was.
+    guard let maskValues = values(opaque(mask)), let guideValues = values(luminance.outputImage ?? guide) else { return mask }
+    let snapped = EdgeSnap.snap(mask: maskValues, guide: guideValues, width: width, height: height, strength: strength)
     // Rows from the top, as rendered.
     let bytes = snapped.map { UInt8(max(0, min(255, ($0 * 255).rounded()))) }
     guard let provider = CGDataProvider(data: Data(bytes) as CFData),

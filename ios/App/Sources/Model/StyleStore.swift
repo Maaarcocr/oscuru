@@ -7,6 +7,8 @@ import OscuruCore
 final class StyleStore: @unchecked Sendable {
     private let lock = NSLock()
     private var collection = StyleCollection()
+    /// How many times each style has been saved again since the app started.
+    private var revisions: [String: Int] = [:]
     /// The list's file; it keeps the name it was first saved under.
     private let file: URL?
     /// Called (on any thread) after the styles change.
@@ -45,12 +47,23 @@ final class StyleStore: @unchecked Sendable {
     /// Nil when the name is empty.
     @discardableResult
     func save(name: String, recipe: Style.Recipe, picture: Data?) -> Style? {
-        let saved = change { $0.save(name: name, recipe: recipe, id: UUID().uuidString, now: Date()) }
-        if let saved, let picture, let url = pictureURL(saved.id) {
-            try? FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
-            try? picture.write(to: url, options: .atomic)
+        change { collection in
+            guard let saved = collection.save(name: name, recipe: recipe, id: UUID().uuidString, now: Date()) else { return nil }
+            // A style saved again under its name keeps its id: pictures of it are made again.
+            revisions[saved.id, default: 0] += 1
+            if let picture, let url = pictureURL(saved.id) {
+                try? FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
+                try? picture.write(to: url, options: .atomic)
+            }
+            return saved
         }
-        return saved
+    }
+
+    /// Changes whenever the style does: for views to know when to draw its pictures again.
+    func version(of id: String) -> String {
+        lock.lock()
+        defer { lock.unlock() }
+        return "\(id) \(revisions[id, default: 0])"
     }
 
     func pictureURL(_ id: String) -> URL? {

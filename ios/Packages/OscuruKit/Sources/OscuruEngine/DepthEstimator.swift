@@ -14,6 +14,8 @@ final class DepthEstimator {
   static let name = "DepthAnythingV2SmallF16P8"
 
   private let model: MLModel
+  /// One prediction at a time: photos render at the same time, and share the model.
+  private let lock = NSLock()
 
   /// Loads the model from `folder` (see `Models.load`).
   init(folder: URL) throws {
@@ -23,6 +25,8 @@ final class DepthEstimator {
   /// The picture's depth, from nearest (0) to farthest (1). The model takes a fixed shape, so the
   /// picture is stretched to it, as the model was evaluated; the map is stretched back by whoever draws it.
   func depth(of image: CGImage) throws -> DepthMap {
+    lock.lock()
+    defer { lock.unlock() }
     guard let constraint = model.modelDescription.inputDescriptionsByName["image"]?.imageConstraint else {
       throw EngineError.renderFailed("the depth model takes no image")
     }

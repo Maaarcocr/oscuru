@@ -168,7 +168,7 @@ final class PhotoEditor {
         guard !isWorking else { return }
         let current = state
         let renderer = renderer
-        let styled = await Task.detached(priority: .userInitiated) { try? renderer.apply(style, to: current) }.value
+        let styled = await Rendering.value(for: renderer.id) { try renderer.apply(style, to: current) }
         guard let styled, state == current else { return }
         change(to: styled, as: .style(style.name))
     }
@@ -182,7 +182,7 @@ final class PhotoEditor {
     func saveStyle(named name: String) async -> Bool {
         let current = state
         let renderer = renderer
-        return await Task.detached { renderer.saveStyle(name: name, state: current) }.value
+        return await Rendering.value(for: renderer.id) { renderer.saveStyle(name: name, state: current) } ?? false
     }
 
     // MARK: Pictures
@@ -197,7 +197,7 @@ final class PhotoEditor {
         if !filling, let kept = keptPicture(of: version) { return kept }
         let renderer = renderer
         let edge = filling ? PhotoRenderer.screenEdge : PhotoRenderer.cardEdge
-        guard let image = await Task.detached(priority: .userInitiated, operation: { try? renderer.picture(of: version, edge: edge) }).value else { return nil }
+        guard let image = await Rendering.value(for: renderer.id, { try renderer.picture(of: version, edge: edge) }) else { return nil }
         if !filling, keptPicture(of: version) == nil {
             pictures.append((version, image))
             if pictures.count > 16 { pictures.removeFirst() }
@@ -209,7 +209,7 @@ final class PhotoEditor {
     func preview(of style: Style) async -> CGImage? {
         let current = state
         let renderer = renderer
-        return await Task.detached { try? renderer.picture(of: renderer.apply(style, to: current), edge: PhotoRenderer.styleEdge) }.value
+        return await Rendering.value(for: renderer.id) { try renderer.picture(of: renderer.apply(style, to: current), edge: PhotoRenderer.styleEdge) }
     }
 
     /// Redraws the library thumbnail when the photo has changed since it was drawn.
@@ -217,7 +217,7 @@ final class PhotoEditor {
         let current = state
         guard current != thumbnailState else { return }
         let renderer = renderer
-        guard let jpeg = await Task.detached(operation: { renderer.jpeg(of: current, edge: PhotoRenderer.thumbnailEdge) }).value else { return }
+        guard let jpeg = await Rendering.value(for: renderer.id, { renderer.jpeg(of: current, edge: PhotoRenderer.thumbnailEdge) }) else { return }
         library.saveThumbnail(id: document.id, jpeg: jpeg)
         thumbnailState = current
     }
@@ -358,13 +358,13 @@ private struct EditorPort: AgentPort {
 
     private func picture(_ state: EditingState, _ label: String) async -> [LabeledImage] {
         let renderer = editor.renderer
-        return await Task.detached { renderer.image(of: state, region: nil, maxEdge: Prompt.defaultImageEdge).map { [LabeledImage(label: label, jpeg: $0)] } ?? [] }.value
+        return await Rendering.value(for: renderer.id) { renderer.image(of: state, region: nil, maxEdge: Prompt.defaultImageEdge).map { [LabeledImage(label: label, jpeg: $0)] } } ?? []
     }
 
     func context() async -> AgentContext {
         let state = await editor.state
         let renderer = editor.renderer
-        let statistics = await Task.detached { renderer.analysis(of: state)?.statistics }.value
+        let statistics = await Rendering.value(for: renderer.id) { renderer.analysis(of: state)?.statistics }
         return AgentContext(state: state, metadata: renderer.info.json, statistics: statistics, styles: renderer.styleNames())
     }
 
@@ -417,7 +417,7 @@ private struct EditorPort: AgentPort {
         payload["status"] = "ok"
         payload["applied"] = .bool(changed)
         payload["changes"] = .array(outcome.changes.map(\.json))
-        payload["statistics"] = await Task.detached { renderer.analysis(of: after)?.statistics }.value ?? .null
+        payload["statistics"] = await Rendering.value(for: renderer.id) { renderer.analysis(of: after)?.statistics } ?? .null
         var images = outcome.shown
         if changed {
             // Always both: the photo before this request's edits, and as it is now.
