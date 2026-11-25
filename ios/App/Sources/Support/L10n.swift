@@ -98,6 +98,7 @@ enum L10n {
     static var controlCameraDescription: String { String(localized: "control.camera.description") }
     static var captureOpen: String { String(localized: "capture.open") }
     static var captureFailed: String { String(localized: "capture.failed") }
+    static var cameraGuides: String { String(localized: "camera.guides") }
     static var cameraZoom: String { String(localized: "camera.zoom") }
     static var cameraZeroProcessing: String { String(localized: "camera.mode.zero") }
     static var cameraZeroProcessingHint: String { String(localized: "camera.mode.zero.hint") }

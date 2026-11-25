@@ -120,6 +120,9 @@ final class OscuruUITests: XCTestCase {
         // The zoom buttons open into a dial that turns under the finger.
         element(app, "camera.lenses").press(forDuration: 0.1, thenDragTo: element(app, "camera.viewfinder"))
         capture("10c-camera-dial")
+        // The thirds grid (and, on a phone, the level) over the viewfinder.
+        element(app, "camera.guides").tap()
+        capture("10d-camera-grid")
         shutter.tap()
         let lastShot = element(app, "camera.lastShot")
         XCTAssertTrue(waitUntil(timeout: 60) { lastShot.exists && lastShot.isEnabled }, "the shot lands in the library")

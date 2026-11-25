@@ -51,6 +51,8 @@ final class Camera {
     /// What the viewfinder shows, counted as the Camera app does (0.5, 1, 2.5, …). In zero processing,
     /// always a lens's own.
     private(set) var zoom: Double = 1
+    /// The thirds grid and the level over the viewfinder. Kept between launches.
+    private(set) var showsGuides = UserDefaults.standard.bool(forKey: Camera.guidesKey)
     /// Exposure compensation, in stops.
     private(set) var exposureBias: Float = 0
     /// Goes up as each shot is taken, for the shutter blink and the haptic.
@@ -78,6 +80,7 @@ final class Camera {
 
     static let exposureRange: ClosedRange<Float> = -3...3
     private static let modeKey = "camera.mode"
+    private static let guidesKey = "camera.guides"
 
     // MARK: Zoom
 
@@ -103,6 +106,11 @@ final class Camera {
         var stops = shootingLenses.map(\.zoom)
         if mode == .proRAW, let longest = stops.max(), longest > 2.4, !stops.contains(where: { abs($0 - 2) < 0.4 }) { stops.append(2) }
         return stops.sorted()
+    }
+
+    func setGuides(_ shown: Bool) {
+        showsGuides = shown
+        UserDefaults.standard.set(shown, forKey: Camera.guidesKey)
     }
 
     /// A pinch lands on a stop when it comes close to one.

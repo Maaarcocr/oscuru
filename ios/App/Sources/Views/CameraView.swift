@@ -1,5 +1,6 @@
 import AVFoundation
 import AVKit
+import CoreMotion
 import SwiftUI
 
 /// The camera, in the app's own terms: a viewfinder card like the photos in a thread, the lenses
@@ -19,6 +20,7 @@ struct CameraView: View {
     @State private var pinchStart: Double?
     /// The zoom dial, opened from the zoom button in ProRAW; where a drag on it started; and a count
     /// that keeps it open while it is being used.
+    @State private var level = Level()
     @State private var dialOpen = false
     @State private var dialStart: Double?
     @State private var dialUse = 0
@@ -44,7 +46,15 @@ struct CameraView: View {
         .background(Color.black.ignoresSafeArea())
         .statusBarHidden()
         .task { await camera.start() }
-        .onDisappear { camera.stop() }
+        .onDisappear {
+            camera.stop()
+            level.stop()
+        }
+        .onChange(of: camera.showsGuides, initial: true) { _, shown in
+            if shown { level.start() } else { level.stop() }
+        }
+        // A tap felt as the phone comes level.
+        .sensoryFeedback(.alignment, trigger: level.angle.map(Level.isLevel) ?? false) { _, level in level }
         .onCameraCaptureEvent { event in
             // The volume buttons and Camera Control take the picture, as in the Camera app.
             if event.phase == .ended { camera.shoot() }
@@ -228,6 +238,12 @@ struct CameraView: View {
                     }
                 }
                 .scaleEffect(camera.magnification)
+                if camera.showsGuides {
+                    ThirdsGrid()
+                    if let angle = level.angle, Level.isNearLevel(angle) {
+                        LevelMark(angle: angle)
+                    }
+                }
                 if let focusPoint {
                     FocusMark()
                         .position(focusPoint)
@@ -399,9 +415,110 @@ struct CameraView: View {
             .accessibilityLabel(L10n.cameraShutter)
             .accessibilityIdentifier("camera.shutter")
             Spacer()
-            Color.clear.frame(width: 56, height: 56)
+            guidesButton
+                .frame(width: 56, height: 56)
         }
         .padding(.horizontal, 32)
+    }
+
+    /// The thirds grid and the level, on or off.
+    private var guidesButton: some View {
+        Button {
+            withAnimation(.snappy(duration: 0.2)) { camera.setGuides(!camera.showsGuides) }
+        } label: {
+            Image(systemName: "grid")
+                .font(.body.weight(.semibold))
+                .foregroundStyle(camera.showsGuides ? Color.black : Color.white)
+                .frame(width: 44, height: 44)
+                .background(camera.showsGuides ? Color.accentColor : Color(white: 0.15), in: Circle())
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel(L10n.cameraGuides)
+        .accessibilityAddTraits(camera.showsGuides ? .isSelected : [])
+        .accessibilityIdentifier("camera.guides")
+    }
+}
+
+/// Lines at the thirds of the viewfinder, for composing.
+private struct ThirdsGrid: View {
+    var body: some View {
+        Canvas { context, size in
+            var lines = Path()
+            for third in [1.0 / 3, 2.0 / 3] {
+                lines.move(to: CGPoint(x: size.width * third, y: 0))
+                lines.addLine(to: CGPoint(x: size.width * third, y: size.height))
+                lines.move(to: CGPoint(x: 0, y: size.height * third))
+                lines.addLine(to: CGPoint(x: size.width, y: size.height * third))
+            }
+            context.stroke(lines, with: .color(.black.opacity(0.25)), lineWidth: 1.5)
+            context.stroke(lines, with: .color(.white.opacity(0.55)), lineWidth: 0.5)
+        }
+        .allowsHitTesting(false)
+        .accessibilityHidden(true)
+    }
+}
+
+/// Which way the horizon runs across the screen, from the phone's motion sensor.
+@MainActor
+@Observable
+final class Level {
+    /// The horizon's angle on the screen, clockwise, in radians: 0 when the phone is held upright and
+    /// level, about ±π/2 when it is level on its side. Nil while the phone lies flat, or has no sensor.
+    private(set) var angle: Double?
+    @ObservationIgnored private let motion = CMMotionManager()
+
+    func start() {
+        guard motion.isDeviceMotionAvailable, !motion.isDeviceMotionActive else { return }
+        motion.deviceMotionUpdateInterval = 1.0 / 30
+        motion.startDeviceMotionUpdates(to: .main) { [weak self] data, _ in
+            guard let gravity = data?.gravity else { return }
+            MainActor.assumeIsolated {
+                // Lying flat, there is no horizon to show.
+                self?.angle = abs(gravity.z) > 0.85 ? nil : -atan2(gravity.x, -gravity.y)
+            }
+        }
+    }
+
+    func stop() {
+        motion.stopDeviceMotionUpdates()
+        angle = nil
+    }
+
+    /// How far the horizon is from the nearest level way of holding the phone (upright or on its side).
+    nonisolated static func tilt(_ angle: Double) -> Double {
+        angle - (angle / (.pi / 2)).rounded() * (.pi / 2)
+    }
+
+    /// Within a degree of level.
+    nonisolated static func isLevel(_ angle: Double) -> Bool { abs(tilt(angle)) < .pi / 180 }
+
+    /// Close enough to level for the mark to help; beyond that it is a different way of holding the phone.
+    nonisolated static func isNearLevel(_ angle: Double) -> Bool { abs(tilt(angle)) < .pi / 9 }
+}
+
+/// The level, as in the Camera app: short marks where level is and a line that follows the horizon;
+/// within a degree they meet in one yellow line.
+private struct LevelMark: View {
+    let angle: Double
+
+    var body: some View {
+        let level = Level.isLevel(angle)
+        let square = angle - Level.tilt(angle)
+        ZStack {
+            HStack(spacing: 74) {
+                Capsule().frame(width: 16, height: 1.5)
+                Capsule().frame(width: 16, height: 1.5)
+            }
+            .rotationEffect(.radians(square))
+            Capsule()
+                .frame(width: level ? 106 : 60, height: 1.5)
+                .rotationEffect(.radians(level ? square : angle))
+        }
+        .foregroundStyle(level ? Color.accentColor : Color.white)
+        .shadow(color: .black.opacity(0.4), radius: 1)
+        .animation(.snappy(duration: 0.15), value: level)
+        .allowsHitTesting(false)
+        .accessibilityHidden(true)
     }
 }
 
