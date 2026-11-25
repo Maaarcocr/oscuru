@@ -64,6 +64,11 @@ def ok(status, reply, what):
     return reply
 
 
+def reason(reply):
+    """What App Store Connect said was wrong, for the log."""
+    return "; ".join(e.get("detail") or e.get("title", "") for e in reply.get("errors", [])) or "no details"
+
+
 def notice(text):
     print(f"::notice::{text}", flush=True)
 
@@ -120,7 +125,7 @@ def prepare(work, serial):
         if status < 300:
             notice(f"Registered the bundle ID {identifier}.")
             return reply["data"]["id"]
-        print(f"This API key cannot register identifiers (HTTP {status}).", flush=True)
+        print(f"::warning::Could not register {identifier} (HTTP {status}): {reason(reply)}", flush=True)
         bundle = waiting(
             find_bundle,
             f"the bundle ID {identifier}",
@@ -193,7 +198,7 @@ def prepare(work, serial):
                 profile = reply["data"]
                 notice(f"Created the App Store provisioning profile for {identifier}.")
             else:
-                print(f"This API key cannot create profiles (HTTP {status}).", flush=True)
+                print(f"::warning::Could not create the profile for {identifier} (HTTP {status}): {reason(reply)}", flush=True)
                 profile = waiting(
                     find_profile,
                     f"the provisioning profile for {identifier}",
