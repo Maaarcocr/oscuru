@@ -215,6 +215,7 @@ enum Effects {
   /// on the long edge and stretched back over the frame.
   static func refined(_ mask: CIImage, guide: CIImage, strength: Double, context: CIContext) -> CIImage {
     let frame = mask.extent
+    guard !frame.isEmpty, !frame.isInfinite, frame.width.isFinite, frame.height.isFinite else { return mask }
     let scale = min(1, 1024 / max(frame.width, frame.height))
     let width = max(1, Int((frame.width * scale).rounded()))
     let height = max(1, Int((frame.height * scale).rounded()))

@@ -235,6 +235,47 @@ final class EngineTests: XCTestCase {
     XCTAssertEqual(properties[kCGImagePropertyPixelWidth as String] as? Int, 240)
   }
 
+  /// On a large render (a zoom into part of a big photo, an export) a mask that snaps to the
+  /// photo's edges is worked out on a small development, rather than by developing the whole frame
+  /// at full size. It must be the same mask: a zoom into a corner looks like that corner of the
+  /// whole photo.
+  func testAZoomIntoABigPhotoSnapsMasksAsTheWholePhotoDoes() throws {
+    // 4096 × 3072: a hard edge for the mask to snap to, and texture.
+    let url = try makePNG("big-edge.png", width: 4096, height: 3072) { x, y in
+      let base = x < 1500 ? 0.75 : 0.2
+      return (base, base * 0.9 + Double((x / 64 + y / 64) % 2) * 0.05, base * 0.8)
+    }
+    _ = try engine.open(id: "b", url: url)
+    var recipe = RenderRecipe()
+    // A soft gradient across the edge, snapped to it, darkening what it covers.
+    var pass = RenderRecipe.LocalPass(
+      mask: try Mask.parse("mask", ["area": ["type": "linear", "from": [0.3, 0.5], "to": [0.45, 0.5]], "refine": 1]))
+    pass.gains = [0.4, 0.4, 0.4]
+    recipe.local = [pass]
+    // The whole photo at preview size (masks worked out directly), and its top-left quarter at
+    // twice that (the frame then 4096 across: masks worked out small).
+    let whole = try render("b", recipe, maxEdge: 2048).1
+    let zoom = try render("b", recipe, maxEdge: 2048, region: CGRect(x: 0, y: 0, width: 0.5, height: 0.5)).1
+    // `render` reads both back at 512 across: the zoom's (x, y) is the whole's (x / 2, y / 2).
+    XCTAssertEqual(whole.width, 512)
+    XCTAssertEqual(zoom.width, 512)
+    var total = 0.0
+    var count = 0.0
+    for y in stride(from: 2, to: zoom.height - 2, by: 3) {
+      for x in stride(from: 2, to: zoom.width - 2, by: 3) {
+        let a = whole.at(x / 2, y / 2)
+        let b = zoom.at(x, y)
+        total += Double(abs(a.r - b.r) + abs(a.g - b.g) + abs(a.b - b.b)) / 3
+        count += 1
+      }
+    }
+    XCTAssertLessThan(total / count, 8, "the corner, zoomed, is that corner of the whole photo")
+    // The snapped mask darkens up to the photo's edge (1500 of 4096 across, so 0.73 of the zoom):
+    // just left of it is the bright side darkened (undarkened it would be about 190).
+    let edge = Int(0.732 * Double(zoom.width))
+    XCTAssertLessThan(zoom.at(edge - 12, zoom.height / 2).r, 160)
+  }
+
   func testTheCaptureDetailsOfARawAreMadeTrueOfItsJPEG() {
     let source: [String: Any] = [
       kCGImagePropertyPixelWidth as String: 4032, kCGImagePropertyDepth as String: 16, kCGImagePropertyOrientation as String: 6,

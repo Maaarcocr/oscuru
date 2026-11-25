@@ -194,6 +194,8 @@ public final class Engine: @unchecked Sendable {
       }
       CGImageDestinationAddImage(destination, picture, properties as CFDictionary)
       guard CGImageDestinationFinalize(destination) else { throw EngineError.renderFailed("the JPEG could not be written") }
+      // A full-size development leaves large intermediates in Core Image's cache: let them go.
+      context.clearCaches()
       return (width, height)
     }
   }
@@ -338,12 +340,19 @@ public final class Engine: @unchecked Sendable {
         return placed
       }
       let frameEdge = max(image.extent.width, image.extent.height)
-      for pass in recipe.local {
-        let mask = Effects.mask(pass.mask, over: image, original: original, found: found, depth: { depth($0) }, context: self.context)
-        image = Effects.local(pass, to: image, mask: mask, edge: frameEdge)
+      // A mask that snaps to the photo's edges needs the whole frame as pixels. On a large render
+      // (a zoom, an export) it is worked out on a small development instead: see `smallMask`.
+      let mask: (Mask, Int, CIImage) throws -> CIImage = { mask, before, current in
+        if mask.refine > 0, frameEdge > Engine.previewEdge {
+          return try self.smallMask(mask, before: before, session: session, recipe: recipe, fullFrame: options.fullFrame, frame: current.extent)
+        }
+        return Effects.mask(mask, over: current, original: original, found: found, depth: { depth($0) }, context: self.context)
+      }
+      for (index, pass) in recipe.local.enumerated() {
+        image = Effects.local(pass, to: image, mask: try mask(pass.mask, index, image), edge: frameEdge)
       }
       if let shown = options.mask {
-        maskToShow = Effects.mask(shown, over: image, original: original, found: found, depth: { depth($0) }, context: self.context)
+        maskToShow = try mask(shown, recipe.local.count, image)
       }
     }
 
@@ -358,6 +367,50 @@ public final class Engine: @unchecked Sendable {
       shownMask?(mask)
     }
     return Engine.region(of: image, options.region)
+  }
+
+  /// The long edge of the small development a large render's edge-snapping masks are worked out
+  /// on. Snapping works on at most 1024 pixels in any case (`Effects.refined`).
+  static let maskEdge: Double = 1024
+
+  /// A mask as it would be over the photo just before local pass `before`, worked out on a small
+  /// development of the photo and stretched over `frame`. Snapping a mask to the photo's edges reads
+  /// the whole frame back as pixels; on a full-size picture that develops all of it at full size
+  /// (for a zoom of one corner, or one band of an export, as much as for the whole), which can need
+  /// more graphics memory than a phone has. The snapped mask is only ever 1024 pixels across, so
+  /// working it out small gives the same mask.
+  private func smallMask(_ mask: Mask, before: Int, session: PhotoSession, recipe: RenderRecipe, fullFrame: Bool, frame: CGRect) throws -> CIImage {
+    var earlier = recipe
+    earlier.local = Array(recipe.local.prefix(before))
+    earlier.vignette = 0
+    earlier.grain = nil
+    var found: CIImage?
+    _ = try buildImage(session: session, recipe: earlier, options: RenderOptions(maxEdge: Engine.maskEdge, fullFrame: fullFrame, mask: mask)) { found = $0 }
+    let black = CIImage(color: CIColor(red: 0, green: 0, blue: 0)).cropped(to: frame)
+    guard let small = found, !small.extent.isEmpty, !small.extent.isInfinite, !frame.isEmpty, !frame.isInfinite else { return black }
+    // Kept as pixels, so the large render does not develop the small one again.
+    let width = max(1, Int(small.extent.width.rounded()))
+    let height = max(1, Int(small.extent.height.rounded()))
+    var bytes = [UInt8](repeating: 0, count: width * height)
+    bytes.withUnsafeMutableBytes { buffer in
+      guard let base = buffer.baseAddress else { return }
+      context.render(
+        small, toBitmap: base, rowBytes: width, bounds: CGRect(x: small.extent.minX, y: small.extent.minY, width: CGFloat(width), height: CGFloat(height)),
+        format: .R8, colorSpace: nil)
+    }
+    guard let provider = CGDataProvider(data: Data(bytes) as CFData),
+      let picture = CGImage(
+        width: width, height: height, bitsPerComponent: 8, bitsPerPixel: 8, bytesPerRow: width, space: CGColorSpaceCreateDeviceGray(),
+        bitmapInfo: CGBitmapInfo(rawValue: CGImageAlphaInfo.none.rawValue), provider: provider, decode: nil, shouldInterpolate: true,
+        intent: .defaultIntent)
+    else { return black }
+    return Effects.opaque(
+      CIImage(cgImage: picture, options: [.colorSpace: NSNull()])
+        .clampedToExtent()
+        .samplingLinear()
+        .transformed(by: CGAffineTransform(scaleX: frame.width / CGFloat(width), y: frame.height / CGFloat(height)))
+        .transformed(by: CGAffineTransform(translationX: frame.minX, y: frame.minY))
+    ).cropped(to: frame)
   }
 
   /// Part of the frame, as fractions from its top-left corner, with its extent at the origin.
