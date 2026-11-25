@@ -379,7 +379,8 @@ struct CameraView: View {
         dialUse += 1
         let use = dialUse
         Task {
-            try? await Task.sleep(for: delay)
+            // A simulator in a test run can take longer than that between two steps.
+            try? await Task.sleep(for: UITesting.isActive ? .seconds(60) : delay)
             guard use == dialUse, dialStart == nil, turnStart == nil else { return }
             withAnimation(.snappy(duration: 0.25)) {
                 dialOpen = false
