@@ -69,7 +69,7 @@ struct LibraryView: View {
                 }
             } else {
                 // The styles stay while selecting, so the photos never move under the finger.
-                PhotoGrid(photos: photos, selection: $selection) { styleStrip }
+                PhotoGrid(photos: photos, selection: $selection, open: { path = [$0] }) { styleStrip }
             }
         }
         .safeAreaInset(edge: .bottom, spacing: 0) { bottomBar }

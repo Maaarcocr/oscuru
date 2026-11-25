@@ -15,6 +15,8 @@ struct PhotoGrid<Header: View>: View {
     let photos: [PhotoDocument]
     /// Nil while photos open on a tap; otherwise the chosen ones.
     @Binding var selection: Set<String>?
+    /// Opens a photo.
+    let open: (String) -> Void
     /// What scrolls above the photos.
     @ViewBuilder var header: Header
 
@@ -62,7 +64,6 @@ struct PhotoGrid<Header: View>: View {
                             began: { start, finger, screenY in beginRun(at: start, finger: finger, screenY: screenY) },
                             moved: { finger, screenY in moveRun(to: finger, screenY: screenY, proxy: proxy) },
                             ended: endRun))
-                    .gesture(PhotoHold(isEnabled: selection == nil, held: hold))
             }
             .sensoryFeedback(.selection, trigger: holds)
             .coordinateSpace(.named(viewportSpace))
@@ -116,30 +117,36 @@ struct PhotoGrid<Header: View>: View {
         .animation(.snappy, value: photos.map(\.id))
     }
 
+    /// One photo: a tap opens it, or while selecting chooses it; holding it starts selecting. The
+    /// two are one view's gestures, so a hold never also opens the photo.
     private func tile(_ photo: PhotoDocument) -> some View {
-        let thumbnail = Thumbnail(
-            url: model.library.thumbnailURL(photo.id), stamp: photo.thumbnailStamp, isRaw: photo.info.isRaw,
-            working: model.isWorking(on: photo.id), selected: selection.map { $0.contains(photo.id) })
-        return Group {
-            if selection != nil {
-                Button {
-                    toggle(photo.id)
-                } label: {
-                    thumbnail
-                }
-                .accessibilityAddTraits(chosen.contains(photo.id) ? .isSelected : [])
-            } else {
-                NavigationLink(value: photo.id) {
-                    thumbnail
-                }
-                .accessibilityAction(named: L10n.select) { selection = [photo.id] }
-            }
-        }
-        .buttonStyle(.plain)
-        .accessibilityIdentifier("library.photo")
+        let selected = selection.map { $0.contains(photo.id) }
+        let working = model.isWorking(on: photo.id)
+        return Thumbnail(
+            url: model.library.thumbnailURL(photo.id), stamp: photo.thumbnailStamp, isRaw: photo.info.isRaw, working: working, selected: selected
+        )
+        .onTapGesture { tap(photo.id) }
+        .onLongPressGesture(minimumDuration: 0.4) { hold(photo.id) }
+        .accessibilityElement(children: .ignore)
         .accessibilityLabel(photo.name)
+        .accessibilityValue(working ? L10n.working : "")
+        .accessibilityAddTraits(selected == true ? [.isButton, .isSelected] : .isButton)
+        .accessibilityAction { tap(photo.id) }
+        .accessibilityAction(named: L10n.select) { hold(photo.id) }
+        .accessibilityIdentifier("library.photo")
         .onGeometryChange(for: CGRect.self) { $0.frame(in: .named(gridSpace)) } action: { frames[photo.id] = $0 }
         .onDisappear { frames[photo.id] = nil }
+    }
+
+    private func tap(_ id: String) {
+        if selection != nil { toggle(id) } else { open(id) }
+    }
+
+    /// A photo held: selecting starts, with it chosen, as in Photos.
+    private func hold(_ id: String) {
+        guard selection == nil else { return }
+        selection = [id]
+        holds += 1
     }
 
     /// The day's date and, while selecting, a way to choose all of it or none.
@@ -185,20 +192,13 @@ struct PhotoGrid<Header: View>: View {
     // MARK: Finger runs
 
     /// The photo under a point of the grid (the hairline gaps count as the photos beside them).
-    /// Unless `exactly`, below the last photo counts as the last photo; over a day's header, none.
-    private func index(at point: CGPoint, exactly: Bool = false) -> Int? {
+    /// Below the last photo counts as the last photo; over a day's header, none.
+    private func index(at point: CGPoint) -> Int? {
         if let hit = photos.firstIndex(where: { frames[$0.id]?.insetBy(dx: -gap, dy: -gap).contains(point) ?? false }) {
             return hit
         }
-        if !exactly, let last = photos.last, let frame = frames[last.id], point.y > frame.maxY { return photos.count - 1 }
+        if let last = photos.last, let frame = frames[last.id], point.y > frame.maxY { return photos.count - 1 }
         return nil
-    }
-
-    /// A photo held: selecting starts, with it chosen, as in Photos.
-    private func hold(at point: CGPoint) {
-        guard selection == nil, let index = index(at: point, exactly: true) else { return }
-        selection = [photos[index].id]
-        holds += 1
     }
 
     private func beginRun(at start: CGPoint, finger: CGPoint, screenY: CGFloat) {
@@ -327,27 +327,6 @@ private struct Thumbnail: View {
                 let url = url
                 image = await Task.detached { UIImage(contentsOfFile: url.path) }.value
             }
-    }
-}
-
-/// A finger held still on the grid, reported where it is in the grid. Once it is recognised the tap
-/// under it is cancelled, so holding a photo does not also open it; a scroll that starts first wins.
-private struct PhotoHold: UIGestureRecognizerRepresentable {
-    var isEnabled: Bool
-    var held: (CGPoint) -> Void
-
-    func makeUIGestureRecognizer(context: Context) -> UILongPressGestureRecognizer {
-        let hold = UILongPressGestureRecognizer()
-        hold.minimumPressDuration = 0.4
-        return hold
-    }
-
-    func updateUIGestureRecognizer(_ recognizer: UILongPressGestureRecognizer, context: Context) {
-        recognizer.isEnabled = isEnabled
-    }
-
-    func handleUIGestureRecognizerAction(_ recognizer: UILongPressGestureRecognizer, context: Context) {
-        if recognizer.state == .began { held(context.converter.location(in: .named(gridSpace))) }
     }
 }
 
