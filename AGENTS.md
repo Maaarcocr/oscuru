@@ -2,7 +2,7 @@
 
 ## Project summary
 
-Oscuru is a native iPhone RAW photo editor (Swift, SwiftUI, Core Image, JavaScriptCore; iOS 26+). There are no manual editing controls: the person describes what they want and a remote model edits the photo by writing JavaScript for one tool, `execute_edit_script`. The phone runs the scripts and renders with its own engine. There is no server: the model is reached through OpenRouter with the person's own key.
+Oscuru is a native iPhone RAW photo editor (Swift, SwiftUI, Core Image, JavaScriptCore; iOS 27+). There are no manual editing controls: the person describes what they want and a remote model edits the photo by writing JavaScript for one tool, `execute_edit_script`. The phone runs the scripts and renders with its own engine. There is no server: the model is reached through OpenRouter with the person's own key.
 
 Status: first prototype (0.1).
 

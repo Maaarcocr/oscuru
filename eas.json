@@ -10,7 +10,8 @@
       "ios": {
         "config": "native-ios.yml",
         "scheme": "Oscuru",
-        "buildConfiguration": "Release"
+        "buildConfiguration": "Release",
+        "image": "latest"
       }
     }
   },
