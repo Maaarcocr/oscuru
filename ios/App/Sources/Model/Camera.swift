@@ -155,7 +155,7 @@ final class Camera {
     }
 
     /// "0.5", "1", "2.5", "2.7": a zoom as the camera shows it.
-    static func zoomText(_ zoom: Double) -> String {
+    nonisolated static func zoomText(_ zoom: Double) -> String {
         let rounded = zoom < 0.8 ? 0.5 : (zoom * 10).rounded() / 10
         return rounded == rounded.rounded() ? String(Int(rounded)) : String(rounded)
     }

@@ -92,6 +92,7 @@ enum L10n {
     static var cameraOpenSettings: String { String(localized: "camera.openSettings") }
     static var cameraUnavailableTitle: String { String(localized: "camera.unavailable.title") }
     static var cameraUnavailableMessage: String { String(localized: "camera.unavailable.message") }
+    static var cameraZoom: String { String(localized: "camera.zoom") }
     static var cameraZeroProcessing: String { String(localized: "camera.mode.zero") }
     static var cameraZeroProcessingHint: String { String(localized: "camera.mode.zero.hint") }
     static var cameraProRAWHint: String { String(localized: "camera.mode.proRAW.hint") }

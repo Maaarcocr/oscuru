@@ -241,6 +241,22 @@
         }
       }
     },
+    "camera.zoom": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Zoom"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Zoom"
+          }
+        }
+      }
+    },
     "change.crop": {
       "localizations": {
         "en": {

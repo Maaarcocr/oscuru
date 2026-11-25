@@ -17,6 +17,11 @@ struct CameraView: View {
     @State private var focusStamp = 0
     @State private var dragStart: Float?
     @State private var pinchStart: Double?
+    /// The zoom dial, opened from the zoom button in ProRAW; where a drag on it started; and a count
+    /// that keeps it open while it is being used.
+    @State private var dialOpen = false
+    @State private var dialStart: Double?
+    @State private var dialUse = 0
     @State private var blink = false
     /// What the mode just chosen means, shown for a moment under the switch.
     @State private var modeHint: String?
@@ -46,6 +51,9 @@ struct CameraView: View {
         }
         .sensoryFeedback(.impact(weight: .light), trigger: camera.shots)
         .sensoryFeedback(.selection, trigger: camera.lens)
+        // A tick as the zoom lands on a stop, like a dial's detent.
+        .sensoryFeedback(.selection, trigger: camera.stops.first { abs($0 - camera.zoom) < 0.001 }) { _, stop in stop != nil }
+        .onChange(of: camera.mode) { dialOpen = false }
         .onChange(of: camera.shots) {
             blink = true
             Task {
@@ -203,7 +211,7 @@ struct CameraView: View {
             .overlay { Color.black.opacity(blink ? 1 : 0).allowsHitTesting(false) }
             .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
             .overlay(alignment: .bottom) {
-                if camera.status == .ready, camera.mode == .proRAW || camera.shootingLenses.count > 1 { lensPicker.padding(.bottom, 14) }
+                if camera.status == .ready, camera.mode == .proRAW || camera.shootingLenses.count > 1 { zoomControl }
             }
     }
 
@@ -293,6 +301,48 @@ struct CameraView: View {
         .padding(32)
     }
 
+    /// The lens buttons, which in ProRAW open into the zoom dial: tap the one in use, or drag from
+    /// them. Up or left zooms in, down or right zooms out; each doubling is the same distance.
+    private var zoomControl: some View {
+        ZStack(alignment: .bottom) {
+            if dialOpen {
+                ZoomDial(zoom: camera.zoom, stops: camera.stops, range: camera.zoomRange) { camera.setZoom($0) }
+                    .transition(.opacity.combined(with: .scale(scale: 0.92, anchor: .bottom)))
+            } else {
+                lensPicker
+                    .padding(.bottom, 14)
+                    .transition(.opacity)
+            }
+        }
+        .frame(maxWidth: .infinity)
+        .simultaneousGesture(
+            DragGesture(minimumDistance: 6)
+                .onChanged { value in
+                    if !dialOpen { withAnimation(.snappy(duration: 0.2)) { dialOpen = true } }
+                    dialUse += 1
+                    let start = dialStart ?? camera.zoom
+                    dialStart = start
+                    let travel = -(value.translation.width + value.translation.height)
+                    camera.setZoom(camera.snapped(start * pow(2, travel / ZoomDial.pointsPerDoubling)))
+                }
+                .onEnded { _ in
+                    dialStart = nil
+                    closeDial(after: .seconds(1.6))
+                },
+            including: camera.mode == .proRAW ? .all : .subviews)
+    }
+
+    /// Closes the dial when it has not been used for a while.
+    private func closeDial(after delay: Duration) {
+        dialUse += 1
+        let use = dialUse
+        Task {
+            try? await Task.sleep(for: delay)
+            guard use == dialUse, dialStart == nil else { return }
+            withAnimation(.snappy(duration: 0.25)) { dialOpen = false }
+        }
+    }
+
     /// The lenses, or in ProRAW the zoom stops; the one in use shows the zoom now ("2.5×" between stops).
     private var lensPicker: some View {
         let stops = camera.stops
@@ -302,7 +352,12 @@ struct CameraView: View {
                 let selected = stop == active
                 let text = Camera.zoomText(selected ? camera.zoom : stop)
                 Button {
-                    withAnimation(.snappy) { camera.setZoom(stop) }
+                    if selected, camera.mode == .proRAW {
+                        withAnimation(.snappy(duration: 0.2)) { dialOpen = true }
+                        closeDial(after: .seconds(3))
+                    } else {
+                        withAnimation(.snappy) { camera.setZoom(stop) }
+                    }
                 } label: {
                     Text(verbatim: selected ? "\(text)×" : text)
                         .font(.footnote.weight(.semibold))
@@ -347,6 +402,87 @@ struct CameraView: View {
             Color.clear.frame(width: 56, height: 56)
         }
         .padding(.horizontal, 32)
+    }
+}
+
+/// The zoom as a dial, as in the Camera app: an arc of marks that turns under the finger, with the
+/// zoom now at its top and the lens stops labelled. Each doubling of the zoom is the same turn.
+private struct ZoomDial: View {
+    let zoom: Double
+    let stops: [Double]
+    let range: ClosedRange<Double>
+    /// For VoiceOver, which turns it a step at a time.
+    let setZoom: (Double) -> Void
+
+    static let degreesPerDoubling = 34.0
+    /// How far a finger moves for a doubling: about the same turn on the dial.
+    static let pointsPerDoubling = 180.0
+
+    var body: some View {
+        GeometryReader { geometry in
+            let width = geometry.size.width
+            let radius = width * 0.85
+            let centre = CGPoint(x: width / 2, y: 46 + radius)
+            ZStack {
+                Circle()
+                    .fill(Color.black.opacity(0.55))
+                    .overlay(Circle().strokeBorder(Color.white.opacity(0.15), lineWidth: 1))
+                    .frame(width: radius * 2 + 56, height: radius * 2 + 56)
+                    .position(centre)
+                Canvas { context, _ in
+                    for mark in marks {
+                        let angle = (log2(mark.zoom) - log2(zoom)) * ZoomDial.degreesPerDoubling * .pi / 180
+                        guard abs(angle) < 1.1 else { continue }
+                        func point(_ distance: Double) -> CGPoint {
+                            CGPoint(x: centre.x + distance * sin(angle), y: centre.y - distance * cos(angle))
+                        }
+                        var line = Path()
+                        line.move(to: point(radius))
+                        line.addLine(to: point(radius - (mark.isStop ? 14 : 7)))
+                        context.stroke(line, with: .color(.white.opacity(mark.isStop ? 0.95 : 0.45)), lineWidth: mark.isStop ? 2 : 1)
+                        if mark.isStop {
+                            let label = Text(verbatim: Camera.zoomText(mark.zoom)).font(.caption.weight(.semibold)).foregroundStyle(Color.white)
+                            context.draw(context.resolve(label), at: point(radius - 30), anchor: .center)
+                        }
+                    }
+                }
+                // The zoom now, over the top of the dial.
+                VStack(spacing: 3) {
+                    Text(verbatim: "\(Camera.zoomText(zoom))×")
+                        .font(.subheadline.weight(.bold))
+                        .monospacedDigit()
+                        .foregroundStyle(Color.accentColor)
+                    Capsule().fill(Color.accentColor).frame(width: 3, height: 14)
+                }
+                .position(x: width / 2, y: 27)
+            }
+        }
+        .frame(height: 150)
+        .clipped()
+        .contentShape(Rectangle())
+        .accessibilityElement()
+        .accessibilityLabel(L10n.cameraZoom)
+        .accessibilityValue(Text(verbatim: "\(Camera.zoomText(zoom))×"))
+        .accessibilityAdjustableAction { direction in
+            switch direction {
+            case .increment: setZoom(zoom * pow(2, 1.0 / 8))
+            case .decrement: setZoom(zoom / pow(2, 1.0 / 8))
+            @unknown default: break
+            }
+        }
+        .accessibilityIdentifier("camera.dial")
+    }
+
+    /// The stops (and the far end) labelled; small marks every eighth of a doubling between.
+    private var marks: [(zoom: Double, isStop: Bool)] {
+        var marks = stops.map { (zoom: $0, isStop: true) }
+        if !stops.contains(where: { abs($0 / range.upperBound - 1) < 0.1 }) { marks.append((range.upperBound, true)) }
+        var value = range.lowerBound
+        while value <= range.upperBound * 1.0001 {
+            if !marks.contains(where: { $0.isStop && abs($0.zoom / value - 1) < 0.04 }) { marks.append((value, false)) }
+            value *= pow(2, 1.0 / 8)
+        }
+        return marks
     }
 }
 
