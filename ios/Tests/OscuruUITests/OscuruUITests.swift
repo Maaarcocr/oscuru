@@ -122,6 +122,9 @@ final class OscuruUITests: XCTestCase {
         XCTAssertTrue(waitUntil(timeout: 10) { (time.value as? String) != automatic }, "turning the dial sets the time by hand")
         capture("10a-camera-time")
         XCTAssertTrue(element(app, "camera.histogram").exists, "the live picture's histogram is on screen")
+        // Tapped again, the value puts its dial away, and the lenses are back in its place.
+        time.tap()
+        XCTAssertTrue(waitUntil(timeout: 10) { !dial.exists }, "a value's dial closes when it is tapped again")
         // Two ways to shoot; ProRAW zooms anywhere between the lenses, and the shot is framed that way.
         element(app, "camera.mode.proRAW").tap()
         XCTAssertTrue(element(app, "camera.lenses").waitForExistence(timeout: 10))
