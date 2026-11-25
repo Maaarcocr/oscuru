@@ -238,6 +238,9 @@ struct CameraView: View {
                     }
                 }
                 .scaleEffect(camera.magnification)
+                // The moment one lens's picture gives way to the next is softened rather than seen.
+                .blur(radius: camera.switchingLens ? 14 : 0)
+                .animation(.easeInOut(duration: 0.15), value: camera.switchingLens)
                 if camera.showsGuides {
                     ThirdsGrid()
                     if let angle = level.angle, Level.isNearLevel(angle) {

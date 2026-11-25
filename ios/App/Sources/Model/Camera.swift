@@ -89,9 +89,39 @@ final class Camera {
     /// The lenses that shoot the way the camera shoots now.
     var shootingLenses: [Lens] { lenses.filter { mode == .proRAW ? $0.proRAW : $0.bayer } }
 
-    /// How much closer than its lens the viewfinder is: each shot starts cropped by this much. 1 in
-    /// zero processing.
-    var magnification: Double { mode == .proRAW ? max(1, zoom / (lens?.zoom ?? zoom)) : 1 }
+    /// The lens the viewfinder's picture comes from: the one in use, once its picture has replaced
+    /// the last lens's. Changing lenses takes the camera a moment.
+    private(set) var previewLens: Lens?
+    /// While the picture changes from one lens to another, which the viewfinder softens.
+    private(set) var switchingLens = false
+    @ObservationIgnored private var lensSwitches = 0
+
+    /// How much closer than the picture it has the viewfinder is: the zoom over the lens that
+    /// picture comes from, so a lens change never shows the last lens uncropped. 1 in zero processing.
+    var magnification: Double { mode == .proRAW ? max(1, zoom / (previewLens?.zoom ?? lens?.zoom ?? zoom)) : 1 }
+
+    /// How much closer than the lens in use a shot is framed: the crop it starts with.
+    private var framingZoom: Double { mode == .proRAW ? max(1, zoom / (lens?.zoom ?? zoom)) : 1 }
+
+    /// Changes the camera's lens (or mode) with `change`, then, once the new lens's first pictures
+    /// have had time to arrive, lets the viewfinder frame them. A later change supersedes this one.
+    private func switchLens(to next: Lens, _ change: @escaping @MainActor () async -> Void) {
+        guard !simulated else {
+            previewLens = next
+            return
+        }
+        lensSwitches += 1
+        let number = lensSwitches
+        switchingLens = true
+        Task {
+            await change()
+            followRotation()
+            try? await Task.sleep(for: .milliseconds(250))
+            guard number == lensSwitches else { return }
+            previewLens = next
+            switchingLens = false
+        }
+    }
 
     /// From the widest lens to twice the longest.
     var zoomRange: ClosedRange<Double> {
@@ -131,12 +161,8 @@ final class Camera {
         let next = usable.last { $0.zoom <= target * 1.001 } ?? usable[0]
         guard next != lens else { return }
         lens = next
-        guard !simulated else { return }
         let bias = exposureBias
-        Task {
-            await service.use(lensID: next.id, exposureBias: bias)
-            followRotation()
-        }
+        switchLens(to: next) { await self.service.use(lensID: next.id, exposureBias: bias) }
     }
 
     /// Changes how the camera shoots. The viewfinder goes back to a lens's own view: this one when
@@ -153,13 +179,10 @@ final class Camera {
         let next = usable.first { $0 == lens } ?? usable.min { abs($0.zoom - 1) < abs($1.zoom - 1) }
         lens = next
         zoom = next?.zoom ?? 1
-        guard !simulated, let next else { return }
+        guard let next else { return }
         let proRAW = mode == .proRAW
         let bias = exposureBias
-        Task {
-            await service.configure(proRAW: proRAW, lensID: next.id, exposureBias: bias)
-            followRotation()
-        }
+        switchLens(to: next) { await self.service.configure(proRAW: proRAW, lensID: next.id, exposureBias: bias) }
     }
 
     /// "0.5", "1", "2.5", "2.7": a zoom as the camera shows it.
@@ -177,6 +200,7 @@ final class Camera {
                 Lens(id: "3", label: "3", zoom: 3, proRAW: true),
             ]
             lens = lenses[1]
+            previewLens = lenses[1]
             zoom = 1
             status = .ready
             return
@@ -203,6 +227,7 @@ final class Camera {
         }
         self.lenses = lenses
         lens = current
+        previewLens = current
         zoom = current?.zoom ?? 1
         if mode == .proRAW, !canShootProRAW { mode = .zero }
         followRotation()
@@ -236,7 +261,7 @@ final class Camera {
     func shoot() {
         guard status == .ready else { return }
         // What the viewfinder showed beyond the lens becomes the crop the photo starts with.
-        let framing = magnification > 1.001 ? Crop.centered(zoom: magnification) : nil
+        let framing = framingZoom > 1.001 ? Crop.centered(zoom: framingZoom) : nil
         let proRAW = mode == .proRAW
         saving += 1
         Task {
