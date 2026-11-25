@@ -54,15 +54,30 @@ for run in en:US:light it:IT:dark; do
   IFS=: read -r LANGUAGE REGION APPEARANCE <<<"$run"
   xcrun simctl ui "$SIMULATOR_UDID" appearance "$APPEARANCE"
   RESULT="$ROOT/ios/build/TestResults-$LANGUAGE-$STAMP.xcresult"
-  xcodebuild test \
-    -project ios/Oscuru.xcodeproj \
-    -scheme Oscuru \
-    -configuration Debug \
-    -destination "platform=iOS Simulator,id=$SIMULATOR_UDID" \
-    -derivedDataPath "$ROOT/ios/DerivedData" \
-    -resultBundlePath "$RESULT" \
-    -testLanguage "$LANGUAGE" \
-    -testRegion "$REGION" \
-    CODE_SIGNING_ALLOWED=NO
+  OUTPUT="$ROOT/ios/build/test-$LANGUAGE-$STAMP.log"
+  run_tests() {
+    rm -rf "$RESULT"
+    xcodebuild test \
+      -project ios/Oscuru.xcodeproj \
+      -scheme Oscuru \
+      -configuration Debug \
+      -destination "platform=iOS Simulator,id=$SIMULATOR_UDID" \
+      -derivedDataPath "$ROOT/ios/DerivedData" \
+      -resultBundlePath "$RESULT" \
+      -testLanguage "$LANGUAGE" \
+      -testRegion "$REGION" \
+      CODE_SIGNING_ALLOWED=NO 2>&1 | tee "$OUTPUT"
+  }
+  if ! run_tests; then
+    # A test that failed has failed. A runner that never reached a test (the simulator can stall
+    # while XCTest starts in it) says nothing about the app: start the simulator again and try once more.
+    if grep -q "Test Case" "$OUTPUT"; then exit 1; fi
+    echo "The test runner never started a test; restarting the simulator and trying once more." >&2
+    xcrun simctl shutdown "$SIMULATOR_UDID" 2>/dev/null || true
+    xcrun simctl boot "$SIMULATOR_UDID" 2>/dev/null || true
+    xcrun simctl bootstatus "$SIMULATOR_UDID" -b
+    xcrun simctl ui "$SIMULATOR_UDID" appearance "$APPEARANCE"
+    run_tests
+  fi
   printf '\nNative tests passed for %s_%s; Xcode result: %s\n' "$LANGUAGE" "$REGION" "$RESULT"
 done
