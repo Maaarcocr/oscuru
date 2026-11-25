@@ -73,7 +73,7 @@ final class OscuruUITests: XCTestCase {
         element(app, "composer.styles").tap()
 
         // Home: the style is there, with the way to make one from pictures.
-        app.navigationBars.buttons.element(boundBy: 0).tap()
+        back(app)
         XCTAssertTrue(photo.waitForExistence(timeout: 30))
         XCTAssertTrue(element(app, "library.style").waitForExistence(timeout: 30))
         capture("09-library")
@@ -104,7 +104,7 @@ final class OscuruUITests: XCTestCase {
         XCTAssertTrue(element(app, "thread.original").waitForExistence(timeout: 90), "the collage opens as a new conversation")
         sleep(1)
         capture("09-collage")
-        app.navigationBars.buttons.element(boundBy: 0).tap()
+        back(app)
         XCTAssertTrue(element(app, "library.camera").waitForExistence(timeout: 30))
         element(app, "library.camera").tap()
         let shutter = element(app, "camera.shutter")
@@ -145,7 +145,7 @@ final class OscuruUITests: XCTestCase {
         capture("12-camera-photo")
 
         // Settings.
-        app.navigationBars.buttons.element(boundBy: 0).tap()
+        back(app)
         XCTAssertTrue(photo.waitForExistence(timeout: 30))
         element(app, "library.settings").tap()
         XCTAssertTrue(element(app, "settings.connected").waitForExistence(timeout: 30))
@@ -205,6 +205,17 @@ final class OscuruUITests: XCTestCase {
             RunLoop.current.run(until: Date().addingTimeInterval(0.25))
         }
         return condition()
+    }
+
+    /// Goes back from a photo to the library. The system's back button is found by its own name,
+    /// wherever a device puts it (a folding iPhone keeps it in a rail beside the screen, not in the bar).
+    private func back(_ app: XCUIApplication) {
+        let named = app.buttons["BackButton"].firstMatch
+        if named.waitForExistence(timeout: 5) {
+            named.tap()
+        } else {
+            app.navigationBars.buttons.element(boundBy: 0).tap()
+        }
     }
 
     private func element(_ app: XCUIApplication, _ identifier: String) -> XCUIElement {

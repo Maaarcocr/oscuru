@@ -177,13 +177,18 @@ final class CaptureService: @unchecked Sendable {
     func start() {
         queue.async {
             if !self.session.isRunning { self.session.startRunning() }
-            guard self.readings == nil else { return }
-            let timer = DispatchSource.makeTimerSource(queue: self.queue)
-            timer.schedule(deadline: .now() + .milliseconds(150), repeating: .milliseconds(150))
-            timer.setEventHandler { [weak self] in self?.read() }
-            timer.resume()
-            self.readings = timer
+            self.startReadings()
         }
+    }
+
+    /// Reads what the camera is doing several times a second, until it stops. On the queue.
+    private func startReadings() {
+        guard readings == nil else { return }
+        let timer = DispatchSource.makeTimerSource(queue: queue)
+        timer.schedule(deadline: .now() + .milliseconds(150), repeating: .milliseconds(150))
+        timer.setEventHandler { [weak self] in self?.read() }
+        timer.resume()
+        readings = timer
     }
 
     func stop() {

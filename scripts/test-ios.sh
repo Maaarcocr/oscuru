@@ -26,14 +26,19 @@ choices = [(runtime, device) for runtime, devices in catalog.items()
            for device in devices if device.get("isAvailable") and "iPhone" in device["name"]]
 if not choices:
     raise SystemExit("No available iPhone simulator; install an iOS runtime in Xcode Settings")
-# A booted device avoids unnecessary cold boots; otherwise choose a recent runtime.
+# An ordinary numbered iPhone first (not an SE, a Max or a folding one: the screenshots are read
+# as the phone most people hold), then a recent runtime; a booted device avoids a cold boot.
+def ordinary(name):
+    return bool(re.fullmatch(r"iPhone \d+( Pro)?", name))
 choices.sort(key=lambda pair: (
+    ordinary(pair[1]["name"]),
     version(pair[0].split("iOS-")[-1]),
     pair[1].get("state") == "Booted",
     "SE" not in pair[1]["name"],
     version(pair[1]["name"]),
     "Pro" in pair[1]["name"]
 ), reverse=True)
+print(choices[0][1]["name"], "on", choices[0][0].split(".")[-1], file=sys.stderr)
 print(choices[0][1]["udid"])
 ')"
 fi
