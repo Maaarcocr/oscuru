@@ -1,3 +1,4 @@
+import LockedCameraCapture
 import SwiftUI
 
 @main
@@ -19,7 +20,14 @@ struct OscuruApp: App {
             LibraryView()
                 .environment(model)
                 .preferredColorScheme(.dark)
+                // The camera was asked for: by the Camera Control, the Action button or the camera control
+                // (OscuruCameraIntent), or from the Lock Screen camera after Face ID.
+                .onReceive(NotificationCenter.default.publisher(for: CameraLaunch.notification)) { _ in
+                    if CameraLaunch.take() { model.cameraRequested = true }
+                }
+                .onContinueUserActivity(NSUserActivityTypeLockedCameraCapture) { _ in model.cameraRequested = true }
                 .task {
+                    if CameraLaunch.take() { model.cameraRequested = true }
                     await model.account.refresh()
                     if UITesting.isActive, model.library.photos.isEmpty, let sample = UITesting.samplePhoto() {
                         _ = try? await model.library.add(from: sample, name: "Lake at dusk.jpg")

@@ -30,6 +30,8 @@ targets:
     platform: iOS
     sources:
       - path: App/Sources
+      # The camera intent, shared with the extensions (the system wants it in all three).
+      - path: Shared
       - path: App/Resources
       - path: App/Assets.xcassets
       - path: App/PrivacyInfo.xcprivacy
@@ -46,6 +48,9 @@ targets:
         product: OscuruEngine
       - package: OscuruKit
         product: OscuruScripting
+      # What lets the Camera Control, the Action button and Control Center open Oscuru's camera.
+      - target: OscuruCapture
+      - target: OscuruControls
     configFiles:
       Debug: Config/Oscuru.xcconfig
       Release: Config/Oscuru.xcconfig
@@ -67,6 +72,64 @@ targets:
         SUPPORTS_MACCATALYST: NO
         SUPPORTS_MAC_DESIGNED_FOR_IPHONE_IPAD: NO
         SUPPORTS_XR_DESIGNED_FOR_IPHONE_IPAD: NO
+
+  # The Lock Screen camera: a live view that hands over to the app (ExtensionKit, embedded in Extensions/).
+  OscuruCapture:
+    type: extensionkit-extension
+    platform: iOS
+    sources:
+      - path: Extensions/Capture/Sources
+      - path: Shared
+      - path: App/Resources/Localizable.xcstrings
+    configFiles:
+      Debug: Config/Oscuru.xcconfig
+      Release: Config/Oscuru.xcconfig
+    settings:
+      base:
+        PRODUCT_NAME: OscuruCapture
+        PRODUCT_BUNDLE_IDENTIFIER: $(OSCURU_APP_BUNDLE_ID).capture
+        INFOPLIST_FILE: Extensions/Capture/Info.plist
+        GENERATE_INFOPLIST_FILE: YES
+        INFOPLIST_KEY_CFBundleDisplayName: Oscuru
+        # The extension needs its own camera purpose string, though it uses the app's permission.
+        INFOPLIST_KEY_NSCameraUsageDescription: Oscuru takes RAW photos with the camera, keeping exactly what the sensor saw.
+        CODE_SIGN_STYLE: $(OSCURU_CODE_SIGN_STYLE)
+        CODE_SIGN_IDENTITY: $(OSCURU_CODE_SIGN_IDENTITY)
+        "CODE_SIGN_IDENTITY[sdk=iphoneos*]": $(OSCURU_CODE_SIGN_IDENTITY)
+        DEVELOPMENT_TEAM: $(OSCURU_DEVELOPMENT_TEAM)
+        PROVISIONING_PROFILE_SPECIFIER: $(OSCURU_CAPTURE_PROVISIONING_PROFILE)
+        TARGETED_DEVICE_FAMILY: "1"
+        SKIP_INSTALL: YES
+        LD_RUNPATH_SEARCH_PATHS: "$(inherited) @executable_path/Frameworks @executable_path/../../Frameworks"
+        SUPPORTS_MACCATALYST: NO
+
+  # The camera as a control: Control Center, the Lock Screen, the Action button and the Camera Control.
+  OscuruControls:
+    type: app-extension
+    platform: iOS
+    sources:
+      - path: Extensions/Controls/Sources
+      - path: Shared
+      - path: App/Resources/Localizable.xcstrings
+    configFiles:
+      Debug: Config/Oscuru.xcconfig
+      Release: Config/Oscuru.xcconfig
+    settings:
+      base:
+        PRODUCT_NAME: OscuruControls
+        PRODUCT_BUNDLE_IDENTIFIER: $(OSCURU_APP_BUNDLE_ID).controls
+        INFOPLIST_FILE: Extensions/Controls/Info.plist
+        GENERATE_INFOPLIST_FILE: YES
+        INFOPLIST_KEY_CFBundleDisplayName: Oscuru
+        CODE_SIGN_STYLE: $(OSCURU_CODE_SIGN_STYLE)
+        CODE_SIGN_IDENTITY: $(OSCURU_CODE_SIGN_IDENTITY)
+        "CODE_SIGN_IDENTITY[sdk=iphoneos*]": $(OSCURU_CODE_SIGN_IDENTITY)
+        DEVELOPMENT_TEAM: $(OSCURU_DEVELOPMENT_TEAM)
+        PROVISIONING_PROFILE_SPECIFIER: $(OSCURU_CONTROLS_PROVISIONING_PROFILE)
+        TARGETED_DEVICE_FAMILY: "1"
+        SKIP_INSTALL: YES
+        LD_RUNPATH_SEARCH_PATHS: "$(inherited) @executable_path/Frameworks @executable_path/../../Frameworks"
+        SUPPORTS_MACCATALYST: NO
 
   OscuruUITests:
     type: bundle.ui-testing

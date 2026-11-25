@@ -257,6 +257,38 @@
         }
       }
     },
+    "capture.failed": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Unlock your iPhone to shoot with Oscuru."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sblocca l'iPhone per scattare con Oscuru."
+          }
+        }
+      }
+    },
+    "capture.open": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Open Oscuru"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Apri Oscuru"
+          }
+        }
+      }
+    },
     "change.crop": {
       "localizations": {
         "en": {
@@ -717,6 +749,38 @@
           "stringUnit": {
             "state": "translated",
             "value": "Aggiungi a quello che sta facendo"
+          }
+        }
+      }
+    },
+    "control.camera": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Oscuru camera"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Fotocamera Oscuru"
+          }
+        }
+      }
+    },
+    "control.camera.description": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Opens Oscuru's RAW camera."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Apre la fotocamera RAW di Oscuru."
           }
         }
       }

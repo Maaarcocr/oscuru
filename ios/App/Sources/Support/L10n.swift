@@ -92,6 +92,12 @@ enum L10n {
     static var cameraOpenSettings: String { String(localized: "camera.openSettings") }
     static var cameraUnavailableTitle: String { String(localized: "camera.unavailable.title") }
     static var cameraUnavailableMessage: String { String(localized: "camera.unavailable.message") }
+    // The camera control and the Lock Screen camera (ios/Shared, ios/Extensions) read these keys from the
+    // same catalog.
+    static var controlCamera: String { String(localized: "control.camera") }
+    static var controlCameraDescription: String { String(localized: "control.camera.description") }
+    static var captureOpen: String { String(localized: "capture.open") }
+    static var captureFailed: String { String(localized: "capture.failed") }
     static var cameraZoom: String { String(localized: "camera.zoom") }
     static var cameraZeroProcessing: String { String(localized: "camera.mode.zero") }
     static var cameraZeroProcessingHint: String { String(localized: "camera.mode.zero.hint") }

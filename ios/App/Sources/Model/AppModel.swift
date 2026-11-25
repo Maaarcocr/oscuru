@@ -42,6 +42,10 @@ final class AppModel {
         }
     }
 
+    /// Set when something outside the app asks for its camera (see `CameraLaunch`); the library opens
+    /// it and sets this back.
+    var cameraRequested = false
+
     // MARK: Photos
 
     /// Opens a photo for editing, or the editor it already has (the assistant may still be at

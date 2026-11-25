@@ -1,6 +1,6 @@
-// App target signing, Debug and Release. project.yml points the app target's signing settings
-// at these OSCURU_* variables, so they apply to the app target only (the Swift package targets
-// cannot use a provisioning profile).
+// Signing for the app and its two extensions (the Lock Screen camera and the controls), Debug and
+// Release. project.yml points those targets' signing settings at these OSCURU_* variables, so they
+// apply to them only (the Swift package targets cannot use a provisioning profile).
 //
 // Local development: automatic signing.
 OSCURU_APP_BUNDLE_ID = com.rudilosso.oscuru
@@ -8,6 +8,8 @@ OSCURU_CODE_SIGN_STYLE = Automatic
 OSCURU_CODE_SIGN_IDENTITY = Apple Development
 OSCURU_DEVELOPMENT_TEAM =
 OSCURU_PROVISIONING_PROFILE =
+OSCURU_CAPTURE_PROVISIONING_PROFILE =
+OSCURU_CONTROLS_PROVISIONING_PROFILE =
 
 // A build service writes this file just before archiving to switch to distribution signing.
 #include? "Signing.local.xcconfig"

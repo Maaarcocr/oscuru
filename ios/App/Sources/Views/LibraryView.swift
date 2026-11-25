@@ -151,6 +151,12 @@ struct LibraryView: View {
             .onChange(of: photos.isEmpty) { _, empty in
                 if empty { endSelecting() }
             }
+            .onChange(of: model.cameraRequested, initial: true) { _, requested in
+                guard requested else { return }
+                model.cameraRequested = false
+                path = []
+                showingCamera = true
+            }
     }
 
     // MARK: Styles
@@ -373,6 +379,8 @@ struct LibraryView: View {
             Text(chosenCount)
                 .font(.subheadline.weight(.semibold))
                 .monospacedDigit()
+                .lineLimit(1)
+                .minimumScaleFactor(0.7)
             Spacer()
             Button(role: .destructive) {
                 confirmingDelete = true

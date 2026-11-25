@@ -23,7 +23,9 @@ cleanup() {
   status=$?
   security list-keychains -d user -s $ORIGINAL_KEYCHAINS >/dev/null 2>&1 || true
   security delete-keychain "$KEYCHAIN" >/dev/null 2>&1 || true
-  [[ -z "${PROFILE_UUID:-}" ]] || rm -f "$HOME/Library/MobileDevice/Provisioning Profiles/$PROFILE_UUID.mobileprovision"
+  for uuid in "${PROFILE_UUID:-}" "${PROFILE_UUID_CAPTURE:-}" "${PROFILE_UUID_CONTROLS:-}"; do
+    [[ -z "$uuid" ]] || rm -f "$HOME/Library/MobileDevice/Provisioning Profiles/$uuid.mobileprovision"
+  done
   rm -f "$SIGNING_XCCONFIG"
   rm -rf "$WORK"
   [[ $status == 0 ]] || echo "Failed while $STAGE (exit $status)." >&2
@@ -64,14 +66,19 @@ security list-keychains -d user -s "$KEYCHAIN" $ORIGINAL_KEYCHAINS
 IDENTITY="$(security find-identity -v -p codesigning "$KEYCHAIN" | awk '/Apple Distribution|iPhone Distribution/ { print $2; exit }')"
 [[ -n "$IDENTITY" ]] || { echo 'No distribution identity in the .p12.' >&2; exit 1; }
 mkdir -p "$HOME/Library/MobileDevice/Provisioning Profiles"
+# The app, its Lock Screen camera extension and its controls extension each have their own profile.
 cp "$WORK/profile.mobileprovision" "$HOME/Library/MobileDevice/Provisioning Profiles/$PROFILE_UUID.mobileprovision"
+cp "$WORK/profile-capture.mobileprovision" "$HOME/Library/MobileDevice/Provisioning Profiles/$PROFILE_UUID_CAPTURE.mobileprovision"
+cp "$WORK/profile-controls.mobileprovision" "$HOME/Library/MobileDevice/Provisioning Profiles/$PROFILE_UUID_CONTROLS.mobileprovision"
 
 STAGE='archiving'
-# Signing settings reach the app target only (see ios/Config/Oscuru.xcconfig).
+# Signing settings reach the app and extension targets only (see ios/Config/Oscuru.xcconfig).
 printf '%s\n' \
   'OSCURU_CODE_SIGN_STYLE = Manual' \
   "OSCURU_DEVELOPMENT_TEAM = $TEAM_ID" \
   "OSCURU_PROVISIONING_PROFILE = $PROFILE_UUID" \
+  "OSCURU_CAPTURE_PROVISIONING_PROFILE = $PROFILE_UUID_CAPTURE" \
+  "OSCURU_CONTROLS_PROVISIONING_PROFILE = $PROFILE_UUID_CONTROLS" \
   "OSCURU_CODE_SIGN_IDENTITY = $IDENTITY" \
   "CURRENT_PROJECT_VERSION = $BUILD_NUMBER" > "$SIGNING_XCCONFIG"
 "$ROOT/scripts/fetch-models.sh"
@@ -95,7 +102,11 @@ cat > "$WORK/ExportOptions.plist" <<PLIST
   <key>signingStyle</key><string>manual</string>
   <key>signingCertificate</key><string>$IDENTITY</string>
   <key>provisioningProfiles</key>
-  <dict><key>com.rudilosso.oscuru</key><string>$PROFILE_UUID</string></dict>
+  <dict>
+    <key>com.rudilosso.oscuru</key><string>$PROFILE_UUID</string>
+    <key>com.rudilosso.oscuru.capture</key><string>$PROFILE_UUID_CAPTURE</string>
+    <key>com.rudilosso.oscuru.controls</key><string>$PROFILE_UUID_CONTROLS</string>
+  </dict>
   <key>uploadSymbols</key><true/>
   <key>manageAppVersionAndBuildNumber</key><false/>
 </dict>

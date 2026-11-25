@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """App Store Connect API steps for shipping Oscuru to TestFlight from CI.
 
-    asc.py prepare WORK_DIR CERT_SERIAL   bundle ID, app record, profile and next build number
+    asc.py prepare WORK_DIR CERT_SERIAL   bundle IDs, app record, profiles and next build number
     asc.py testers APP_ID                 an internal TestFlight group that gets every build
 
 Reads ASC_KEY_ID, ASC_ISSUER_ID and ASC_KEY_PATH (the .p8 file). Prints no secrets.
@@ -19,7 +19,13 @@ import jwt
 
 BUNDLE_ID = "com.rudilosso.oscuru"
 APP_NAME = "Oscuru"
-PROFILE_NAME = "Oscuru App Store (CI)"
+# The app and the extensions it carries, each signed with its own App Store profile:
+# (key for asc.env, bundle ID, name in the developer portal).
+BUNDLES = [
+    ("", BUNDLE_ID, APP_NAME),
+    ("_CAPTURE", BUNDLE_ID + ".capture", "Oscuru Lock Screen camera"),
+    ("_CONTROLS", BUNDLE_ID + ".controls", "Oscuru controls"),
+]
 API = "https://api.appstoreconnect.apple.com"
 
 
@@ -99,29 +105,32 @@ def prepare(work, serial):
         "developer.apple.com/account in Safari, sign in, and tap Review and Agree on the banner.",
     )
 
-    # 1. The bundle ID. Registering needs an Admin key; otherwise the owner registers it by hand.
-    def find_bundle():
-        reply = ok(*call("GET", "/v1/bundleIds", query={"filter[identifier]": BUNDLE_ID, "limit": 200}), "list bundle IDs")
-        matches = [b for b in reply["data"] if b["attributes"]["identifier"] == BUNDLE_ID]
-        return matches[0]["id"] if matches else None
+    # 1. The bundle IDs. Registering needs an Admin key; otherwise the owner registers them by hand.
+    def register(identifier, name):
+        def find_bundle():
+            reply = ok(*call("GET", "/v1/bundleIds", query={"filter[identifier]": identifier, "limit": 200}), "list bundle IDs")
+            matches = [b for b in reply["data"] if b["attributes"]["identifier"] == identifier]
+            return matches[0]["id"] if matches else None
 
-    bundle = find_bundle()
-    if bundle:
-        print(f"Bundle ID {BUNDLE_ID} is registered.")
-    else:
-        status, reply = call("POST", "/v1/bundleIds", {"data": {"type": "bundleIds", "attributes": {"identifier": BUNDLE_ID, "name": APP_NAME, "platform": "IOS"}}})
+        bundle = find_bundle()
+        if bundle:
+            print(f"Bundle ID {identifier} is registered.")
+            return bundle
+        status, reply = call("POST", "/v1/bundleIds", {"data": {"type": "bundleIds", "attributes": {"identifier": identifier, "name": name, "platform": "IOS"}}})
         if status < 300:
-            bundle = reply["data"]["id"]
-            notice(f"Registered the bundle ID {BUNDLE_ID}.")
-        else:
-            print(f"This API key cannot register identifiers (HTTP {status}).", flush=True)
-            bundle = waiting(
-                find_bundle,
-                "the bundle ID",
-                f"Register it once: developer.apple.com/account → Certificates, IDs & Profiles → Identifiers → + → App IDs → App → "
-                f"description {APP_NAME}, explicit bundle ID {BUNDLE_ID} → Continue → Register.",
-            )
-            print(f"Bundle ID {BUNDLE_ID} is registered.")
+            notice(f"Registered the bundle ID {identifier}.")
+            return reply["data"]["id"]
+        print(f"This API key cannot register identifiers (HTTP {status}).", flush=True)
+        bundle = waiting(
+            find_bundle,
+            f"the bundle ID {identifier}",
+            f"Register it once: developer.apple.com/account → Certificates, IDs & Profiles → Identifiers → + → App IDs → App → "
+            f"description {name}, explicit bundle ID {identifier} → Continue → Register.",
+        )
+        print(f"Bundle ID {identifier} is registered.")
+        return bundle
+
+    bundles = {key: (identifier, name, register(identifier, name)) for key, identifier, name in BUNDLES}
 
     # 2. The app record. Apple's API cannot create one: a person does, once.
     def app_record():
@@ -148,52 +157,60 @@ def prepare(work, serial):
     if not certificate:
         sys.exit("The distribution certificate in the .p12 is not on this team's App Store Connect account.")
 
-    # 4. An App Store provisioning profile for the bundle ID and that certificate, whatever its name.
-    def find_profile():
-        reply = ok(
-            *call("GET", "/v1/profiles", query={"filter[profileType]": "IOS_APP_STORE", "filter[profileState]": "ACTIVE", "include": "certificates,bundleId", "limit": 200}),
-            "list profiles",
-        )
-        for item in reply["data"]:
-            relationships = item.get("relationships", {})
-            certificates = [c["id"] for c in relationships.get("certificates", {}).get("data", [])]
-            bundle_data = relationships.get("bundleId", {}).get("data") or {}
-            if certificate in certificates and bundle_data.get("id") == bundle:
-                status, full = call("GET", f"/v1/profiles/{item['id']}")
-                return ok(status, full, "read the profile")["data"]
-        return None
-
-    profile = find_profile()
-    if profile is None:
-        status, reply = call(
-            "POST",
-            "/v1/profiles",
-            {
-                "data": {
-                    "type": "profiles",
-                    "attributes": {"name": PROFILE_NAME, "profileType": "IOS_APP_STORE"},
-                    "relationships": {
-                        "bundleId": {"data": {"type": "bundleIds", "id": bundle}},
-                        "certificates": {"data": [{"type": "certificates", "id": certificate}]},
-                    },
-                }
-            },
-        )
-        if status < 300:
-            profile = reply["data"]
-            notice("Created the App Store provisioning profile.")
-        else:
-            print(f"This API key cannot create profiles (HTTP {status}).", flush=True)
-            profile = waiting(
-                find_profile,
-                "the provisioning profile",
-                f"Create it once: developer.apple.com/account → Certificates, IDs & Profiles → Profiles → + → App Store Connect → Continue → "
-                f"App ID {APP_NAME} ({BUNDLE_ID}) → Continue → the Apple Distribution certificate (the one Putia uses) → Continue → "
-                f"name {APP_NAME} App Store → Generate. No need to download it.",
+    # 4. An App Store provisioning profile for each bundle ID and that certificate, whatever its name.
+    def provision(identifier, name, bundle):
+        def find_profile():
+            reply = ok(
+                *call("GET", "/v1/profiles", query={"filter[profileType]": "IOS_APP_STORE", "filter[profileState]": "ACTIVE", "include": "certificates,bundleId", "limit": 200}),
+                "list profiles",
             )
-    print(f"Provisioning profile: {profile['attributes']['name']}.")
-    with open(os.path.join(work, "profile.mobileprovision"), "wb") as handle:
-        handle.write(base64.b64decode(profile["attributes"]["profileContent"]))
+            for item in reply["data"]:
+                relationships = item.get("relationships", {})
+                certificates = [c["id"] for c in relationships.get("certificates", {}).get("data", [])]
+                bundle_data = relationships.get("bundleId", {}).get("data") or {}
+                if certificate in certificates and bundle_data.get("id") == bundle:
+                    status, full = call("GET", f"/v1/profiles/{item['id']}")
+                    return ok(status, full, "read the profile")["data"]
+            return None
+
+        profile = find_profile()
+        if profile is None:
+            status, reply = call(
+                "POST",
+                "/v1/profiles",
+                {
+                    "data": {
+                        "type": "profiles",
+                        "attributes": {"name": f"{name} App Store (CI)", "profileType": "IOS_APP_STORE"},
+                        "relationships": {
+                            "bundleId": {"data": {"type": "bundleIds", "id": bundle}},
+                            "certificates": {"data": [{"type": "certificates", "id": certificate}]},
+                        },
+                    }
+                },
+            )
+            if status < 300:
+                profile = reply["data"]
+                notice(f"Created the App Store provisioning profile for {identifier}.")
+            else:
+                print(f"This API key cannot create profiles (HTTP {status}).", flush=True)
+                profile = waiting(
+                    find_profile,
+                    f"the provisioning profile for {identifier}",
+                    f"Create it once: developer.apple.com/account → Certificates, IDs & Profiles → Profiles → + → App Store Connect → Continue → "
+                    f"App ID {name} ({identifier}) → Continue → the Apple Distribution certificate (the one Putia uses) → Continue → "
+                    f"name {name} App Store → Generate. No need to download it.",
+                )
+        print(f"Provisioning profile for {identifier}: {profile['attributes']['name']}.")
+        return profile
+
+    profiles = {}
+    for key, (identifier, name, bundle) in bundles.items():
+        profile = provision(identifier, name, bundle)
+        profiles[key] = profile["attributes"]["uuid"]
+        filename = "profile" + key.lower().replace("_", "-") + ".mobileprovision"
+        with open(os.path.join(work, filename), "wb") as handle:
+            handle.write(base64.b64decode(profile["attributes"]["profileContent"]))
 
     # 5. The next build number: one more than any build uploaded so far.
     reply = ok(*call("GET", "/v1/builds", query={"filter[app]": app, "sort": "-uploadedDate", "limit": 20, "fields[builds]": "version"}), "list builds")
@@ -201,7 +218,9 @@ def prepare(work, serial):
     build = max(numbers + [0]) + 1
 
     with open(os.path.join(work, "asc.env"), "w") as handle:
-        handle.write(f"APP_ID={app}\nPROFILE_UUID={profile['attributes']['uuid']}\nBUILD_NUMBER={build}\n")
+        handle.write(f"APP_ID={app}\nBUILD_NUMBER={build}\n")
+        for key, uuid in profiles.items():
+            handle.write(f"PROFILE_UUID{key}={uuid}\n")
     print(f"Build number {build}.")
 
 
