@@ -3,6 +3,7 @@
 
     asc.py prepare WORK_DIR CERT_SERIAL   bundle IDs, app record, profiles and next build number
     asc.py testers APP_ID                 an internal TestFlight group that gets every build
+    asc.py crashes OUT_DIR                the crash reports testers sent from TestFlight, with their logs
 
 Reads ASC_KEY_ID, ASC_ISSUER_ID and ASC_KEY_PATH (the .p8 file). Prints no secrets.
 """
@@ -296,10 +297,61 @@ def testers(app):
         print(f"Internal tester {'added' if status < 300 else 'already present or not added'} ({status}).")
 
 
+def crashes(out):
+    """Saves every crash report sent from TestFlight for this app: what Apple records with it (the
+    build, device, system, how long the app had run) and the crash log itself. Leaves out who sent
+    it. Reads only."""
+    os.makedirs(out, exist_ok=True)
+    reply = ok(*call("GET", "/v1/apps", query={"filter[bundleId]": BUNDLE_ID}), "look up the app")
+    apps = [a for a in reply["data"] if a["attributes"]["bundleId"] == BUNDLE_ID]
+    if not apps:
+        sys.exit("No App Store Connect app for " + BUNDLE_ID)
+    app = apps[0]["id"]
+    submissions = []
+    path, query = f"/v1/apps/{app}/betaFeedbackCrashSubmissions", {"limit": 200, "include": "build"}
+    while path:
+        status, reply = call("GET", path, query=query)
+        if status >= 300 and query and "include" in query:
+            # Not every version of the API takes "include" here.
+            query = {"limit": 200}
+            continue
+        reply = ok(status, reply, "list the crash reports")
+        submissions += reply.get("data", [])
+        builds = {b["id"]: b["attributes"].get("version") for b in reply.get("included", []) if b.get("type") == "builds"}
+        for submission in reply.get("data", []):
+            build = submission.get("relationships", {}).get("build", {}).get("data") or {}
+            submission["buildNumber"] = builds.get(build.get("id"))
+        following = reply.get("links", {}).get("next")
+        path, query = (following.replace(API, ""), None) if following else (None, None)
+    print(f"{len(submissions)} crash reports.")
+    summary = []
+    for index, submission in enumerate(sorted(submissions, key=lambda s: s["attributes"].get("createdDate") or "", reverse=True)):
+        attributes = {k: v for k, v in submission["attributes"].items() if k not in ("email", "testerEmail")}
+        status, log = call("GET", f"/v1/betaFeedbackCrashSubmissions/{submission['id']}/crashLog")
+        text = ""
+        if status < 300:
+            data = log.get("data", {}).get("attributes", {})
+            # The log's text, under whichever attribute holds it.
+            text = data.get("logText") or next((v for v in data.values() if isinstance(v, str) and len(v) > 200), "") or json.dumps(data, indent=2)
+        else:
+            text = f"(no crash log: HTTP {status}: {reason(log)})"
+        name = f"{index + 1:02d}-build{submission.get('buildNumber') or 'unknown'}"
+        with open(os.path.join(out, name + ".crash"), "w") as handle:
+            handle.write(text)
+        with open(os.path.join(out, name + ".json"), "w") as handle:
+            json.dump({"id": submission["id"], "build": submission.get("buildNumber"), **attributes}, handle, indent=2)
+        summary.append(f"{name}: {attributes.get('createdDate')} build {submission.get('buildNumber')} {attributes.get('deviceModel')} iOS {attributes.get('osVersion')}")
+    with open(os.path.join(out, "summary.txt"), "w") as handle:
+        handle.write("\n".join(summary) + "\n")
+    print("\n".join(summary))
+
+
 if __name__ == "__main__":
     if sys.argv[1] == "prepare":
         prepare(sys.argv[2], sys.argv[3])
     elif sys.argv[1] == "testers":
         testers(sys.argv[2])
+    elif sys.argv[1] == "crashes":
+        crashes(sys.argv[2])
     else:
         sys.exit(__doc__)
