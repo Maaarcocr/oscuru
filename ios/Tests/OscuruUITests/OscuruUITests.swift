@@ -98,7 +98,14 @@ final class OscuruUITests: XCTestCase {
         XCTAssertFalse(element(app, "composer.field").exists, "and without opening it")
         XCTAssertTrue(element(app, "library.selectDay").exists, "a whole day can be chosen from its header")
         capture("09-select")
-        element(app, "library.endSelect").tap()
+
+        // Chosen photos combine into a collage, which opens like any photo.
+        element(app, "library.combine").tap()
+        XCTAssertTrue(element(app, "thread.original").waitForExistence(timeout: 90), "the collage opens as a new conversation")
+        sleep(1)
+        capture("09-collage")
+        app.navigationBars.buttons.element(boundBy: 0).tap()
+        XCTAssertTrue(element(app, "library.camera").waitForExistence(timeout: 30))
         element(app, "library.camera").tap()
         let shutter = element(app, "camera.shutter")
         XCTAssertTrue(shutter.waitForExistence(timeout: 30))

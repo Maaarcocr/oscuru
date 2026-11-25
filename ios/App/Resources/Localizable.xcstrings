@@ -257,6 +257,22 @@
         }
       }
     },
+    "change.layout": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Layout"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Disposizione"
+          }
+        }
+      }
+    },
     "change.local": {
       "localizations": {
         "en": {
@@ -285,6 +301,22 @@
           "stringUnit": {
             "state": "translated",
             "value": "Regolazioni locali rimosse"
+          }
+        }
+      }
+    },
+    "collage.name": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Collage"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Collage"
           }
         }
       }
@@ -813,6 +845,38 @@
           "stringUnit": {
             "state": "translated",
             "value": "Applica"
+          }
+        }
+      }
+    },
+    "library.combine": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Combine into a collage"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Unisci in un collage"
+          }
+        }
+      }
+    },
+    "library.combineFailed": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Could not make the collage"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Impossibile creare il collage"
           }
         }
       }

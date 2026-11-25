@@ -84,4 +84,7 @@ public struct ScriptOutcome: Sendable {
     /// Pictures the script asked for with `photo.show`.
     public var shown: [LabeledImage]
     public var durationMs: Int
+    /// The settings of each new photo the script asked to split off (`photo.split`); only when it
+    /// ran to its end without an error.
+    public var parts: [EditingState] = []
 }

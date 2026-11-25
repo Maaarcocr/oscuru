@@ -814,6 +814,47 @@ final class EngineTests: XCTestCase {
     XCTAssertEqual(Double(after.at(20, 20).g), Double(before.at(20, 20).g), accuracy: 2, "nor the background")
   }
 
+  func testACollageArrangesItsPiecesAndRearrangesThem() throws {
+    _ = try makePNG("red.png", width: 300, height: 400) { _, _ in (0.85, 0.1, 0.1) }
+    _ = try makePNG("blue.png", width: 300, height: 400) { _, _ in (0.1, 0.15, 0.85) }
+    let manifest = CollageManifest(pieces: [
+      CollageManifest.Piece(file: "red.png", name: "Red", width: 300, height: 400),
+      CollageManifest.Piece(file: "blue.png", name: "Blue", width: 300, height: 400),
+    ])
+    let url = directory.appendingPathComponent("made.collage")
+    try JSONEncoder().encode(manifest).write(to: url)
+    let info = try engine.open(id: "c", url: url)
+    XCTAssertEqual(info.pieces?.map(\.name), ["Red", "Blue"])
+    XCTAssertEqual(info.width, 4096, "two portraits side by side make a 3:2 canvas")
+
+    func pixels(_ state: EditingState) throws -> Pixels {
+      let bitmap = try engine.bitmap(id: "c", recipe: RenderRecipe(state: state, defaults: info.defaults), options: RenderOptions(maxEdge: 300), longEdge: 300)
+      XCTAssertEqual(bitmap.width, 300)
+      XCTAssertEqual(bitmap.height, 200)
+      return Pixels(data: bitmap.pixels, width: bitmap.width, height: bitmap.height)
+    }
+    var state = EditingState(defaults: info.defaults)
+    var shown = try pixels(state)
+    XCTAssertGreaterThan(shown.at(75, 100).r, 180, "red on the left")
+    XCTAssertGreaterThan(shown.at(225, 100).b, 180, "blue on the right")
+    XCTAssertGreaterThan(shown.at(150, 100).g, 220, "a white line between them")
+    XCTAssertGreaterThan(shown.at(1, 100).g, 220, "and around them")
+
+    // Swapped, no gap, black: the layout is a setting like any other.
+    try state.setLayout(
+      ["gap": 0, "background": "#000000", "cells": [["piece": 1, "x": 0, "y": 0, "width": 0.5, "height": 1], ["piece": 0, "x": 0.5, "y": 0, "width": 0.5, "height": 1]]],
+      pieces: 2)
+    shown = try pixels(state)
+    XCTAssertGreaterThan(shown.at(75, 100).b, 180, "blue on the left now")
+    XCTAssertGreaterThan(shown.at(225, 100).r, 180, "red on the right")
+    XCTAssertLessThan(shown.at(1, 100).g, 60, "no white border")
+
+    // A different shape: the canvas follows it.
+    try state.setLayout(["aspect": 1], pieces: 2)
+    let square = try engine.bitmap(id: "c", recipe: RenderRecipe(state: state, defaults: info.defaults), options: RenderOptions(maxEdge: 300), longEdge: 300)
+    XCTAssertEqual(square.width, square.height)
+  }
+
   func testDisplayPixelsAreSmallAndInDisplayP3() throws {
     _ = try engine.open(id: "p", url: try makePNG("ramp.png", width: 400, height: 300) { x, _ in (Double(x) / 399, 0.5, 0.5) })
     let pixels = try engine.displayPixels(id: "p", recipe: RenderRecipe(), longEdge: 200)

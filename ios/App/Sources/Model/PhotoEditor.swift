@@ -336,6 +336,17 @@ final class PhotoEditor {
         (state, conversation.stateBeforeRun ?? state)
     }
 
+    /// New photos split off this one (`photo.split`), named after it and numbered. Returns the names
+    /// of those made.
+    fileprivate func makeParts(_ states: [EditingState]) async -> [String] {
+        var names: [String] = []
+        for (index, state) in states.enumerated() {
+            let name = "\(document.fileName) \(index + 1)"
+            if (try? await library.duplicate(document, state: state, name: name)) != nil { names.append(name) }
+        }
+        return names
+    }
+
     fileprivate func run(_ request: ScriptRequest, isCancelled: @escaping @Sendable () -> Bool) async -> ScriptOutcome {
         await runtime.run(request, isCancelled: isCancelled)
     }
@@ -395,6 +406,14 @@ private struct EditorPort: AgentPort {
         let after = outcome.state
         let changed = after != state
         if changed { await editor.set(after) }
+        if !outcome.parts.isEmpty {
+            let made = await editor.makeParts(outcome.parts)
+            payload["newPhotos"] = .array(made.map { .string($0) })
+            payload["newPhotosNote"] = .string(
+                made.count == outcome.parts.count
+                    ? "These are new photos in the person's library. This photo did not change."
+                    : "Only \(made.count) of the \(outcome.parts.count) parts could be made into photos.")
+        }
         payload["status"] = "ok"
         payload["applied"] = .bool(changed)
         payload["changes"] = .array(outcome.changes.map(\.json))

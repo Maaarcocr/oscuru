@@ -21,6 +21,8 @@ public struct PhotoInfo: Codable, Equatable, Sendable {
     public var focalLength: Double?
     public var focalLength35mm: Double?
     public var dateTaken: String?
+    /// A collage's pieces, in order: what its layout's cells refer to. Nil for a photo.
+    public var pieces: [CollageManifest.Piece]?
 
     public init(fileName: String, typeIdentifier: String, isRaw: Bool, width: Int, height: Int, defaults: PhotoDefaults = PhotoDefaults()) {
         self.fileName = fileName
@@ -50,6 +52,10 @@ public struct PhotoInfo: Codable, Equatable, Sendable {
         if let focalLength { members["focalLength"] = .number(focalLength) }
         if let focalLength35mm { members["focalLength35mm"] = .number(focalLength35mm) }
         if let dateTaken { members["dateTaken"] = .string(dateTaken) }
+        if let pieces {
+            members["pieces"] = .array(
+                pieces.enumerated().map { ["piece": .number(Double($0.offset)), "name": .string($0.element.name), "width": .number(Double($0.element.width)), "height": .number(Double($0.element.height))] })
+        }
         return .object(members)
     }
 }

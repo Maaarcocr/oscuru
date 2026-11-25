@@ -48,6 +48,8 @@ struct LibraryView: View {
     /// The photos chosen while selecting; nil when not selecting.
     @State private var selection: Set<String>?
     @State private var confirmingDelete = false
+    @State private var combining = false
+    @State private var combineProblem: String?
 
     private var photos: [PhotoDocument] { model.library.photos }
     /// The chosen photos, in the library's order.
@@ -209,6 +211,22 @@ struct LibraryView: View {
         }
     }
 
+    /// The chosen photos, as a new collage that opens at once.
+    private func combine() {
+        let ids = chosen
+        combining = true
+        Task {
+            defer { combining = false }
+            do {
+                let collage = try await model.combine(ids)
+                endSelecting()
+                path = [collage.id]
+            } catch {
+                combineProblem = String(describing: error)
+            }
+        }
+    }
+
     private func endSelecting() {
         selection = nil
         applying = nil
@@ -319,7 +337,8 @@ struct LibraryView: View {
         .padding(.bottom, 4)
     }
 
-    /// While selecting: share and save on the left, how many are chosen in the middle, delete on the right.
+    /// While selecting: share, save and combine on the left, how many are chosen in the middle, delete
+    /// on the right.
     private var selectionBar: some View {
         HStack {
             ShareButton(photos: chosen)
@@ -328,6 +347,28 @@ struct LibraryView: View {
             SaveButton(photos: chosen)
                 .buttonStyle(.glass)
                 .buttonBorderShape(.circle)
+            Button {
+                combine()
+            } label: {
+                ZStack {
+                    if combining {
+                        ProgressView()
+                    } else {
+                        Image(systemName: "square.grid.2x2").font(.body.weight(.semibold))
+                    }
+                }
+                .frame(width: 30, height: 30)
+            }
+            .buttonStyle(.glass)
+            .buttonBorderShape(.circle)
+            .disabled(chosen.isEmpty || chosen.count > CollageLayout.maxPieces || combining)
+            .accessibilityLabel(L10n.combine)
+            .accessibilityIdentifier("library.combine")
+            .alert(L10n.combineFailed, isPresented: Binding(get: { combineProblem != nil }, set: { if !$0 { combineProblem = nil } })) {
+                Button(L10n.ok, role: .cancel) {}
+            } message: {
+                Text(combineProblem ?? "")
+            }
             Spacer()
             Text(chosenCount)
                 .font(.subheadline.weight(.semibold))

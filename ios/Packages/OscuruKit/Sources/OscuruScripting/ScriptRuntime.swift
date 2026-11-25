@@ -113,6 +113,7 @@ public final class ScriptRuntime: @unchecked Sendable {
                 return outcome
             }
             outcome.changes = session.draft.changes(from: request.state)
+            outcome.parts = session.parts
             if let result, !result.isUndefined {
                 var text: String?
                 if let stringify = context.objectForKeyedSubscript("JSON")?.forProperty("stringify"), let json = stringify.call(withArguments: [result]), json.isString {
@@ -226,10 +227,11 @@ public final class ScriptRuntime: @unchecked Sendable {
             halation: group("halation", ["set", "get"]),
             local: group("local", ["set", "get", "list", "remove", "reset"]),
             crop: bind("crop"),
+            layout: group("layout", ["get", "set"]),
             reset: bind("reset"),
             revert: bind("revert"),
           });
-          const photo = Object.freeze({ current, show: bind("show"), styles: group("styles", ["list", "apply", "save", "delete"]) });
+          const photo = Object.freeze({ current, show: bind("show"), split: bind("split"), styles: group("styles", ["list", "apply", "save", "delete"]) });
           const describe = (value) => {
             if (typeof value === "string") return value;
             if (value instanceof Error) return value.name + ": " + value.message;

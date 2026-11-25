@@ -1,11 +1,13 @@
 import Foundation
+import ImageIO
 import Observation
 import OscuruCore
 import OscuruEngine
 
 /// A photo kept in the app. Its folder in the documents directory holds:
 ///
-///     original.<ext>   a copy of the imported file, never written again
+///     original.<ext>   a copy of the imported file, never written again; for a collage,
+///                      original.collage (its `CollageManifest`) and pieces/ (the photos it is made of)
 ///     doc.json         this record: what the engine reported, and a copy of the photo's settings now
 ///     thumb.jpg        the library thumbnail
 ///     conversation/    the thread with the assistant: transcript.jsonl and the pictures it was sent
@@ -30,6 +32,9 @@ extension PhotoDocument {
             .replacingOccurrences(of: "/", with: "-")
         return name.isEmpty ? "Oscuru" : name
     }
+
+    /// Made of other photos (see `CollageManifest`) rather than taken or added.
+    var isCollage: Bool { (originalFile as NSString).pathExtension == CollageManifest.fileExtension }
 
     /// When the photo was taken, from its capture details (the camera's local time); when it has
     /// none, when it was added. The library is ordered and split into days by it, as in Photos.
@@ -98,25 +103,73 @@ final class Library {
 
     /// Copies a picked file into the library and opens it once to learn what it is.
     func add(from source: URL, name: String) async throws -> PhotoDocument {
+        let originalFile = "original.\(source.pathExtension.isEmpty ? "img" : source.pathExtension.lowercased())"
+        return try await create(name: name) { folder in
+            try FileManager.default.copyItem(at: source, to: folder.appending(path: originalFile))
+            return originalFile
+        }
+    }
+
+    /// A collage of developed photos (JPEGs from `AppModel.export`), arranged to start with as
+    /// `CollageLayout.automatic` does.
+    func addCollage(of pieces: [(file: URL, name: String)], name: String) async throws -> PhotoDocument {
+        try await create(name: name) { folder in
+            try FileManager.default.createDirectory(at: folder.appending(path: "pieces", directoryHint: .isDirectory), withIntermediateDirectories: true)
+            var parts: [CollageManifest.Piece] = []
+            for (index, piece) in pieces.enumerated() {
+                let file = "pieces/\(index + 1).\(piece.file.pathExtension)"
+                try FileManager.default.copyItem(at: piece.file, to: folder.appending(path: file))
+                let properties = CGImageSourceCreateWithURL(piece.file as CFURL, nil).flatMap { CGImageSourceCopyPropertiesAtIndex($0, 0, nil) as? [CFString: Any] }
+                let width = properties?[kCGImagePropertyPixelWidth] as? Int ?? 1
+                let height = properties?[kCGImagePropertyPixelHeight] as? Int ?? 1
+                parts.append(CollageManifest.Piece(file: file, name: piece.name, width: width, height: height))
+            }
+            let original = "original.\(CollageManifest.fileExtension)"
+            try JSONEncoder().encode(CollageManifest(pieces: parts)).write(to: folder.appending(path: original), options: .atomic)
+            return original
+        }
+    }
+
+    /// A new photo from the same original as `document`, with these settings: a part split off it.
+    func duplicate(_ document: PhotoDocument, state: EditingState, name: String) async throws -> PhotoDocument {
+        let source = folder(document.id)
+        let originalFile = document.originalFile
+        return try await create(name: name, state: { _ in state }) { folder in
+            // Copies on the phone's own disk are clones: they take no space, and originals never change.
+            try FileManager.default.copyItem(at: source.appending(path: originalFile), to: folder.appending(path: originalFile))
+            let pieces = source.appending(path: "pieces", directoryHint: .isDirectory)
+            if FileManager.default.fileExists(atPath: pieces.path) {
+                try FileManager.default.copyItem(at: pieces, to: folder.appending(path: "pieces", directoryHint: .isDirectory))
+            }
+            return originalFile
+        }
+    }
+
+    /// The one way a photo comes into the library: `fill` puts its original (and anything beside it)
+    /// into a new folder and returns the original's name; the photo is opened once to learn what it
+    /// is and draw its thumbnail with the settings `state` gives it (untouched, unless said otherwise).
+    private func create(
+        name: String, state: @escaping @Sendable (PhotoInfo) -> EditingState = { EditingState(defaults: $0.defaults) },
+        fill: @escaping @Sendable (URL) throws -> String
+    ) async throws -> PhotoDocument {
         let id = UUID().uuidString
         let folder = folder(id)
-        try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
-        let fileExtension = source.pathExtension.isEmpty ? "img" : source.pathExtension.lowercased()
-        let originalFile = "original.\(fileExtension)"
-        let original = folder.appending(path: originalFile)
         let engine = engine
         do {
-            try FileManager.default.copyItem(at: source, to: original)
-            let (info, thumbnail) = try await Task.detached(priority: .userInitiated) {
-                try engine.with(original) { session, opened in
+            try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+            let (originalFile, info, start, thumbnail) = try await Task.detached(priority: .userInitiated) {
+                let originalFile = try fill(folder)
+                return try engine.with(folder.appending(path: originalFile)) { session, opened in
                     var info = opened
                     info.fileName = name
-                    let recipe = RenderRecipe(state: EditingState(defaults: info.defaults), defaults: info.defaults)
-                    return (info, try engine.jpeg(id: session, recipe: recipe, options: RenderOptions(maxEdge: PhotoRenderer.thumbnailEdge), quality: 0.8))
+                    let start = state(info)
+                    let recipe = RenderRecipe(state: start, defaults: info.defaults)
+                    let jpeg = try engine.jpeg(id: session, recipe: recipe, options: RenderOptions(maxEdge: PhotoRenderer.thumbnailEdge), quality: 0.8)
+                    return (originalFile, info, start, jpeg)
                 }
             }.value
             try thumbnail.write(to: thumbnailURL(id), options: .atomic)
-            let document = PhotoDocument(id: id, name: name, addedAt: Date(), originalFile: originalFile, info: info, state: EditingState(defaults: info.defaults))
+            let document = PhotoDocument(id: id, name: name, addedAt: Date(), originalFile: originalFile, info: info, state: start)
             write(document)
             return document
         } catch {

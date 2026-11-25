@@ -55,6 +55,16 @@ interface PhotoEditor {
     save(name: string): void;
     delete(name: string): void;
   };
+
+  /**
+   * Makes new photos from parts of this one, for a carousel, a panorama in pieces, or several
+   * prints in one scan: each part becomes its own photo in the library, with this photo's settings
+   * as they are at that point in the script, cropped to the part (local adjustments move with it).
+   * This photo does not change. Give `{ columns, rows }` for equal parts read across then down
+   * (2 to 20 parts), or the regions themselves, as fractions of the frame as shown.
+   * The photos are made when the script ends without an error, and the reply lists them.
+   */
+  split(parts: { columns?: number; rows?: number } | Region[]): void;
 }
 
 interface PhotoDocument {
@@ -143,6 +153,17 @@ interface PhotoDocument {
   /** Crops, straightens, turns or flips. Values left out keep their current value. */
   crop(settings: Partial<CropSettings>): void;
 
+  /**
+   * A collage's arrangement: which of its pieces (getMetadata().pieces) sits where. Only a collage
+   * has one; the person makes a collage by selecting photos in the library and tapping Combine.
+   * Every other setting applies to the whole collage, e.g. one grade so its pieces belong together.
+   */
+  readonly layout: {
+    get(): CollageLayout;
+    /** Values given replace theirs; `cells`, when given, replaces all the cells. */
+    set(settings: Partial<CollageLayout>): void;
+  };
+
   /** Puts a section back to how the photo was opened. Default "all". */
   reset(section?: ResetSection): void;
 
@@ -153,7 +174,7 @@ interface PhotoDocument {
 type CurveChannel = "rgb" | "red" | "green" | "blue";
 type ColorRange = "red" | "orange" | "yellow" | "green" | "aqua" | "blue" | "purple" | "magenta";
 type GradingRange = "shadows" | "midtones" | "highlights";
-type ResetSection = "all" | "light" | "color" | "curves" | "hsl" | "grading" | "detail" | "effects" | "local" | "crop";
+type ResetSection = "all" | "light" | "color" | "curves" | "hsl" | "grading" | "detail" | "effects" | "local" | "crop" | "layout";
 /** [input, output], both 0 to 1. */
 type CurvePoint = [number, number];
 /** Part of the frame, as fractions from its top-left corner. */
@@ -396,6 +417,39 @@ interface EditingState {
   halation: HalationSettings;
   local: LocalAdjustment[];
   crop: CropSettings;
+  /** Only on a collage. */
+  layout?: CollageLayout;
+}
+
+/**
+ * How a collage's pieces sit on its canvas. Cells are drawn in order, so a later one covers an
+ * earlier one where they overlap (a small picture set into a large one); a piece can appear in
+ * more than one cell, or in none.
+ */
+interface CollageLayout {
+  /** The canvas's width over its height, 0.25 to 4: 1 square, 0.8 for 4:5, 1.5 for 3:2. */
+  aspect: number;
+  /** Space between the pieces and around them, as a fraction of the long edge, 0 to 0.1. 0.01 is a fine line. */
+  gap: number;
+  /** The colour in the gaps, "#RRGGBB". */
+  background: string;
+  /** 1 to 24 cells. */
+  cells: CollageCell[];
+}
+
+/** One piece, cropped to fill a rectangle of the canvas. */
+interface CollageCell {
+  /** Which piece: its index in getMetadata().pieces. */
+  piece: number;
+  /** The rectangle, as fractions of the canvas from its top-left corner, before the gap is taken out. */
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+  /** The point of the piece ([x, y], 0 to 1 from its top-left) kept in view when it is cropped to fill. Default [0.5, 0.5]. */
+  focus?: [number, number];
+  /** 1 (default) fills the cell; up to 5 crops in further. */
+  zoom?: number;
 }
 
 interface ImageMetadata {
@@ -419,6 +473,8 @@ interface ImageMetadata {
   focalLength?: number;
   focalLength35mm?: number;
   dateTaken?: string;
+  /** Only on a collage: the photos it is made of, in order, at the size they were added. */
+  pieces?: { piece: number; name: string; width: number; height: number }[];
 }
 
 /** Measured on a small rendering of the photo: display-referred sRGB values. */

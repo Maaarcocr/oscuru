@@ -11,8 +11,9 @@ import UniformTypeIdentifiers
 public final class PhotoSession {
   public let url: URL
   public let isRaw: Bool
-  /// Full-resolution size after the file's own orientation is applied.
-  public let size: CGSize
+  /// Full-resolution size after the file's own orientation is applied; for a collage, its canvas in
+  /// the arrangement last rendered.
+  public private(set) var size: CGSize
   public private(set) var info = PhotoInfo(fileName: "", typeIdentifier: "", isRaw: false, width: 0, height: 0)
   /// Image properties (EXIF and friends) to carry into exports.
   public let properties: [String: Any]
@@ -21,6 +22,10 @@ public final class PhotoSession {
   private let rawDefaults: (temperature: Float, tint: Float, sharpness: Float, luminanceNoise: Float, colorNoise: Float)
   private let fullImage: CIImage?
   private let previewImage: CIImage?
+  /// A collage's pieces, at full size and as previews, and how it was first arranged.
+  private let collage: (manifest: CollageManifest, full: [CIImage], preview: [CIImage])?
+  /// The arrangement last rendered, for a collage.
+  private var layout: CollageLayout?
 
   /// The developed RAW at preview size, kept so that later stages can change without decoding again.
   private var developedCache: (key: String, image: CIImage)?
@@ -44,6 +49,36 @@ public final class PhotoSession {
 
   public init(url: URL) throws {
     self.url = url
+    if url.pathExtension.lowercased() == CollageManifest.fileExtension {
+      guard let data = try? Data(contentsOf: url), let manifest = try? JSONDecoder().decode(CollageManifest.self, from: data), !manifest.pieces.isEmpty
+      else { throw EngineError.cannotOpen("the collage could not be read") }
+      var full: [CIImage] = []
+      var preview: [CIImage] = []
+      for piece in manifest.pieces {
+        let file = url.deletingLastPathComponent().appendingPathComponent(piece.file)
+        guard let image = CIImage(contentsOf: file, options: [.applyOrientationProperty: true]) else {
+          throw EngineError.cannotOpen("a photo in the collage is missing")
+        }
+        full.append(image.atOrigin())
+        preview.append(PhotoSession.preview(of: file, size: image.extent.size) ?? image.atOrigin())
+      }
+      collage = (manifest, full, preview)
+      layout = manifest.layout
+      isRaw = false
+      rawFilter = nil
+      rawDefaults = (6500, 0, 0, 0, 0)
+      fullImage = nil
+      previewImage = nil
+      properties = [:]
+      let canvas = manifest.layout.canvasSize
+      size = CGSize(width: canvas.width, height: canvas.height)
+      info = PhotoInfo(
+        fileName: url.lastPathComponent, typeIdentifier: "com.oscuru.collage", isRaw: false, width: canvas.width, height: canvas.height,
+        defaults: PhotoDefaults(layout: manifest.layout))
+      info.pieces = manifest.pieces
+      return
+    }
+    collage = nil
     guard let source = CGImageSourceCreateWithURL(url as CFURL, nil) else {
       throw EngineError.cannotOpen("the file is not an image")
     }
@@ -73,25 +108,45 @@ public final class PhotoSession {
       }
       fullImage = image
       size = image.extent.size
-      let thumbnailOptions: [CFString: Any] = [
-        kCGImageSourceCreateThumbnailFromImageAlways: true,
-        kCGImageSourceCreateThumbnailWithTransform: true,
-        kCGImageSourceThumbnailMaxPixelSize: PhotoSession.previewLongEdge,
-        kCGImageSourceShouldCacheImmediately: true,
-      ]
-      if max(size.width, size.height) > PhotoSession.previewLongEdge,
-        let thumbnail = CGImageSourceCreateThumbnailAtIndex(source, 0, thumbnailOptions as CFDictionary)
-      {
-        previewImage = CIImage(cgImage: thumbnail)
-      } else {
-        previewImage = nil
-      }
+      previewImage = PhotoSession.preview(of: url, size: size)
     }
     guard size.width >= 1, size.height >= 1, size.width.isFinite, size.height.isFinite else {
       throw EngineError.cannotOpen("the image is empty")
     }
     info = PhotoSession.describe(
       url: url, typeIdentifier: typeIdentifier, properties: fileProperties, isRaw: isRaw, size: size, defaults: rawDefaults)
+  }
+
+  /// A smaller copy of a large image file for previews, at most `previewLongEdge` on its long edge;
+  /// nil when the file is no larger than that.
+  private static func preview(of url: URL, size: CGSize) -> CIImage? {
+    guard max(size.width, size.height) > previewLongEdge, let source = CGImageSourceCreateWithURL(url as CFURL, nil) else { return nil }
+    let options: [CFString: Any] = [
+      kCGImageSourceCreateThumbnailFromImageAlways: true,
+      kCGImageSourceCreateThumbnailWithTransform: true,
+      kCGImageSourceThumbnailMaxPixelSize: previewLongEdge,
+      kCGImageSourceShouldCacheImmediately: true,
+    ]
+    return CGImageSourceCreateThumbnailAtIndex(source, 0, options as CFDictionary).map { CIImage(cgImage: $0) }
+  }
+
+  /// Arranges a collage as `layout` says (its first arrangement when nil) before it is rendered. What
+  /// was found in the picture (subject, people, objects, depth) belonged to the old arrangement and
+  /// is looked for again. Does nothing for a photo.
+  func use(_ layout: CollageLayout?) {
+    guard let collage else { return }
+    let wanted = layout ?? collage.manifest.layout
+    guard wanted != self.layout else { return }
+    self.layout = wanted
+    let canvas = wanted.canvasSize
+    size = CGSize(width: canvas.width, height: canvas.height)
+    analysisPicture = nil
+    found = [:]
+    searched = []
+    depthMap = nil
+    estimatedDepth = false
+    selectionEncoding = nil
+    selections = [:]
   }
 
   /// The photo after exposure, white balance, noise reduction and (for RAW) sharpening, scaled so that
@@ -143,20 +198,29 @@ public final class PhotoSession {
       return image
     }
 
-    guard let full = fullImage else {
-      throw EngineError.renderFailed("the photo has no image data")
-    }
-    var image = full
-    if let preview = previewImage, scale * max(size.width, size.height) <= max(preview.extent.width, preview.extent.height) {
-      image = preview
-    }
-    let factor = scale * max(size.width, size.height) / max(image.extent.width, image.extent.height)
-    if factor < 0.999 {
-      let resize = CIFilter.lanczosScaleTransform()
-      resize.inputImage = image
-      resize.scale = Float(factor)
-      resize.aspectRatio = 1
-      image = (resize.outputImage ?? image).atOrigin()
+    var image: CIImage
+    if let collage {
+      // Arranged at the size wanted, from the previews when they are big enough.
+      let width = max(1, Int((size.width * scale).rounded()))
+      let height = max(1, Int((size.height * scale).rounded()))
+      let pieces = CGFloat(max(width, height)) <= PhotoSession.previewLongEdge ? collage.preview : collage.full
+      image = Effects.collage(layout ?? collage.manifest.layout, pieces: pieces, width: width, height: height)
+    } else {
+      guard let full = fullImage else {
+        throw EngineError.renderFailed("the photo has no image data")
+      }
+      image = full
+      if let preview = previewImage, scale * max(size.width, size.height) <= max(preview.extent.width, preview.extent.height) {
+        image = preview
+      }
+      let factor = scale * max(size.width, size.height) / max(image.extent.width, image.extent.height)
+      if factor < 0.999 {
+        let resize = CIFilter.lanczosScaleTransform()
+        resize.inputImage = image
+        resize.scale = Float(factor)
+        resize.aspectRatio = 1
+        image = (resize.outputImage ?? image).atOrigin()
+      }
     }
     if recipe.exposureEV != 0 {
       let exposure = CIFilter.exposureAdjust()

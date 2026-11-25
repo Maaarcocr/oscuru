@@ -16,7 +16,7 @@ Status: first prototype (0.1).
 ## Product rules (from the owner)
 
 - **Simple and AI-driven.** The editor is the photo and a prompt. Do not add sliders, curve editors or other manual controls; this is not Lightroom.
-- **Few screens, nothing twice.** Home is styles, photos and the camera. A photo is its conversation, a composer with Styles beside it, and Save and Share. A feature gets one place, where it is used, in plain sight; no menus of extras, no second entry point for the same thing.
+- **Few screens, nothing twice.** Home is styles, photos and the camera; photos chosen there are shared, saved, combined into a collage or deleted. A photo is its conversation, a composer with Styles beside it, and Save and Share. A feature gets one place, where it is used, in plain sight; no menus of extras, no second entry point for the same thing.
 - **The camera does not process.** It takes single-frame Bayer RAW and nothing else. Do not add processed capture, ProRAW, multi-frame merging or looks applied at capture; development happens in the conversation.
 - **No limits on the assistant.** No cap on scripts per request, no spending limits, no request timeouts, no token caps. Record what it costs; never stop it for cost or time. Only the person stops it.
 - **The assistant sees its work.** After every script that changes the photo it gets the picture before and after; scripts can ask for more with `photo.show()`. Keep that.

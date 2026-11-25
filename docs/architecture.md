@@ -96,6 +96,14 @@ A fit and a match replace only tone and colour, and keep the photo's own exposur
 
 `PhotoRenderer` is one photo open in the engine: every picture of it the app shows, saves or sends comes from there, and it is what scripts see of the app. An open photo's editor has one; `PhotoRenderer.with` opens one for as long as a piece of work needs it, for photos no editor has open. `AppModel.export` is the one way photos leave the app, from the photo screen and from a selection in the library alike (`ShareButton`): developed at full size as JPEGs, or the original files untouched, so a RAW stays RAW. `SaveButton` puts the developed JPEGs straight into the person's photo library (`AppModel.saveToPhotos`, add-only access), with their capture details, so Photos files them under when they were taken.
 
+## Collages and splitting
+
+Both make new photos from ones in the library; each is then a photo like any other, with its own conversation.
+
+A collage is made by choosing photos and tapping Combine. `AppModel.combine` develops them as `export` does and `Library.addCollage` keeps those JPEGs as the collage's pieces, beside a `CollageManifest` that is its original file. How the pieces sit (canvas shape, gap, its colour, one cell per piece with a focus and zoom) is `EditingState.layout`, so the assistant changes it with `photo.current.layout.set` and every version keeps its own; it starts as `CollageLayout.automatic`. The engine opens the manifest like a photo and draws the canvas in `Effects.collage` (each piece scaled with a Lanczos filter to cover its cell), then develops it like any other picture. Later edits to the photos it was made from do not reach it.
+
+`photo.split` asks for new photos made of parts of this one. The script only records them (`ScriptOutcome.parts`): each is these settings with the crop narrowed to its part and local adjustments moved with it (`EditingState.part`). When the script has ended without an error, the editor makes them with `Library.duplicate`, which copies the original; on the phone's disk a copy is a clone, so it takes no space.
+
 ## Accounts and cost
 
 There is no Oscuru server. The person signs in to OpenRouter (OAuth PKCE) or pastes a key; the key lives in the keychain. Every response carries what it cost; `UsageLedger` records it per user, instruction and photo, and Settings shows today, this month and in total. Oscuru never limits spending; a cap, if wanted, is set on the key at openrouter.ai.

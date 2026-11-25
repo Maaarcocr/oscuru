@@ -25,6 +25,9 @@ enum L10n {
     static var selectAll: String { String(localized: "library.selectAll") }
     static var deselectAll: String { String(localized: "library.deselectAll") }
     static var deselectDay: String { String(localized: "library.deselectDay") }
+    static var combine: String { String(localized: "library.combine") }
+    static var combineFailed: String { String(localized: "library.combineFailed") }
+    static var collageName: String { String(localized: "collage.name") }
     static var today: String { String(localized: "library.today") }
     static var yesterday: String { String(localized: "library.yesterday") }
     static var selectPhotos: String { String(localized: "library.selectPhotos") }
@@ -216,6 +219,8 @@ enum L10n {
             return names.isEmpty ? String(localized: "change.localNone") : "\(String(localized: "change.local")) \(names.joined(separator: ", "))"
         case ("crop", _):
             return String(localized: "change.crop")
+        case ("layout", _):
+            return String(localized: "change.layout")
         default:
             return change.path
         }

@@ -92,6 +92,8 @@ public struct RenderRecipe: Equatable, Sendable {
     public var cropY: Double = 0
     public var cropWidth: Double = 1
     public var cropHeight: Double = 1
+    /// A collage's arrangement; nil for a photo.
+    public var layout: CollageLayout?
     public var toneTableSize: Int = 0
     public var cubeSize: Int = 0
     /// Float32 RGB triples, `toneTableSize` of them. Empty for no tone stage.
@@ -133,6 +135,7 @@ public struct RenderRecipe: Equatable, Sendable {
         cropY = state.crop.y
         cropWidth = state.crop.width
         cropHeight = state.crop.height
+        layout = state.layout
         if let table = ColorPipeline.toneTables(state) {
             toneTableSize = ColorPipeline.toneTableSize
             toneTable = table.withUnsafeBufferPointer { Data(buffer: $0) }

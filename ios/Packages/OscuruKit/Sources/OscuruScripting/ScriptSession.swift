@@ -11,6 +11,8 @@ final class ScriptSession {
     var draft: EditingState
     var logs: [String] = []
     var shown: [LabeledImage] = []
+    /// New photos asked for with `photo.split`, as their settings.
+    var parts: [EditingState] = []
     private var measured: (state: EditingState, analysis: ImageAnalysis)?
 
     static let maxLogLines = 200
@@ -75,6 +77,15 @@ final class ScriptSession {
         case "local.remove": try draft.removeLocal(name: argument(0))
         case "local.reset": try draft.reset(section: "local", defaults: defaults)
         case "crop": try draft.setCrop(argument(0))
+        case "layout.get": return try draft.collageLayout().json
+        case "layout.set": try draft.setLayout(argument(0), pieces: request.info.pieces?.count ?? 0)
+        case "split":
+            let regions = try FrameRegion.parts(argument(0))
+            guard parts.count + regions.count <= FrameRegion.maxParts else {
+                throw StateError("a script can split off at most \(FrameRegion.maxParts) photos in all")
+            }
+            let aspect = draft.frameAspect(photoWidth: request.info.width, photoHeight: request.info.height)
+            parts += try regions.map { try draft.part($0, frameAspect: aspect) }
         case "reset": try draft.reset(section: argument(0) == .null ? "all" : argument(0), defaults: defaults)
         case "revert": draft = request.state
         case "show": try show(which: argument(0), options: argument(1))

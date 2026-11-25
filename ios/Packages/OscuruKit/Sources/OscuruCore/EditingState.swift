@@ -96,7 +96,7 @@ public enum Specs {
     public static let colorRanges = ["red", "orange", "yellow", "green", "aqua", "blue", "purple", "magenta"]
     public static let curveChannels = ["rgb", "red", "green", "blue"]
     public static let gradingRanges = ["shadows", "midtones", "highlights"]
-    public static let resetSections = ["all", "light", "color", "curves", "hsl", "grading", "detail", "effects", "local", "crop"]
+    public static let resetSections = ["all", "light", "color", "curves", "hsl", "grading", "detail", "effects", "local", "crop", "layout"]
 
     public static let maxCurvePoints = 16
     public static let minCurveGap = 0.004
@@ -123,13 +123,19 @@ public struct PhotoDefaults: Codable, Equatable, Sendable {
     public var sharpening: Double
     public var noiseReduction: Double
     public var colorNoiseReduction: Double
+    /// A collage's arrangement as it was made; nil for a photo.
+    public var layout: CollageLayout?
 
-    public init(temperature: Double = 6500, tint: Double = 0, sharpening: Double = 0, noiseReduction: Double = 0, colorNoiseReduction: Double = 0) {
+    public init(
+        temperature: Double = 6500, tint: Double = 0, sharpening: Double = 0, noiseReduction: Double = 0, colorNoiseReduction: Double = 0,
+        layout: CollageLayout? = nil
+    ) {
         self.temperature = temperature
         self.tint = tint
         self.sharpening = sharpening
         self.noiseReduction = noiseReduction
         self.colorNoiseReduction = colorNoiseReduction
+        self.layout = layout
     }
 }
 
@@ -180,6 +186,8 @@ public struct EditingState: Codable, Equatable, Sendable {
     /// Adjustments to parts of the photo, applied in order.
     public var local: [LocalAdjustment]
     public var crop: Crop
+    /// How a collage's pieces are arranged; nil for a photo.
+    public var layout: CollageLayout?
 
     static let identityCurve: [[Double]] = [[0, 0], [1, 1]]
 
@@ -188,7 +196,7 @@ public struct EditingState: Codable, Equatable, Sendable {
     }
 
     enum CodingKeys: String, CodingKey {
-        case global, curves, hsl, grading, detail, grain, halation, local, crop
+        case global, curves, hsl, grading, detail, grain, halation, local, crop, layout
     }
 
     /// Reads a saved state. Photos saved before grain, halation and local adjustments existed have none.
@@ -203,6 +211,7 @@ public struct EditingState: Codable, Equatable, Sendable {
         halation = try container.decodeIfPresent([String: Double].self, forKey: .halation) ?? EditingState.defaults(Specs.halation)
         local = try container.decodeIfPresent([LocalAdjustment].self, forKey: .local) ?? []
         crop = try container.decode(Crop.self, forKey: .crop)
+        layout = try container.decodeIfPresent(CollageLayout.self, forKey: .layout)
     }
 
     /// The state of an untouched photo.
@@ -228,6 +237,7 @@ public struct EditingState: Codable, Equatable, Sendable {
         halation = EditingState.defaults(Specs.halation)
         local = []
         crop = Crop()
+        layout = defaults.layout
     }
 
     public func value(_ name: String) -> Double { global[name] ?? 0 }
@@ -369,6 +379,7 @@ public struct EditingState: Codable, Equatable, Sendable {
             grain = fresh.grain
             halation = fresh.halation
         case "local": local = []
+        case "layout": layout = fresh.layout
         default: crop = fresh.crop
         }
     }
@@ -400,7 +411,7 @@ public struct EditingState: Codable, Equatable, Sendable {
 
     public var json: JSONValue {
         func numbers(_ values: [String: Double]) -> JSONValue { .object(values.mapValues { .number($0) }) }
-        return [
+        var json: JSONValue = [
             "global": numbers(global),
             "curves": .object(curves.mapValues { points in .array(points.map { .array($0.map { .number($0) }) }) }),
             "hsl": .object(hsl.mapValues(numbers)),
@@ -421,6 +432,11 @@ public struct EditingState: Codable, Equatable, Sendable {
                 "flipHorizontal": .bool(crop.flipHorizontal), "flipVertical": .bool(crop.flipVertical),
             ],
         ]
+        if let layout, case .object(var members) = json {
+            members["layout"] = layout.json
+            json = .object(members)
+        }
+        return json
     }
 
     /// Rebuilds a state from untrusted data (a saved document), checking every value.
@@ -450,6 +466,10 @@ public struct EditingState: Codable, Equatable, Sendable {
             for item in list { try setLocal(name: item["name"] ?? .null, settings: .object((item.objectValue ?? [:]).filter { $0.key != "name" })) }
         }
         if let value = json["crop"] { try setCrop(value) }
+        if let value = json["layout"], value != .null {
+            layout = CollageLayout(aspect: 1, cells: [])
+            try setLayout(value, pieces: CollageLayout.maxPieces)
+        }
     }
 
     // MARK: Changes
@@ -474,7 +494,7 @@ public struct EditingState: Codable, Equatable, Sendable {
                 changes.append(Change(path: path, from: old, to: new))
             }
         }
-        let order = ["global", "curves", "hsl", "grading", "detail", "grain", "halation", "local", "crop"]
+        let order = ["global", "curves", "hsl", "grading", "detail", "grain", "halation", "local", "crop", "layout"]
         let old = before.json
         let new = json
         for section in order { compare(section, old[section] ?? .null, new[section] ?? .null) }

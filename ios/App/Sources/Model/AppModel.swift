@@ -174,7 +174,9 @@ final class AppModel {
         var urls: [URL] = []
         for document in ids.compactMap({ library.document($0) }) {
             let source = library.originalURL(document)
-            let fileExtension = original ? source.pathExtension : "jpg"
+            // A collage's original is the arrangement it was made in, developed.
+            let copy = original && !document.isCollage
+            let fileExtension = copy ? source.pathExtension : "jpg"
             // Two photos with the same name get " 2", " 3", … rather than replacing each other.
             var name = document.fileName
             var number = 2
@@ -184,15 +186,24 @@ final class AppModel {
             }
             used.insert("\(name).\(fileExtension)".lowercased())
             let url = folder.appending(path: "\(name).\(fileExtension)")
-            if original {
+            if copy {
                 try await Task.detached(priority: .userInitiated) { try FileManager.default.copyItem(at: source, to: url) }.value
             } else {
-                let state = document.state
+                let state = original ? EditingState(defaults: document.info.defaults) : document.state
                 try await render(document) { try $0.export(state, to: url) }
             }
             urls.append(url)
         }
         return urls
+    }
+
+    /// A collage of photos as they are now (developed at full size, as `export` does), arranged to
+    /// start with; it opens like any photo, and the assistant arranges it from there.
+    func combine(_ ids: [String]) async throws -> PhotoDocument {
+        let files = try await export(ids, original: false)
+        defer { if let folder = files.first?.deletingLastPathComponent() { try? FileManager.default.removeItem(at: folder) } }
+        let names = ids.compactMap { library.document($0)?.name }
+        return try await library.addCollage(of: zip(files, names).map { (file: $0, name: $1) }, name: L10n.collageName)
     }
 
     /// Develops photos as `export` does and adds them to the person's photo library, asking only to

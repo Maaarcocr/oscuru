@@ -33,7 +33,7 @@ final class EditingStateTests: XCTestCase {
         XCTAssertEqual(Specs.colorRanges, ["red", "orange", "yellow", "green", "aqua", "blue", "purple", "magenta"])
         XCTAssertEqual(Specs.curveChannels, ["rgb", "red", "green", "blue"])
         XCTAssertEqual(Specs.gradingRanges, ["shadows", "midtones", "highlights"])
-        XCTAssertEqual(Specs.resetSections, ["all", "light", "color", "curves", "hsl", "grading", "detail", "effects", "local", "crop"])
+        XCTAssertEqual(Specs.resetSections, ["all", "light", "color", "curves", "hsl", "grading", "detail", "effects", "local", "crop", "layout"])
         XCTAssertEqual(Specs.grain.map(\.name), ["amount", "size", "roughness"])
         XCTAssertEqual(Specs.halation.map(\.name), ["amount", "radius", "threshold"])
         XCTAssertEqual(Specs.maskAreas, ["object", "subject", "people", "radial", "linear", "frame", "outline", "brush"])
@@ -557,7 +557,7 @@ final class EditingStateTests: XCTestCase {
         var state = try global(["exposureEV": 1])
         assertStateError(
             try state.reset(section: "everything", defaults: PhotoDefaults()),
-            "reset section must be one of \"all\", \"light\", \"color\", \"curves\", \"hsl\", \"grading\", \"detail\", \"effects\", \"local\", \"crop\", got \"everything\"")
+            "reset section must be one of \"all\", \"light\", \"color\", \"curves\", \"hsl\", \"grading\", \"detail\", \"effects\", \"local\", \"crop\", \"layout\", got \"everything\"")
         assertStateError(try state.reset(section: 3, defaults: PhotoDefaults()), contains: "reset section must be one of", "got 3")
         XCTAssertEqual(state.value("exposureEV"), 1)
     }

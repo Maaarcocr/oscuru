@@ -183,6 +183,7 @@ public final class Engine: @unchecked Sendable {
   /// The fully processed image, with its extent starting at the origin. With `options.mask`, the
   /// mask is painted over it and handed to `shownMask` too.
   func buildImage(session: PhotoSession, recipe: RenderRecipe, options: RenderOptions, shownMask: ((CIImage) -> Void)? = nil) throws -> CIImage {
+    session.use(recipe.layout)
     // Size of the output at full resolution, to choose how much to scale down before processing.
     let quarterTurned = abs(recipe.rotation) % 180 == 90
     var frame = quarterTurned ? CGSize(width: session.size.height, height: session.size.width) : session.size

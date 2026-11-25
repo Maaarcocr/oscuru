@@ -95,7 +95,10 @@ final class ScriptRuntimeTests: XCTestCase {
         runtime = ScriptRuntime(host: host)
     }
 
-    private func run(_ code: String, state: EditingState? = nil, before: EditingState? = nil, cancelled: @escaping @Sendable () -> Bool = { false }) async -> ScriptOutcome {
+    private func run(
+        _ code: String, state: EditingState? = nil, before: EditingState? = nil, info: PhotoInfo? = nil, cancelled: @escaping @Sendable () -> Bool = { false }
+    ) async -> ScriptOutcome {
+        let info = info ?? self.info
         let start = state ?? EditingState(defaults: info.defaults)
         return await runtime.run(ScriptRequest(code: code, state: start, info: info, before: before ?? start), isCancelled: cancelled)
     }
@@ -306,6 +309,45 @@ final class ScriptRuntimeTests: XCTestCase {
         XCTAssertTrue(unknown.error?.message.contains("no local adjustment named") ?? false)
         let misplaced = await run("photo.current.local.set('a', { mask: { area: { type: 'frame' } } }); photo.show('current', { mask: 'a' })")
         XCTAssertTrue(misplaced.error?.message.contains("only for show(\"mask\"") ?? false)
+    }
+
+    func testSplittingAsksForNewPhotosOnlyWhenTheScriptSucceeds() async {
+        let outcome = await run(
+            """
+            photo.current.adjust({ exposureEV: 0.4 });
+            photo.split({ columns: 3 });
+            """)
+        XCTAssertNil(outcome.error)
+        XCTAssertEqual(outcome.parts.count, 3)
+        XCTAssertEqual(outcome.parts.map { $0.value("exposureEV") }, [0.4, 0.4, 0.4], "each part has the edits made before the split")
+        XCTAssertEqual(outcome.parts[1].crop.x, 1.0 / 3, accuracy: 1e-9)
+        XCTAssertEqual(outcome.state.crop, EditingState().crop, "this photo is not cropped")
+
+        let failed = await run("photo.split({ columns: 2 }); throw new Error('changed my mind');")
+        XCTAssertTrue(failed.parts.isEmpty, "a script that fails makes nothing")
+    }
+
+    func testACollagesLayoutIsReadAndChangedAndAPhotoHasNone() async {
+        var collage = PhotoInfo(fileName: "Collage", typeIdentifier: "com.oscuru.collage", isRaw: false, width: 4096, height: 2048)
+        collage.pieces = [
+            CollageManifest.Piece(file: "pieces/1.jpg", name: "A", width: 3000, height: 4000),
+            CollageManifest.Piece(file: "pieces/2.jpg", name: "B", width: 3000, height: 4000),
+        ]
+        collage.defaults.layout = CollageLayout.automatic(aspects: [0.75, 0.75])
+        let outcome = await run(
+            """
+            const before = photo.current.layout.get();
+            photo.current.layout.set({ aspect: 0.8, cells: [{ piece: 1, x: 0, y: 0, width: 1, height: 1 }, { piece: 0, x: 0.6, y: 0.6, width: 0.35, height: 0.35 }] });
+            [before.cells.length, photo.current.getMetadata().pieces.length]
+            """, info: collage)
+        XCTAssertNil(outcome.error)
+        XCTAssertEqual(outcome.returnValue, "[2,2]")
+        XCTAssertEqual(outcome.state.layout?.aspect, 0.8)
+        XCTAssertEqual(outcome.state.layout?.cells.map(\.piece), [1, 0])
+        XCTAssertTrue(outcome.changes.contains { $0.path.hasPrefix("layout.") })
+
+        let photo = await run("photo.current.layout.get()")
+        XCTAssertTrue(photo.error?.message.contains("not a collage") ?? false)
     }
 
     func testShowingDepthGivesTheScaleOfDepthRanges() async {
