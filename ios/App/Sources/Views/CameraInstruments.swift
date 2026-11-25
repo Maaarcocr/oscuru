@@ -43,25 +43,29 @@ struct BlownMarks: View {
     let statistics: FrameStatistics
     /// How far the measured frame is turned to stand upright, in degrees clockwise.
     let rotation: Double
+    /// How much larger than the frame the viewfinder shows its picture: the marked places are
+    /// enlarged with it, the stripes are not.
+    var magnification: Double = 1
 
     var body: some View {
         if statistics.blownShare > 0, let map {
+            // Dark stripes: what is blown is bright, and the picture stays in view between them.
             Canvas { context, size in
-                context.fill(Path(CGRect(origin: .zero, size: size)), with: .color(.black.opacity(0.6)))
                 var stripes = Path()
                 var x = -size.height
                 while x < size.width {
                     stripes.move(to: CGPoint(x: x, y: size.height))
                     stripes.addLine(to: CGPoint(x: x + size.height, y: 0))
-                    x += 7
+                    x += 8
                 }
-                context.stroke(stripes, with: .color(.white), lineWidth: 2.5)
+                context.stroke(stripes, with: .color(.black.opacity(0.7)), lineWidth: 2.5)
             }
             .mask {
                 Image(decorative: map, scale: 1, orientation: orientation)
                     .resizable()
                     .interpolation(.low)
                     .luminanceToAlpha()
+                    .scaleEffect(magnification)
             }
             .allowsHitTesting(false)
             .accessibilityHidden(true)

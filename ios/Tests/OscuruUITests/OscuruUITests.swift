@@ -174,8 +174,11 @@ final class OscuruUITests: XCTestCase {
         app.terminate()
         app.launch()
         XCTAssertTrue(photo.waitForExistence(timeout: 60))
-        // With frames turned on, the camera has one more value in its line.
+        // With frames turned on, the camera has one more value in its line, in zero processing
+        // (the camera opens as it was left, which was in ProRAW).
         element(app, "library.camera").tap()
+        XCTAssertTrue(element(app, "camera.mode.zero").waitForExistence(timeout: 30))
+        element(app, "camera.mode.zero").tap()
         XCTAssertTrue(element(app, "camera.value.frames").waitForExistence(timeout: 30), "the camera offers frames")
         element(app, "camera.value.frames").tap()
         XCTAssertTrue(element(app, "camera.dial").waitForExistence(timeout: 10))

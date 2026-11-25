@@ -237,14 +237,14 @@ struct CameraView: View {
                         PreviewLayerView(camera: camera)
                     }
                 }
-                // Stripes where the picture is blown, on the picture, so they follow its zoom.
-                .overlay {
-                    if let statistics = camera.statistics { BlownMarks(statistics: statistics, rotation: camera.frameRotation) }
-                }
                 .scaleEffect(camera.magnification * (loupe ? 2.5 : 1))
                 // The moment one lens's picture gives way to the next is softened rather than seen.
                 .blur(radius: camera.switchingLens ? 14 : 0)
                 .animation(.easeInOut(duration: 0.15), value: camera.switchingLens)
+                // Stripes where the picture is blown, following its zoom.
+                if let statistics = camera.statistics {
+                    BlownMarks(statistics: statistics, rotation: camera.frameRotation, magnification: camera.magnification * (loupe ? 2.5 : 1))
+                }
                 if camera.showsGuides {
                     ThirdsGrid()
                     if let angle = level.angle, Level.isNearLevel(angle) {
@@ -349,7 +349,7 @@ struct CameraView: View {
                     dialUse += 1
                     let start = dialStart ?? camera.zoom
                     dialStart = start
-                    camera.setZoom(camera.snapped(start * pow(2, CameraDial.turn(value.translation))))
+                    camera.setZoom(camera.snapped(start * pow(2, CameraDial.Gearing.fine.turn(value.translation))))
                 }
                 .onEnded { _ in
                     dialStart = nil
@@ -555,6 +555,7 @@ struct CameraView: View {
             switch value {
             case .time: named = index == 0 || index == stops.count - 1 || ExposureScale.isWholeTime(stop)
             case .iso: named = index == 0 || index == stops.count - 1 || ExposureScale.isWholeISO(stop)
+            case .aperture: named = index == 0 || index == stops.count - 1 || camera.limits.apertureStops.contains { abs($0 / stop - 1) < 0.03 }
             default: named = true
             }
             let text: String
@@ -583,8 +584,10 @@ struct CameraView: View {
         let dialMarks = marks(value)
         let low = dialMarks.map(\.position).min() ?? 0
         let high = dialMarks.map(\.position).max() ?? 0
+        // Focus is turned finely; the rest go through stops.
+        let gearing = value == .focus ? CameraDial.Gearing.fine : CameraDial.Gearing.stops
         return CameraDial(
-            position: turned ?? Self.position(value, camera.shown(value)), marks: dialMarks, text: dialText(value), name: name(value)
+            position: turned ?? Self.position(value, camera.shown(value)), marks: dialMarks, text: dialText(value), name: name(value), gearing: gearing
         ) { step in
             dialUse += 1
             camera.step(value, by: step)
@@ -616,7 +619,7 @@ struct CameraView: View {
                     dialUse += 1
                     let start = turnStart ?? Self.position(value, camera.shown(value))
                     turnStart = start
-                    let position = min(max(start + CameraDial.turn(drag.translation), low), high)
+                    let position = min(max(start + gearing.turn(drag.translation), low), high)
                     turned = position
                     if value == .focus, !loupe { withAnimation(.snappy(duration: 0.2)) { loupe = true } }
                     set(value, to: Self.amount(value, at: position))

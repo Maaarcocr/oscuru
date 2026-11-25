@@ -20,16 +20,26 @@ struct CameraDial: View {
     let text: String
     /// What the dial sets, for VoiceOver.
     let name: String
+    /// How the dial is geared: how far it turns, and how far a finger moves, for one unit.
+    var gearing = Gearing.fine
     /// For VoiceOver, which turns it a step at a time: +1 or −1.
     let step: (Int) -> Void
 
-    static let degreesPerUnit = 34.0
-    /// How far a finger moves for a unit: about the same turn on the dial.
-    static let pointsPerUnit = 180.0
+    struct Gearing {
+        let degreesPerUnit: Double
+        /// How far a finger moves for a unit: about the same turn on the dial.
+        let pointsPerUnit: Double
 
-    /// How far a drag turns the dial, in units: left or up is further along.
-    static func turn(_ translation: CGSize) -> Double {
-        -(translation.width + translation.height) / pointsPerUnit
+        /// For a value set finely over a short range: zoom (a unit is a doubling) and focus.
+        static let fine = Gearing(degreesPerUnit: 34, pointsPerUnit: 180)
+        /// For a value that goes through many stops: time, ISO, aperture, frames (a unit is a stop).
+        /// Two stops either side are in view, and a swipe across the screen goes through six.
+        static let stops = Gearing(degreesPerUnit: 17, pointsPerUnit: 64)
+
+        /// How far a drag turns the dial, in units: left or up is further along.
+        func turn(_ translation: CGSize) -> Double {
+            -(translation.width + translation.height) / pointsPerUnit
+        }
     }
 
     var body: some View {
@@ -45,7 +55,7 @@ struct CameraDial: View {
                     .position(centre)
                 Canvas { context, _ in
                     for mark in marks {
-                        let angle = (mark.position - position) * CameraDial.degreesPerUnit * .pi / 180
+                        let angle = (mark.position - position) * gearing.degreesPerUnit * .pi / 180
                         guard abs(angle) < 1.1 else { continue }
                         func point(_ distance: Double) -> CGPoint {
                             CGPoint(x: centre.x + distance * sin(angle), y: centre.y - distance * cos(angle))
