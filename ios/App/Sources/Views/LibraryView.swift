@@ -68,9 +68,8 @@ struct LibraryView: View {
                         .frame(maxHeight: .infinity)
                 }
             } else {
-                PhotoGrid(photos: photos, selection: $selection) {
-                    if selection == nil { styleStrip }
-                }
+                // The styles stay while selecting, so the photos never move under the finger.
+                PhotoGrid(photos: photos, selection: $selection) { styleStrip }
             }
         }
         .safeAreaInset(edge: .bottom, spacing: 0) { bottomBar }
@@ -155,8 +154,10 @@ struct LibraryView: View {
     // MARK: Styles
 
     /// Your styles, and the way to make one from pictures. Tap a style, then the photos it goes on.
+    /// While selecting they rest, dimmed, except the style being put on.
     private var styleStrip: some View {
-        ScrollView(.horizontal, showsIndicators: false) {
+        let selecting = selection != nil
+        return ScrollView(.horizontal, showsIndicators: false) {
             HStack(alignment: .top, spacing: 12) {
                 Button {
                     creatingStyle = true
@@ -164,6 +165,8 @@ struct LibraryView: View {
                     StyleTile(title: L10n.newStyle, isNew: true)
                 }
                 .buttonStyle(.plain)
+                .disabled(selecting)
+                .opacity(selecting ? 0.35 : 1)
                 .accessibilityIdentifier("library.newStyle")
                 ForEach(model.styles) { style in
                     Button {
@@ -176,7 +179,8 @@ struct LibraryView: View {
                         }
                     }
                     .buttonStyle(.plain)
-                    .disabled(photos.isEmpty)
+                    .disabled(photos.isEmpty || selecting)
+                    .opacity(!selecting || applying?.id == style.id ? 1 : 0.35)
                     .accessibilityLabel(style.name)
                     .accessibilityIdentifier("library.style")
                     .contextMenu {
@@ -192,6 +196,7 @@ struct LibraryView: View {
         }
         .padding(.top, 4)
         .padding(.bottom, 16)
+        .animation(.snappy(duration: 0.2), value: selecting)
     }
 
     private func apply(_ style: Style) {

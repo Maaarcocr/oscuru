@@ -6,8 +6,8 @@ private let gridSpace = "library.grid"
 private let viewportSpace = "library.viewport"
 
 /// The library's photos, three squares a row with hairline gaps, as in Photos. A photo opens on
-/// a tap. While `selection` is set, photos are chosen instead: by tapping them, or by running a
-/// finger across them.
+/// a tap; holding one starts selecting, with that photo chosen. While `selection` is set, photos are
+/// chosen instead: by tapping them, or by running a finger across them.
 struct PhotoGrid<Header: View>: View {
     @Environment(AppModel.self) private var model
     let photos: [PhotoDocument]
@@ -21,6 +21,8 @@ struct PhotoGrid<Header: View>: View {
     @State private var gridWidth: CGFloat = 0
     @State private var scrollMetrics = ScrollMetrics()
     @State private var autoScroll: Task<Void, Never>?
+    /// Counts photos held to start selecting, for the tap felt in the hand.
+    @State private var holds = 0
 
     private struct SelectionRun {
         var start: Int
@@ -58,7 +60,9 @@ struct PhotoGrid<Header: View>: View {
                             began: { start, finger, screenY in beginRun(at: start, finger: finger, screenY: screenY) },
                             moved: { finger, screenY in moveRun(to: finger, screenY: screenY, proxy: proxy) },
                             ended: endRun))
+                    .gesture(PhotoHold(isEnabled: selection == nil, held: hold))
             }
+            .sensoryFeedback(.selection, trigger: holds)
             .coordinateSpace(.named(viewportSpace))
             .onScrollGeometryChange(for: ScrollMetrics.self) { geometry in
                 ScrollMetrics(
@@ -93,6 +97,7 @@ struct PhotoGrid<Header: View>: View {
                         NavigationLink(value: photo.id) {
                             thumbnail
                         }
+                        .accessibilityAction(named: L10n.select) { selection = [photo.id] }
                     }
                 }
                 .buttonStyle(.plain)
@@ -106,13 +111,22 @@ struct PhotoGrid<Header: View>: View {
 
     // MARK: Finger runs
 
-    /// The photo under a point of the grid. Below the last photo counts as the last photo.
-    private func index(at point: CGPoint) -> Int? {
+    /// The photo under a point of the grid. Unless `exactly`, below the last photo counts as the last photo.
+    private func index(at point: CGPoint, exactly: Bool = false) -> Int? {
         guard gridWidth > 0, !photos.isEmpty else { return nil }
         let pitch = (gridWidth - 2 * gap) / 3 + gap
         let column = min(2, max(0, Int(point.x / pitch)))
         let row = max(0, Int((point.y / pitch).rounded(.down)))
-        return min(photos.count - 1, row * 3 + column)
+        let index = row * 3 + column
+        if exactly { return point.y >= 0 && index < photos.count ? index : nil }
+        return min(photos.count - 1, index)
+    }
+
+    /// A photo held: selecting starts, with it chosen, as in Photos.
+    private func hold(at point: CGPoint) {
+        guard selection == nil, let index = index(at: point, exactly: true) else { return }
+        selection = [photos[index].id]
+        holds += 1
     }
 
     private func beginRun(at start: CGPoint, finger: CGPoint, screenY: CGFloat) {
@@ -241,6 +255,27 @@ private struct Thumbnail: View {
                 let url = url
                 image = await Task.detached { UIImage(contentsOfFile: url.path) }.value
             }
+    }
+}
+
+/// A finger held still on the grid, reported where it is in the grid. Once it is recognised the tap
+/// under it is cancelled, so holding a photo does not also open it; a scroll that starts first wins.
+private struct PhotoHold: UIGestureRecognizerRepresentable {
+    var isEnabled: Bool
+    var held: (CGPoint) -> Void
+
+    func makeUIGestureRecognizer(context: Context) -> UILongPressGestureRecognizer {
+        let hold = UILongPressGestureRecognizer()
+        hold.minimumPressDuration = 0.4
+        return hold
+    }
+
+    func updateUIGestureRecognizer(_ recognizer: UILongPressGestureRecognizer, context: Context) {
+        recognizer.isEnabled = isEnabled
+    }
+
+    func handleUIGestureRecognizerAction(_ recognizer: UILongPressGestureRecognizer, context: Context) {
+        if recognizer.state == .began { held(context.converter.location(in: .named(gridSpace))) }
     }
 }
 

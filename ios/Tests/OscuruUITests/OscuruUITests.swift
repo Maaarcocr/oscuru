@@ -91,9 +91,11 @@ final class OscuruUITests: XCTestCase {
         element(app, "library.applyStyle").tap()
         XCTAssertTrue(element(app, "library.select").waitForExistence(timeout: 60), "applied, and back to the library")
 
-        // Selecting, as in Photos: choose photos to share or delete.
-        element(app, "library.select").tap()
-        photo.tap()
+        // Selecting, as in Photos: holding a photo starts it, with that photo chosen.
+        photo.press(forDuration: 1)
+        XCTAssertTrue(element(app, "library.endSelect").waitForExistence(timeout: 30), "holding a photo starts selecting")
+        XCTAssertTrue(photo.isSelected, "with the photo held chosen")
+        XCTAssertFalse(element(app, "composer.field").exists, "and without opening it")
         capture("09-select")
         element(app, "library.endSelect").tap()
         element(app, "library.camera").tap()
