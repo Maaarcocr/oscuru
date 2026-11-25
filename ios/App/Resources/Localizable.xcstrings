@@ -145,6 +145,38 @@
         }
       }
     },
+    "camera.frames": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Frames"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Fotogrammi"
+          }
+        }
+      }
+    },
+    "camera.framesFailed": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The frames could not be averaged, so one of them was kept."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Non è stato possibile fare la media dei fotogrammi: ne è stato tenuto uno."
+          }
+        }
+      }
+    },
     "camera.guides": {
       "localizations": {
         "en": {
@@ -189,6 +221,22 @@
           "stringUnit": {
             "state": "translated",
             "value": "Istogramma"
+          }
+        }
+      }
+    },
+    "camera.holdStill": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Hold still"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Resta fermo"
           }
         }
       }
@@ -2333,6 +2381,38 @@
           "stringUnit": {
             "state": "translated",
             "value": "Scollegare OpenRouter?"
+          }
+        }
+      }
+    },
+    "settings.frames": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Frames"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Fotogrammi"
+          }
+        }
+      }
+    },
+    "settings.frames.footer": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Adds a frames value to the camera in zero processing. At ×8 it takes eight RAW frames, lines them up and averages them into one RAW file with less noise: ×4 halves it, ×16 quarters it. Nothing else is done to the file. Hold still while it shoots."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Aggiunge alla fotocamera, senza elaborazione, il valore dei fotogrammi. A ×8 scatta otto fotogrammi RAW, li allinea e ne fa la media in un solo file RAW con meno rumore: ×4 lo dimezza, ×16 lo riduce a un quarto. Al file non viene fatto altro. Resta fermo mentre scatta."
           }
         }
       }

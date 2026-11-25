@@ -478,6 +478,12 @@ interface ImageMetadata {
    * settings start with. The whole frame is still in the file: widen the crop to zoom out.
    */
   framedInCamera?: { x: number; y: number; width: number; height: number };
+  /**
+   * Only when the camera averaged several RAW frames into this file: how many. Its noise is lower
+   * than its ISO suggests, by the square root of this (16 frames: a quarter), so it needs less
+   * noise reduction than a single frame at that ISO, often none.
+   */
+  frames?: number;
   /** Only on a collage: the photos it is made of, in order, at the size they were added. */
   pieces?: { piece: number; name: string; width: number; height: number }[];
 }

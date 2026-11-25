@@ -337,38 +337,116 @@ final class CaptureService: @unchecked Sendable {
     /// DNG data. `didCapture` runs when the sensor has been read, which is when the shutter should
     /// look and feel taken.
     func capture(rotationAngle: CGFloat, proRAW: Bool, didCapture: @escaping @Sendable () -> Void) async throws -> Data {
+        let photos = try await request(rotationAngle: rotationAngle, didCapture: didCapture) {
+            let useProRAW = proRAW && self.output.isAppleProRAWEnabled
+            let format =
+                useProRAW
+                ? self.output.availableRawPhotoPixelFormatTypes.first { AVCapturePhotoOutput.isAppleProRAWPixelFormat($0) } : self.bayerFormat
+            guard let format else { throw CameraError.noRAW }
+            // RAW only: no processed image is asked for. In zero processing none of Apple's
+            // processing runs. ProRAW is Apple's processing by nature: asked for at the lens's
+            // full size and best quality. With any of the exposure set by hand, the shot is
+            // asked for at speed instead: at any other quality Apple may shoot at a time and an
+            // ISO of its own, and what was set is what must be shot.
+            let settings = AVCapturePhotoSettings(rawPixelFormatType: format)
+            let setByHand = !self.exposure.isAutomatic
+            if useProRAW {
+                settings.maxPhotoDimensions = self.output.maxPhotoDimensions
+                if !setByHand, self.output.maxPhotoQualityPrioritization == .quality { settings.photoQualityPrioritization = .quality }
+            }
+            if setByHand { settings.photoQualityPrioritization = .speed }
+            return settings
+        }
+        guard let photo = photos.first else { throw CameraError.noPhoto }
+        return photo
+    }
+
+    /// Takes `count` Bayer RAW frames one after another, at the exposure and the focus the camera
+    /// has when it starts, and returns each as DNG data in the order taken: the frames of one
+    /// picture, to be averaged. `progress` says how many have been taken so far.
+    func captureBurst(count: Int, rotationAngle: CGFloat, progress: @escaping @Sendable (Int) -> Void) async throws -> [Data] {
+        await hold(true)
+        var frames: [Data] = []
+        do {
+            while frames.count < count {
+                let wanted = count - frames.count
+                frames += try await request(rotationAngle: rotationAngle, didCapture: {}) {
+                    guard let format = self.bayerFormat else { throw CameraError.noRAW }
+                    // As many at once as the camera takes in one go, back to back; where it takes
+                    // only one, one. The exposure is the camera's own, which is held for the burst.
+                    let most = min(wanted, self.output.maxBracketedCapturePhotoCount)
+                    guard most >= 2 else {
+                        let settings = AVCapturePhotoSettings(rawPixelFormatType: format)
+                        settings.photoQualityPrioritization = .speed
+                        return settings
+                    }
+                    let each = (0..<most).map { _ in
+                        AVCaptureManualExposureBracketedStillImageSettings.manualExposureSettings(
+                            exposureDuration: AVCaptureDevice.currentExposureDuration, iso: AVCaptureDevice.currentISO)
+                    }
+                    let settings = AVCapturePhotoBracketSettings(rawPixelFormatType: format, processedFormat: nil, bracketedSettings: each)
+                    settings.photoQualityPrioritization = .speed
+                    if self.output.isLensStabilizationDuringBracketedCaptureSupported { settings.isLensStabilizationEnabled = true }
+                    return settings
+                }
+                progress(frames.count)
+            }
+        } catch {
+            await hold(false)
+            // What was taken before something went wrong is still a picture.
+            if frames.isEmpty { throw error }
+            return frames
+        }
+        await hold(false)
+        return frames
+    }
+
+    /// Holds the exposure and the focus where they are for a burst, or gives them back to what
+    /// was set (or to the camera) after it.
+    private func hold(_ held: Bool) async {
+        await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
+            queue.async {
+                if held, let device = self.input?.device, (try? device.lockForConfiguration()) != nil {
+                    if device.isExposureModeSupported(.custom) {
+                        device.setExposureModeCustom(
+                            lensAperture: AVCaptureDevice.currentLensAperture, duration: AVCaptureDevice.currentExposureDuration,
+                            iso: AVCaptureDevice.currentISO, completionHandler: nil)
+                    }
+                    if self.focusPosition == nil, device.isFocusModeSupported(.locked) { device.focusMode = .locked }
+                    device.unlockForConfiguration()
+                } else if !held {
+                    _ = self.applyNow(self.exposure, holding: true)
+                    self.applyFocus()
+                }
+                continuation.resume()
+            }
+        }
+    }
+
+    /// One capture request: `settings` makes it (on the queue), and every photo it gives comes
+    /// back as DNG data, in order.
+    private func request(
+        rotationAngle: CGFloat, didCapture: @escaping @Sendable () -> Void, settings: @escaping @Sendable () throws -> AVCapturePhotoSettings
+    ) async throws -> [Data] {
         try await withCheckedThrowingContinuation { continuation in
             queue.async {
-                let useProRAW = proRAW && self.output.isAppleProRAWEnabled
-                let format =
-                    useProRAW
-                    ? self.output.availableRawPhotoPixelFormatTypes.first { AVCapturePhotoOutput.isAppleProRAWPixelFormat($0) } : self.bayerFormat
-                guard let format else {
-                    continuation.resume(throwing: CameraError.noRAW)
+                let made: AVCapturePhotoSettings
+                do {
+                    made = try settings()
+                } catch {
+                    continuation.resume(throwing: error)
                     return
                 }
-                // RAW only: no processed image is asked for. In zero processing none of Apple's
-                // processing runs. ProRAW is Apple's processing by nature: asked for at the lens's
-                // full size and best quality. With any of the exposure set by hand, the shot is
-                // asked for at speed instead: at any other quality Apple may shoot at a time and an
-                // ISO of its own, and what was set is what must be shot.
-                let settings = AVCapturePhotoSettings(rawPixelFormatType: format)
-                let setByHand = !self.exposure.isAutomatic
-                if useProRAW {
-                    settings.maxPhotoDimensions = self.output.maxPhotoDimensions
-                    if !setByHand, self.output.maxPhotoQualityPrioritization == .quality { settings.photoQualityPrioritization = .quality }
-                }
-                if setByHand { settings.photoQualityPrioritization = .speed }
                 if let connection = self.output.connection(with: .video), connection.isVideoRotationAngleSupported(rotationAngle) {
                     connection.videoRotationAngle = rotationAngle
                 }
-                let id = settings.uniqueID
+                let id = made.uniqueID
                 let delegate = PhotoCapture(didCapture: didCapture) { result in
                     self.queue.async { self.inFlight[id] = nil }
                     continuation.resume(with: result)
                 }
                 self.inFlight[id] = delegate
-                self.output.capturePhoto(with: settings, delegate: delegate)
+                self.output.capturePhoto(with: made, delegate: delegate)
             }
         }
     }
@@ -415,13 +493,15 @@ private final class FrameMeter: NSObject, AVCaptureVideoDataOutputSampleBufferDe
     }
 }
 
+/// Collects the photos of one capture request: one, or the frames of a bracket.
 private final class PhotoCapture: NSObject, AVCapturePhotoCaptureDelegate {
     private let didCapture: @Sendable () -> Void
-    private let completion: (Result<Data, Error>) -> Void
-    private var data: Data?
+    private let completion: (Result<[Data], Error>) -> Void
+    /// Each photo's data by its place in the request.
+    private var photos: [Int: Data] = [:]
     private var failure: Error?
 
-    init(didCapture: @escaping @Sendable () -> Void, completion: @escaping (Result<Data, Error>) -> Void) {
+    init(didCapture: @escaping @Sendable () -> Void, completion: @escaping (Result<[Data], Error>) -> Void) {
         self.didCapture = didCapture
         self.completion = completion
     }
@@ -433,16 +513,16 @@ private final class PhotoCapture: NSObject, AVCapturePhotoCaptureDelegate {
     func photoOutput(_ output: AVCapturePhotoOutput, didFinishProcessingPhoto photo: AVCapturePhoto, error: Error?) {
         if let error {
             failure = error
-        } else if photo.isRawPhoto {
-            data = photo.fileDataRepresentation()
+        } else if photo.isRawPhoto, let data = photo.fileDataRepresentation() {
+            photos[photo.photoCount] = data
         }
     }
 
     func photoOutput(_ output: AVCapturePhotoOutput, didFinishCaptureFor resolvedSettings: AVCaptureResolvedPhotoSettings, error: Error?) {
-        if let data {
-            completion(.success(data))
-        } else {
+        if photos.isEmpty {
             completion(.failure(error ?? failure ?? CameraError.noPhoto))
+        } else {
+            completion(.success(photos.keys.sorted().compactMap { photos[$0] }))
         }
     }
 }

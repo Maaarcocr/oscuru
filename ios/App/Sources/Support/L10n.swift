@@ -110,6 +110,9 @@ enum L10n {
     static var cameraHistogram: String { String(localized: "camera.histogram") }
     static var cameraHighlightsBlown: String { String(localized: "camera.highlightsBlown") }
     static var cameraProRAWSetHint: String { String(localized: "camera.proRAW.setHint") }
+    static var cameraFrames: String { String(localized: "camera.frames") }
+    static var cameraHoldStill: String { String(localized: "camera.holdStill") }
+    static var cameraFramesFailed: String { String(localized: "camera.framesFailed") }
     static var cameraZoom: String { String(localized: "camera.zoom") }
     static var cameraZeroProcessing: String { String(localized: "camera.mode.zero") }
     static var cameraZeroProcessingHint: String { String(localized: "camera.mode.zero.hint") }
@@ -340,6 +343,8 @@ enum L10n {
     static var settingsAccountFooter: String { String(localized: "settings.account.footer") }
     static var settingsConnectFailed: String { String(localized: "settings.connectFailed") }
     static var signInExpired: String { String(localized: "settings.signInExpired") }
+    static var settingsFrames: String { String(localized: "settings.frames") }
+    static var settingsFramesFooter: String { String(localized: "settings.frames.footer") }
     static var settingsModel: String { String(localized: "settings.model") }
     static var settingsModelFooter: String { String(localized: "settings.model.footer") }
     static func modelPrice(id: String, input: Double, output: Double) -> String {

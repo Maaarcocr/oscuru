@@ -23,6 +23,9 @@ public struct PhotoInfo: Codable, Equatable, Sendable {
     public var dateTaken: String?
     /// A collage's pieces, in order: what its layout's cells refer to. Nil for a photo.
     public var pieces: [CollageManifest.Piece]?
+    /// How many RAW frames the camera averaged into this file, when more than one: its noise is
+    /// lower than its ISO says, by the square root of this. Kept in the photo's record.
+    public var frames: Int?
 
     public init(fileName: String, typeIdentifier: String, isRaw: Bool, width: Int, height: Int, defaults: PhotoDefaults = PhotoDefaults()) {
         self.fileName = fileName
@@ -55,6 +58,7 @@ public struct PhotoInfo: Codable, Equatable, Sendable {
         if let framing = defaults.framing {
             members["framedInCamera"] = ["x": .number(framing.x), "y": .number(framing.y), "width": .number(framing.width), "height": .number(framing.height)]
         }
+        if let frames, frames > 1 { members["frames"] = .number(Double(frames)) }
         if let pieces {
             members["pieces"] = .array(
                 pieces.enumerated().map { ["piece": .number(Double($0.offset)), "name": .string($0.element.name), "width": .number(Double($0.element.width)), "height": .number(Double($0.element.height))] })

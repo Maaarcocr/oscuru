@@ -19,6 +19,8 @@ struct Lens: Identifiable, Equatable, Sendable {
 /// A value of the camera the person can set by hand, or leave to the camera.
 enum CameraValue: String, CaseIterable, Identifiable, Sendable {
     case aperture, time, iso, focus
+    /// How many RAW frames are averaged into the shot: one, unless the person asks for more.
+    case frames
 
     var id: String { rawValue }
 }
@@ -41,6 +43,10 @@ enum ShootingMode: String, Sendable {
 ///
 /// The exposure is the photographer's: aperture (where the lens has one), time and ISO are each
 /// left to the camera or set by hand, and whatever is set is what is shot. Focus likewise.
+///
+/// Frames, a feature turned on in Settings, adds one more value in zero processing: at ×8 the
+/// camera takes eight RAW frames at one exposure and they are lined up and averaged into one RAW
+/// file (`BurstMerge`), for less noise. It is ×1 until the person turns it.
 @MainActor
 @Observable
 final class Camera {
@@ -77,6 +83,12 @@ final class Camera {
     /// How far the sensor's picture is turned to stand upright in the viewfinder, in degrees
     /// clockwise: what the instruments' map of the frame needs to lie over it.
     private(set) var frameRotation: Double = 90
+    /// How many RAW frames a shot is averaged from.
+    private(set) var frames = 1
+    /// Whether Frames is turned on in Settings.
+    private(set) var framesEnabled = UserDefaults.standard.bool(forKey: Camera.framesKey)
+    /// While the frames of a shot are being taken: how many so far, of how many. The phone should be held still.
+    private(set) var burst: (taken: Int, of: Int)?
     /// Goes up as each shot is taken, for the shutter blink and the haptic.
     private(set) var shots = 0
     /// Shots taken and not yet in the library.
@@ -103,6 +115,9 @@ final class Camera {
     }
 
     static let exposureRange: ClosedRange<Float> = -3...3
+    /// Whether Frames is turned on: Settings writes it, the camera reads it.
+    static let framesKey = "camera.frames"
+    static let frameCounts: [Double] = [1, 2, 4, 8, 16]
     private static let modeKey = "camera.mode"
     private static let guidesKey = "camera.guides"
 
@@ -300,12 +315,17 @@ final class Camera {
     /// on, and the meter says how far the picture is from what the camera would choose.
     var isManual: Bool { exposure.isManual(with: limits) }
 
+    /// The values in the line under the viewfinder. Frames only where it is turned on, and only in
+    /// zero processing: ProRAW is already Apple's merging of frames.
+    var values: [CameraValue] { [.aperture, .time, .iso, .focus] + (framesEnabled && mode == .zero ? [.frames] : []) }
+
     func isSet(_ value: CameraValue) -> Bool {
         switch value {
         case .aperture: return exposure.aperture != nil
         case .time: return exposure.time != nil
         case .iso: return exposure.iso != nil
         case .focus: return focusSet != nil
+        case .frames: return frames > 1
         }
     }
 
@@ -313,7 +333,7 @@ final class Camera {
     func canSet(_ value: CameraValue) -> Bool {
         switch value {
         case .aperture: return !limits.apertureIsFixed
-        case .time, .iso: return true
+        case .time, .iso, .frames: return true
         case .focus: return limits.focus
         }
     }
@@ -325,6 +345,7 @@ final class Camera {
         case .time: return exposure.time ?? reading.time
         case .iso: return exposure.iso ?? reading.iso
         case .focus: return focusSet ?? reading.focus
+        case .frames: return Double(frames)
         }
     }
 
@@ -335,6 +356,7 @@ final class Camera {
         case .time: return limits.times
         case .iso: return limits.isos
         case .focus: return []
+        case .frames: return Self.frameCounts
         }
     }
 
@@ -347,6 +369,11 @@ final class Camera {
             if !simulated { service.setFocus(position) }
             return
         }
+        if value == .frames {
+            let count = Int(ExposureScale.nearest(amount ?? 1, in: Self.frameCounts))
+            if count != frames { frames = count }
+            return
+        }
         guard canSet(value) || amount == nil else { return }
         var next = exposure
         let stop = amount.map { ExposureScale.nearest($0, in: stops(value)) }
@@ -354,7 +381,7 @@ final class Camera {
         case .aperture: next.aperture = stop
         case .time: next.time = stop
         case .iso: next.iso = stop
-        case .focus: break
+        case .focus, .frames: break
         }
         guard next != exposure else { return }
         exposure = next
@@ -389,25 +416,60 @@ final class Camera {
         focusSet = nil
     }
 
-    /// Takes a picture and puts it in the library. Several can be on their way at once.
+    /// Takes a picture and puts it in the library. Several can be on their way at once, but the
+    /// frames of one shot are taken before the next shot starts.
     func shoot() {
-        guard status == .ready else { return }
+        guard status == .ready, burst == nil else { return }
         // What the viewfinder showed beyond the lens becomes the crop the photo starts with.
         let framing = framingZoom > 1.001 ? Crop.centered(zoom: framingZoom) : nil
         let proRAW = mode == .proRAW
+        let count = values.contains(.frames) ? frames : 1
         saving += 1
         Task {
             defer { saving -= 1 }
             do {
                 let file: URL
+                /// How many frames the file was averaged from, and one of them as taken, kept in
+                /// case the averaged file cannot be opened.
+                var averaged: Int?
+                var spare: Data?
                 if simulated {
                     shots += 1
                     guard let sample = UITesting.samplePhoto() else { throw CameraError.noRAW }
                     file = sample
                 } else {
                     let angle = rotation?.videoRotationAngleForHorizonLevelCapture ?? 90
-                    let data = try await service.capture(rotationAngle: angle, proRAW: proRAW) {
-                        Task { @MainActor in self.shots += 1 }
+                    let data: Data
+                    if count > 1 {
+                        burst = (0, count)
+                        let taken: [Data]
+                        do {
+                            taken = try await service.captureBurst(count: count, rotationAngle: angle) { done in
+                                Task { @MainActor in if self.burst != nil { self.burst = (done, count) } }
+                            }
+                        } catch {
+                            burst = nil
+                            throw error
+                        }
+                        burst = nil
+                        // The blink and the tap in the hand that say the phone can move again.
+                        shots += 1
+                        do {
+                            let merged = try await Task.detached(priority: .userInitiated) { try Camera.merge(taken) }.value
+                            data = merged.data
+                            if merged.frames > 1 {
+                                averaged = merged.frames
+                                spare = taken[0]
+                            }
+                        } catch {
+                            // Frames that cannot be averaged are still a photo: the first of them.
+                            data = taken[0]
+                            problem = L10n.cameraFramesFailed
+                        }
+                    } else {
+                        data = try await service.capture(rotationAngle: angle, proRAW: proRAW) {
+                            Task { @MainActor in self.shots += 1 }
+                        }
                     }
                     file = FileManager.default.temporaryDirectory.appending(path: "\(UUID().uuidString).dng")
                     try data.write(to: file)
@@ -415,12 +477,34 @@ final class Camera {
                 defer { try? FileManager.default.removeItem(at: file) }
                 // Named for when it was taken; the extension keeps a time like "15.04" whole in titles.
                 let name = "\(Date.now.formatted(.dateTime.day().month(.abbreviated).hour().minute())).\(file.pathExtension)"
-                let document = try await library.add(from: file, name: name, framing: framing)
+                let document: PhotoDocument
+                do {
+                    document = try await library.add(from: file, name: name, framing: framing, frames: averaged)
+                } catch {
+                    guard let spare else { throw error }
+                    try spare.write(to: file)
+                    document = try await library.add(from: file, name: name, framing: framing)
+                    problem = L10n.cameraFramesFailed
+                }
                 lastPhotoID = document.id
             } catch {
                 problem = (error as? CameraError)?.message ?? error.localizedDescription
             }
         }
+    }
+
+    /// Averages the frames of one shot into one DNG: the sharpest of the first three is the
+    /// picture, and the others are lined up with it and averaged in (`BurstMerge`). The file is
+    /// that frame's own, with the averaged samples in place of its own.
+    nonisolated static func merge(_ files: [Data]) throws -> (data: Data, frames: Int) {
+        guard files.count > 1 else { return (files[0], 1) }
+        let first = try files.prefix(3).map { try DNG.frame(of: $0) }
+        let sharpness = first.map { BurstMerge.sharpness(of: $0) }
+        let sharpest = sharpness.indices.max { sharpness[$0] < sharpness[$1] } ?? 0
+        var merge = BurstMerge(reference: first[sharpest])
+        for (index, frame) in first.enumerated() where index != sharpest { merge.add(frame) }
+        for file in files.dropFirst(3) { merge.add(try DNG.frame(of: file)) }
+        return (try DNG.replacingFrame(of: files[sharpest], with: merge.merged()), merge.frames)
     }
 
     /// Keeps the viewfinder upright and records which way the phone was held in each shot.

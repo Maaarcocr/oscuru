@@ -892,6 +892,41 @@ final class EngineTests: XCTestCase {
     try checkRAW(try makeDNG("linear.dng", linear: true, extended: true))
   }
 
+  /// The camera's frames end in a DNG written back with another raw picture in it
+  /// (`DNG.replacingFrame`). Apple's decoder must open that file, and develop it as the samples
+  /// and the levels in it say.
+  func testARawPictureWrittenBackGoesThroughTheRAWDecoder() throws {
+    let original = try makeDNG("frame.dng", extended: true)
+    let file = try Data(contentsOf: original)
+    let frame = try DNG.frame(of: file)
+    XCTAssertEqual(frame.samples.count, 320 * 240)
+    XCTAssertEqual(frame.whiteLevel, 65535)
+    _ = try engine.open(id: "before", url: original)
+    let before = try render("before").1.mean
+
+    // The same picture at half the numbers, with half the white level, is the same picture.
+    let halved = frame.samples.map { $0 / 2 }
+    let same = directory.appendingPathComponent("frame-same.dng")
+    try DNG.replacingFrame(
+      of: file, with: RawFrame(width: frame.width, height: frame.height, samples: halved, blackLevels: frame.blackLevels, whiteLevel: 32767, noiseProfile: frame.noiseProfile)
+    ).write(to: same)
+    let info = try engine.open(id: "same", url: same)
+    XCTAssertTrue(info.isRaw)
+    XCTAssertEqual(info.width, 320)
+    XCTAssertEqual(info.model, "Test Camera", "the rest of the file is still there")
+    let after = try render("same").1.mean
+    XCTAssertEqual(after.g, before.g, accuracy: 4, "levels scaled with the samples develop the same")
+    XCTAssertEqual(after.r, after.g, accuracy: 12)
+
+    // Half the numbers at the old white level is a stop darker.
+    let darker = directory.appendingPathComponent("frame-darker.dng")
+    try DNG.replacingFrame(
+      of: file, with: RawFrame(width: frame.width, height: frame.height, samples: halved, blackLevels: frame.blackLevels, whiteLevel: frame.whiteLevel, noiseProfile: frame.noiseProfile)
+    ).write(to: darker)
+    _ = try engine.open(id: "darker", url: darker)
+    XCTAssertLessThan(try render("darker").1.mean.g, before.g - 15)
+  }
+
   private func checkRAW(_ url: URL) throws {
     let info = try engine.open(id: "raw", url: url)
     XCTAssertTrue(info.isRaw)

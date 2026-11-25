@@ -149,6 +149,11 @@ final class OscuruUITests: XCTestCase {
         XCTAssertTrue(photo.waitForExistence(timeout: 30))
         element(app, "library.settings").tap()
         XCTAssertTrue(element(app, "settings.connected").waitForExistence(timeout: 30))
+        // Frames, a feature of the camera, is turned on here (it may be on already, from an earlier run).
+        let frames = app.switches["settings.frames"]
+        XCTAssertTrue(frames.waitForExistence(timeout: 10))
+        if (frames.value as? String) != "1" { frames.coordinate(withNormalizedOffset: CGVector(dx: 0.9, dy: 0.5)).tap() }
+        XCTAssertTrue(waitUntil(timeout: 10) { (frames.value as? String) == "1" }, "frames can be turned on")
         capture("13-settings")
 
         // Signed out: one button to sign in, and the other ways on their own page.
@@ -169,6 +174,15 @@ final class OscuruUITests: XCTestCase {
         app.terminate()
         app.launch()
         XCTAssertTrue(photo.waitForExistence(timeout: 60))
+        // With frames turned on, the camera has one more value in its line.
+        element(app, "library.camera").tap()
+        XCTAssertTrue(element(app, "camera.value.frames").waitForExistence(timeout: 30), "the camera offers frames")
+        element(app, "camera.value.frames").tap()
+        XCTAssertTrue(element(app, "camera.dial").waitForExistence(timeout: 10))
+        element(app, "camera.dial").swipeLeft()
+        capture("16-camera-frames")
+        element(app, "camera.close").tap()
+        XCTAssertTrue(photo.waitForExistence(timeout: 30))
         photo.tap()
         let share = element(app, "share")
         XCTAssertTrue(share.waitForExistence(timeout: 30))

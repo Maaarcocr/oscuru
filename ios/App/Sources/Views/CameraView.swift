@@ -75,10 +75,14 @@ struct CameraView: View {
         .sensoryFeedback(.selection, trigger: camera.stops.first { abs($0 - camera.zoom) < 0.001 }) { _, stop in stop != nil }
         // And as an exposure dial goes from one stop to the next.
         .sensoryFeedback(.selection, trigger: camera.exposure)
+        .sensoryFeedback(.selection, trigger: camera.frames)
         .onChange(of: camera.mode) { dialOpen = false }
         .onChange(of: camera.limits) {
             // Another lens may not have what this dial sets.
             if let openValue, !camera.canSet(openValue) { self.openValue = nil }
+        }
+        .onChange(of: camera.values) {
+            if let openValue, !camera.values.contains(openValue) { self.openValue = nil }
         }
         .onChange(of: camera.shots) {
             blink = true
@@ -116,7 +120,8 @@ struct CameraView: View {
         .padding(.horizontal, 16)
         .frame(height: 52)
         .overlay(alignment: .bottom) {
-            if let hint {
+            // While the frames of a shot are being taken, what to do; otherwise what a choice just made means.
+            if let hint = camera.burst != nil ? L10n.cameraHoldStill : hint {
                 Text(hint)
                     .font(.caption)
                     .multilineTextAlignment(.center)
@@ -426,7 +431,7 @@ struct CameraView: View {
     /// and stays. Tap one for its dial.
     private var valuesLine: some View {
         HStack(spacing: 0) {
-            ForEach(CameraValue.allCases) { valueButton($0) }
+            ForEach(camera.values) { valueButton($0) }
             compensation
         }
         .padding(.horizontal, 10)
@@ -458,7 +463,7 @@ struct CameraView: View {
         .buttonStyle(.plain)
         .disabled(!can)
         .accessibilityLabel(name(value))
-        .accessibilityValue(Text(verbatim: "\(dialText(value)), \(isSet ? L10n.cameraSetByHand : L10n.cameraAutomatic)"))
+        .accessibilityValue(Text(verbatim: value == .frames ? dialText(value) : "\(dialText(value)), \(isSet ? L10n.cameraSetByHand : L10n.cameraAutomatic)"))
         .accessibilityAddTraits(openValue == value ? .isSelected : [])
         .accessibilityIdentifier("camera.value.\(value.rawValue)")
     }
@@ -504,16 +509,18 @@ struct CameraView: View {
         case .time: return L10n.cameraTime
         case .iso: return "ISO"
         case .focus: return L10n.cameraFocus
+        case .frames: return L10n.cameraFrames
         }
     }
 
-    /// A value as the line and its dial write it: "ƒ1.8", "1/60", "ISO 400", "MF".
+    /// A value as the line and its dial write it: "ƒ1.8", "1/60", "ISO 400", "MF", "×8".
     private func dialText(_ value: CameraValue) -> String {
         switch value {
         case .aperture: return "ƒ" + ExposureScale.apertureText(camera.shown(.aperture))
         case .time: return ExposureScale.timeText(camera.shown(.time))
         case .iso: return "ISO " + ExposureScale.isoText(camera.shown(.iso))
         case .focus: return camera.isSet(.focus) ? "MF" : "AF"
+        case .frames: return "×\(Int(camera.shown(.frames)))"
         }
     }
 
@@ -521,7 +528,7 @@ struct CameraView: View {
     private static func position(_ value: CameraValue, _ amount: Double) -> Double {
         switch value {
         case .aperture: return 2 * log2(max(amount, 0.1))
-        case .time, .iso: return log2(max(amount, 1e-9))
+        case .time, .iso, .frames: return log2(max(amount, 1e-9))
         case .focus: return amount * 3
         }
     }
@@ -529,7 +536,7 @@ struct CameraView: View {
     private static func amount(_ value: CameraValue, at position: Double) -> Double {
         switch value {
         case .aperture: return pow(2, position / 2)
-        case .time, .iso: return pow(2, position)
+        case .time, .iso, .frames: return pow(2, position)
         case .focus: return position / 3
         }
     }
@@ -554,6 +561,7 @@ struct CameraView: View {
             switch value {
             case .time: text = ExposureScale.timeText(stop)
             case .iso: text = ExposureScale.isoText(stop)
+            case .frames: text = "×\(Int(stop))"
             default: text = ExposureScale.apertureText(stop)
             }
             return DialMark(position: Self.position(value, stop), label: named ? text : nil)
@@ -582,7 +590,8 @@ struct CameraView: View {
             camera.step(value, by: step)
         }
         .overlay(alignment: .topLeading) {
-            if camera.isSet(value) {
+            // Frames are never the camera's to choose: its dial turns back to one.
+            if camera.isSet(value), value != .frames {
                 Button {
                     withAnimation(.snappy) { set(value, to: nil) }
                     closeDial(after: .seconds(2))
@@ -637,10 +646,19 @@ struct CameraView: View {
                 ZStack {
                     Circle().strokeBorder(Color.white, lineWidth: 4).frame(width: 80, height: 80)
                     Circle().fill(Color.white).frame(width: 66, height: 66)
+                    if let burst = camera.burst {
+                        // The frames of this shot, filling the ring as they are taken.
+                        Circle()
+                            .trim(from: 0, to: Double(burst.taken) / Double(max(1, burst.of)))
+                            .stroke(Color.accentColor, style: StrokeStyle(lineWidth: 4, lineCap: .round))
+                            .rotationEffect(.degrees(-90))
+                            .frame(width: 76, height: 76)
+                            .animation(.easeOut(duration: 0.15), value: burst.taken)
+                    }
                 }
             }
             .buttonStyle(ShutterStyle())
-            .disabled(camera.status != .ready)
+            .disabled(camera.status != .ready || camera.burst != nil)
             .accessibilityLabel(L10n.cameraShutter)
             .accessibilityIdentifier("camera.shutter")
             Spacer()

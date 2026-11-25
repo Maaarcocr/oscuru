@@ -9,6 +9,8 @@ struct SettingsView: View {
     @State private var problem: String?
     @State private var confirmingDisconnect = false
     @State private var showingOtherWays = false
+    /// Whether the camera offers frames: several RAW frames averaged into one shot.
+    @AppStorage(Camera.framesKey) private var frames = false
 
     private var account: Account { model.account }
 
@@ -29,6 +31,14 @@ struct SettingsView: View {
                     .accessibilityIdentifier("settings.model")
                 } footer: {
                     Text(L10n.settingsModelFooter)
+                }
+                Section {
+                    Toggle(L10n.settingsFrames, isOn: $frames)
+                        .accessibilityIdentifier("settings.frames")
+                } header: {
+                    Text(L10n.camera)
+                } footer: {
+                    Text(L10n.settingsFramesFooter)
                 }
                 if account.isConnected {
                     usage

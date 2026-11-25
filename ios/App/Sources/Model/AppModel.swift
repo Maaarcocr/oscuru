@@ -63,6 +63,7 @@ final class AppModel {
             info.fileName = document.name
             // How the camera framed it lives in the photo's record, not in the file.
             info.defaults.framing = document.info.defaults.framing
+            info.frames = document.info.frames
             let transcript = try await openTranscript(for: document, original: EditingState(defaults: info.defaults))
             if let editor = editors[document.id] {
                 // Opened twice at once: the first one won.
