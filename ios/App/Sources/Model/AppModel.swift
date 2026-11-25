@@ -3,6 +3,7 @@ import Foundation
 import Observation
 import OscuruCore
 import OscuruEngine
+import Photos
 
 /// The app's composition root: the library, the account, the styles and the engine, and the one
 /// place photos are opened, exported and deleted.
@@ -194,6 +195,22 @@ final class AppModel {
         return urls
     }
 
+    /// Develops photos as `export` does and adds them to the person's photo library, asking only to
+    /// add (never to read it). Each keeps its capture details, so Photos files it under when it was taken.
+    func saveToPhotos(_ ids: [String]) async throws {
+        let access = await PHPhotoLibrary.requestAuthorization(for: .addOnly)
+        guard access == .authorized || access == .limited else { throw PhotosAccessDenied() }
+        let urls = try await export(ids, original: false)
+        defer { if let folder = urls.first?.deletingLastPathComponent() { try? FileManager.default.removeItem(at: folder) } }
+        try await PHPhotoLibrary.shared().performChanges {
+            for url in urls {
+                let options = PHAssetResourceCreationOptions()
+                options.originalFilename = url.lastPathComponent
+                PHAssetCreationRequest.forAsset().addResource(with: .photo, fileURL: url, options: options)
+            }
+        }
+    }
+
     // MARK: Styles
 
     /// Puts a style on photos, one at a time, each as a step in its own conversation: through the
@@ -258,3 +275,6 @@ final class AppModel {
         }.value
     }
 }
+
+/// The person has not let Oscuru add to their photo library.
+struct PhotosAccessDenied: Error {}

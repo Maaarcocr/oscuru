@@ -1617,6 +1617,70 @@
         }
       }
     },
+    "save.denied": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Allow Oscuru to add photos in Settings, then try again."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Consenti a Oscuru di aggiungere foto in Impostazioni, poi riprova."
+          }
+        }
+      }
+    },
+    "save.done": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Saved to Photos"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Salvataggio in Foto completato"
+          }
+        }
+      }
+    },
+    "save.failed": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Could not save to Photos"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Impossibile salvare in Foto"
+          }
+        }
+      }
+    },
+    "save.title": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Save to Photos"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Salva in Foto"
+          }
+        }
+      }
+    },
     "script.cutOff": {
       "localizations": {
         "en": {

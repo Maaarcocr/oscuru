@@ -38,6 +38,8 @@
 	</array>
 	<key>NSCameraUsageDescription</key>
 	<string>Oscuru takes RAW photos with the camera, keeping exactly what the sensor saw.</string>
+	<key>NSPhotoLibraryAddUsageDescription</key>
+	<string>Oscuru saves the photos you develop to your library, with your edits.</string>
 	<key>ITSAppUsesNonExemptEncryption</key>
 	<false/>
 	<key>LSRequiresIPhoneOS</key>

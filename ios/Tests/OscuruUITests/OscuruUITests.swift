@@ -141,6 +141,8 @@ final class OscuruUITests: XCTestCase {
         photo.tap()
         let share = element(app, "share")
         XCTAssertTrue(share.waitForExistence(timeout: 30))
+        // Saving to Photos is its own button beside Share. (Not tapped: the system would ask for access.)
+        XCTAssertTrue(element(app, "save").exists, "a photo can be saved to Photos in one tap")
         share.tap()
         let developed = element(app, "share.developed")
         XCTAssertTrue(developed.waitForExistence(timeout: 30))

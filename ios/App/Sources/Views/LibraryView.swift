@@ -319,10 +319,13 @@ struct LibraryView: View {
         .padding(.bottom, 4)
     }
 
-    /// Select was tapped: share on the left, how many are chosen in the middle, delete on the right.
+    /// While selecting: share and save on the left, how many are chosen in the middle, delete on the right.
     private var selectionBar: some View {
         HStack {
             ShareButton(photos: chosen)
+                .buttonStyle(.glass)
+                .buttonBorderShape(.circle)
+            SaveButton(photos: chosen)
                 .buttonStyle(.glass)
                 .buttonBorderShape(.circle)
             Spacer()

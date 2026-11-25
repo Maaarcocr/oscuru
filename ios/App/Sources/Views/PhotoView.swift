@@ -103,7 +103,8 @@ private struct ThreadView: View {
         }
         .background(Color.black)
         .toolbar {
-            ToolbarItem(placement: .topBarTrailing) {
+            ToolbarItemGroup(placement: .topBarTrailing) {
+                SaveButton(photos: [editor.document.id])
                 ShareButton(photos: [editor.document.id])
             }
         }

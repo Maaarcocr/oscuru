@@ -94,7 +94,7 @@ A fit and a match replace only tone and colour, and keep the photo's own exposur
 
 ## Pictures and sharing
 
-`PhotoRenderer` is one photo open in the engine: every picture of it the app shows, saves or sends comes from there, and it is what scripts see of the app. An open photo's editor has one; `PhotoRenderer.with` opens one for as long as a piece of work needs it, for photos no editor has open. `AppModel.export` is the one way photos leave the app, from the photo screen and from a selection in the library alike (`ShareButton`): developed at full size as JPEGs, or the original files untouched, so a RAW stays RAW.
+`PhotoRenderer` is one photo open in the engine: every picture of it the app shows, saves or sends comes from there, and it is what scripts see of the app. An open photo's editor has one; `PhotoRenderer.with` opens one for as long as a piece of work needs it, for photos no editor has open. `AppModel.export` is the one way photos leave the app, from the photo screen and from a selection in the library alike (`ShareButton`): developed at full size as JPEGs, or the original files untouched, so a RAW stays RAW. `SaveButton` puts the developed JPEGs straight into the person's photo library (`AppModel.saveToPhotos`, add-only access), with their capture details, so Photos files them under when they were taken.
 
 ## Accounts and cost
 

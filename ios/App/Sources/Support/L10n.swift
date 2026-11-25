@@ -36,6 +36,10 @@ enum L10n {
     static var shareOriginal: String { String(localized: "share.original") }
     static var shareOriginalFooter: String { String(localized: "share.original.footer") }
     static var exportFailed: String { String(localized: "share.failed") }
+    static var saveToPhotos: String { String(localized: "save.title") }
+    static var savedToPhotos: String { String(localized: "save.done") }
+    static var saveFailed: String { String(localized: "save.failed") }
+    static var photosDenied: String { String(localized: "save.denied") }
     static func deleteTitle(_ count: Int) -> String {
         if count == 1 { return String(localized: "library.deleteOne") }
         let text = String(count)

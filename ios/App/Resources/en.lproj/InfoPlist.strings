@@ -1,1 +1,2 @@
 "NSCameraUsageDescription" = "Oscuru takes RAW photos with the camera, keeping exactly what the sensor saw.";
+"NSPhotoLibraryAddUsageDescription" = "Oscuru saves the photos you develop to your library, with your edits.";
