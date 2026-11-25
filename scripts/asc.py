@@ -19,10 +19,10 @@ import jwt
 
 BUNDLE_ID = "com.rudilosso.oscuru"
 APP_NAME = "Oscuru"
-# The app and the extensions it carries, each signed with its own App Store profile:
-# (key for asc.env, bundle ID, name in the developer portal).
-BUNDLES = [
-    ("", BUNDLE_ID, APP_NAME),
+# The extensions the app carries, each signed with its own App Store profile: (key for asc.env,
+# bundle ID, name in the developer portal). They are optional: until both are registered and have
+# a profile, the app is built without them (scripts/testflight.sh).
+EXTENSIONS = [
     ("_CAPTURE", BUNDLE_ID + ".capture", "Oscuru Lock Screen camera"),
     ("_CONTROLS", BUNDLE_ID + ".controls", "Oscuru controls"),
 ]
@@ -111,7 +111,8 @@ def prepare(work, serial):
     )
 
     # 1. The bundle IDs. Registering needs an Admin key; otherwise the owner registers them by hand.
-    def register(identifier, name):
+    #    The app's is waited for; an extension's is skipped, and the app is built without it.
+    def register(identifier, name, required):
         def find_bundle():
             reply = ok(*call("GET", "/v1/bundleIds", query={"filter[identifier]": identifier, "limit": 200}), "list bundle IDs")
             matches = [b for b in reply["data"] if b["attributes"]["identifier"] == identifier]
@@ -126,6 +127,8 @@ def prepare(work, serial):
             notice(f"Registered the bundle ID {identifier}.")
             return reply["data"]["id"]
         print(f"::warning::Could not register {identifier} (HTTP {status}): {reason(reply)}", flush=True)
+        if not required:
+            return None
         bundle = waiting(
             find_bundle,
             f"the bundle ID {identifier}",
@@ -135,7 +138,11 @@ def prepare(work, serial):
         print(f"Bundle ID {identifier} is registered.")
         return bundle
 
-    bundles = {key: (identifier, name, register(identifier, name)) for key, identifier, name in BUNDLES}
+    bundles = {"": (BUNDLE_ID, APP_NAME, register(BUNDLE_ID, APP_NAME, True))}
+    for key, identifier, name in EXTENSIONS:
+        bundle = register(identifier, name, False)
+        if bundle:
+            bundles[key] = (identifier, name, bundle)
 
     # 2. The app record. Apple's API cannot create one: a person does, once.
     def app_record():
@@ -163,7 +170,7 @@ def prepare(work, serial):
         sys.exit("The distribution certificate in the .p12 is not on this team's App Store Connect account.")
 
     # 4. An App Store provisioning profile for each bundle ID and that certificate, whatever its name.
-    def provision(identifier, name, bundle):
+    def provision(identifier, name, bundle, required):
         def find_profile():
             reply = ok(
                 *call("GET", "/v1/profiles", query={"filter[profileType]": "IOS_APP_STORE", "filter[profileState]": "ACTIVE", "include": "certificates,bundleId", "limit": 200}),
@@ -199,6 +206,8 @@ def prepare(work, serial):
                 notice(f"Created the App Store provisioning profile for {identifier}.")
             else:
                 print(f"::warning::Could not create the profile for {identifier} (HTTP {status}): {reason(reply)}", flush=True)
+                if not required:
+                    return None
                 profile = waiting(
                     find_profile,
                     f"the provisioning profile for {identifier}",
@@ -211,7 +220,9 @@ def prepare(work, serial):
 
     profiles = {}
     for key, (identifier, name, bundle) in bundles.items():
-        profile = provision(identifier, name, bundle)
+        profile = provision(identifier, name, bundle, key == "")
+        if profile is None:
+            continue
         profiles[key] = profile["attributes"]["uuid"]
         filename = "profile" + key.lower().replace("_", "-") + ".mobileprovision"
         with open(os.path.join(work, filename), "wb") as handle:
@@ -226,6 +237,17 @@ def prepare(work, serial):
         handle.write(f"APP_ID={app}\nBUILD_NUMBER={build}\n")
         for key, uuid in profiles.items():
             handle.write(f"PROFILE_UUID{key}={uuid}\n")
+        with_extensions = all(key in profiles for key, _, _ in EXTENSIONS)
+        handle.write(f"EXTENSIONS={'yes' if with_extensions else 'no'}\n")
+    if not with_extensions:
+        missing = ", ".join(identifier for key, identifier, _ in EXTENSIONS if key not in profiles)
+        print(
+            f"::warning::Building without the camera extensions (Camera Control, Action button, Control Center), as {missing} "
+            "cannot be signed yet. Register each once: developer.apple.com/account → Certificates, IDs & Profiles → Identifiers → + → "
+            "App IDs → App → explicit bundle ID. Then make an App Store profile for each with the Apple Distribution certificate Putia "
+            "uses (Profiles → + → App Store Connect). The next build includes them.",
+            flush=True,
+        )
     print(f"Build number {build}.")
 
 

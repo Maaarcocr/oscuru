@@ -66,10 +66,19 @@ security list-keychains -d user -s "$KEYCHAIN" $ORIGINAL_KEYCHAINS
 IDENTITY="$(security find-identity -v -p codesigning "$KEYCHAIN" | awk '/Apple Distribution|iPhone Distribution/ { print $2; exit }')"
 [[ -n "$IDENTITY" ]] || { echo 'No distribution identity in the .p12.' >&2; exit 1; }
 mkdir -p "$HOME/Library/MobileDevice/Provisioning Profiles"
-# The app, its Lock Screen camera extension and its controls extension each have their own profile.
+# The app, its Lock Screen camera extension and its controls extension each have their own profile;
+# until the extensions can be signed (scripts/asc.py says), the app is built without them.
 cp "$WORK/profile.mobileprovision" "$HOME/Library/MobileDevice/Provisioning Profiles/$PROFILE_UUID.mobileprovision"
-cp "$WORK/profile-capture.mobileprovision" "$HOME/Library/MobileDevice/Provisioning Profiles/$PROFILE_UUID_CAPTURE.mobileprovision"
-cp "$WORK/profile-controls.mobileprovision" "$HOME/Library/MobileDevice/Provisioning Profiles/$PROFILE_UUID_CONTROLS.mobileprovision"
+SPEC=project.yml
+EXTENSION_PROFILES=''
+if [[ "${EXTENSIONS:-no}" == yes ]]; then
+  cp "$WORK/profile-capture.mobileprovision" "$HOME/Library/MobileDevice/Provisioning Profiles/$PROFILE_UUID_CAPTURE.mobileprovision"
+  cp "$WORK/profile-controls.mobileprovision" "$HOME/Library/MobileDevice/Provisioning Profiles/$PROFILE_UUID_CONTROLS.mobileprovision"
+  EXTENSION_PROFILES="    <key>com.rudilosso.oscuru.capture</key><string>$PROFILE_UUID_CAPTURE</string>
+    <key>com.rudilosso.oscuru.controls</key><string>$PROFILE_UUID_CONTROLS</string>"
+else
+  SPEC=project-without-extensions.yml
+fi
 
 STAGE='archiving'
 # Signing settings reach the app and extension targets only (see ios/Config/Oscuru.xcconfig).
@@ -77,12 +86,12 @@ printf '%s\n' \
   'OSCURU_CODE_SIGN_STYLE = Manual' \
   "OSCURU_DEVELOPMENT_TEAM = $TEAM_ID" \
   "OSCURU_PROVISIONING_PROFILE = $PROFILE_UUID" \
-  "OSCURU_CAPTURE_PROVISIONING_PROFILE = $PROFILE_UUID_CAPTURE" \
-  "OSCURU_CONTROLS_PROVISIONING_PROFILE = $PROFILE_UUID_CONTROLS" \
+  "OSCURU_CAPTURE_PROVISIONING_PROFILE = ${PROFILE_UUID_CAPTURE:-}" \
+  "OSCURU_CONTROLS_PROVISIONING_PROFILE = ${PROFILE_UUID_CONTROLS:-}" \
   "OSCURU_CODE_SIGN_IDENTITY = $IDENTITY" \
   "CURRENT_PROJECT_VERSION = $BUILD_NUMBER" > "$SIGNING_XCCONFIG"
 "$ROOT/scripts/fetch-models.sh"
-(cd "$ROOT/ios" && xcodegen generate >/dev/null)
+(cd "$ROOT/ios" && xcodegen generate --spec "$SPEC" >/dev/null)
 if ! xcodebuild archive -project "$ROOT/ios/Oscuru.xcodeproj" -scheme Oscuru -configuration Release \
   -destination 'generic/platform=iOS' -archivePath "$WORK/Oscuru.xcarchive" -derivedDataPath "$WORK/DerivedData" \
   > "$WORK/archive.log" 2>&1; then
@@ -104,8 +113,7 @@ cat > "$WORK/ExportOptions.plist" <<PLIST
   <key>provisioningProfiles</key>
   <dict>
     <key>com.rudilosso.oscuru</key><string>$PROFILE_UUID</string>
-    <key>com.rudilosso.oscuru.capture</key><string>$PROFILE_UUID_CAPTURE</string>
-    <key>com.rudilosso.oscuru.controls</key><string>$PROFILE_UUID_CONTROLS</string>
+$EXTENSION_PROFILES
   </dict>
   <key>uploadSymbols</key><true/>
   <key>manageAppVersionAndBuildNumber</key><false/>

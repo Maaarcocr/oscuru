@@ -1,0 +1,15 @@
+# The app without its two extensions (the Lock Screen camera and the camera control), for a
+# TestFlight build made while their bundle IDs or App Store profiles do not exist yet
+# (scripts/testflight.sh: xcodegen generate --spec project-without-extensions.yml). Everything else
+# is project.yml; the extension targets stay in the project but nothing builds them.
+include:
+  - project.yml
+targets:
+  Oscuru:
+    dependencies:REPLACE:
+      - package: OscuruKit
+        product: OscuruCore
+      - package: OscuruKit
+        product: OscuruEngine
+      - package: OscuruKit
+        product: OscuruScripting
