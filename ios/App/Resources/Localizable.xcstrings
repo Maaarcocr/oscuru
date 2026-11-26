@@ -2518,13 +2518,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Adds a frames value to the camera in zero processing. At ×8 it takes eight RAW frames and merges them into one RAW file with less noise: ×4 halves it, ×16 quarters it. Beside the dial, Bracket spreads the frames over darker and brighter exposures, to hold highlights and shadows together, and Every leaves time between them, to catch what moves. The frames are kept with the photo, so the assistant can merge them another way: choose the moment, or blur, remove or trace what moved. Hold still while it shoots."
+            "value": "Adds a frames value to the camera in zero processing: at ×8 it takes eight RAW frames and merges them into one RAW file with less noise. Beside the dial, Bracket takes them at darker and brighter exposures, and Every leaves time between them. The frames are kept with the photo, so the assistant can merge them another way. Hold still while it shoots."
           }
         },
         "it": {
           "stringUnit": {
             "state": "translated",
-            "value": "Aggiunge alla fotocamera, senza elaborazione, il valore dei fotogrammi. A ×8 scatta otto fotogrammi RAW e li fonde in un solo file RAW con meno rumore: ×4 lo dimezza, ×16 lo riduce a un quarto. Accanto alla ghiera, Bracketing distribuisce i fotogrammi su esposizioni più scure e più chiare, per tenere insieme luci e ombre, e Ogni lascia del tempo tra l’uno e l’altro, per cogliere ciò che si muove. I fotogrammi restano con la foto, così l’assistente può fonderli in un altro modo: scegliere il momento, oppure sfocare, togliere o tracciare ciò che si è mosso. Resta fermo mentre scatta."
+            "value": "Aggiunge alla fotocamera, senza elaborazione, il valore dei fotogrammi: a ×8 scatta otto fotogrammi RAW e li fonde in un solo file RAW con meno rumore. Accanto alla ghiera, Bracketing li scatta a esposizioni più scure e più chiare, e Ogni lascia del tempo tra l’uno e l’altro. I fotogrammi restano con la foto, così l’assistente può fonderli in un altro modo. Resta fermo mentre scatta."
           }
         }
       }

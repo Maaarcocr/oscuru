@@ -160,7 +160,10 @@ final class OscuruUITests: XCTestCase {
         capture("13-settings")
 
         // Signed out: one button to sign in, and the other ways on their own page.
-        element(app, "settings.disconnect").tap()
+        // Further down the page than a screen shows.
+        let disconnect = element(app, "settings.disconnect")
+        for _ in 0..<4 where !disconnect.exists { app.swipeUp() }
+        disconnect.tap()
         let alert = app.alerts.firstMatch
         XCTAssertTrue(alert.waitForExistence(timeout: 30))
         for label in ["Disconnect", "Scollega"] where alert.buttons[label].exists {
