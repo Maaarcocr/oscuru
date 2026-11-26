@@ -329,49 +329,74 @@ def share(build_number, what_to_test=None):
     group (made the first time, with an invitation link that lets in OSCURU_TESTER_LIMIT people)
     and goes to Apple's beta review, which external testers need. What only the owner can give
     (their contact details and an OpenRouter key for the reviewer) is left to them in App Store
-    Connect: this only says what is still missing."""
+    Connect: this only says what is still missing. What the API key is not allowed to do (it needs
+    the App Manager role for most of this) is said, and the rest still done; it never fails the run."""
     app = app_id()
     limit = int(os.environ.get("OSCURU_TESTER_LIMIT") or 20)
     missing = []
+    refused = []
+
+    def attempt(result, what):
+        status, reply = result
+        if status < 300:
+            return reply if reply else {}
+        refused.append(f"{what} (HTTP {status}: {reason(reply)})")
+        return None
+
+    def finish():
+        if refused:
+            print("::warning::The App Store Connect key could not: " + "; ".join(refused) + ". A key with the App Manager role can.")
+        if missing:
+            notice("Still needed in App Store Connect (Oscuru → TestFlight → Test Information): " + "; ".join(missing) + ".")
 
     # What testers read about the beta, and where its privacy policy is. The feedback email is the owner's to give.
     privacy = (os.environ.get("OSCURU_PRIVACY_URL") or PRIVACY_URL).strip()
-    reply = ok(*call("GET", f"/v1/apps/{app}/betaAppLocalizations"), "read the beta's description")
-    localizations = reply.get("data", [])
-    english = next((l for l in localizations if l["attributes"].get("locale", "").startswith("en")), localizations[0] if localizations else None)
-    wanted = {"description": BETA_DESCRIPTION}
-    if privacy:
-        wanted["privacyPolicyUrl"] = privacy
-    if english:
-        changed = {k: v for k, v in wanted.items() if english["attributes"].get(k) != v}
-        if changed:
-            ok(*call("PATCH", f"/v1/betaAppLocalizations/{english['id']}", {"data": {"type": "betaAppLocalizations", "id": english["id"], "attributes": changed}}), "write the beta's description")
-        attributes = {**english["attributes"], **wanted}
-    else:
-        body = {"data": {"type": "betaAppLocalizations", "attributes": {"locale": "en-US", **wanted}, "relationships": {"app": {"data": {"type": "apps", "id": app}}}}}
-        ok(*call("POST", "/v1/betaAppLocalizations", body), "write the beta's description")
-        attributes = wanted
+    wanted = {"description": BETA_DESCRIPTION, "privacyPolicyUrl": privacy}
+    reply = attempt(call("GET", f"/v1/apps/{app}/betaAppLocalizations"), "read the beta's description")
+    attributes = {}
+    if reply is not None:
+        localizations = reply.get("data", [])
+        english = next((l for l in localizations if l["attributes"].get("locale", "").startswith("en")), localizations[0] if localizations else None)
+        if english:
+            attributes = dict(english["attributes"])
+            changed = {k: v for k, v in wanted.items() if attributes.get(k) != v}
+            if changed and attempt(
+                call("PATCH", f"/v1/betaAppLocalizations/{english['id']}", {"data": {"type": "betaAppLocalizations", "id": english["id"], "attributes": changed}}),
+                "write the beta's description",
+            ) is not None:
+                attributes.update(changed)
+        else:
+            body = {"data": {"type": "betaAppLocalizations", "attributes": {"locale": "en-US", **wanted}, "relationships": {"app": {"data": {"type": "apps", "id": app}}}}}
+            if attempt(call("POST", "/v1/betaAppLocalizations", body), "write the beta's description") is not None:
+                attributes = dict(wanted)
+    if not attributes.get("description"):
+        missing.append("a beta description")
     if not attributes.get("feedbackEmail"):
-        missing.append("a feedback email (TestFlight → Test Information)")
+        missing.append("a feedback email")
     if not attributes.get("privacyPolicyUrl"):
-        print("::warning::The beta has no privacy policy URL yet (docs/privacy.md, once it has an address: the OSCURU_PRIVACY_URL variable).")
+        missing.append(f"the privacy policy URL ({privacy})")
 
     # What Apple's reviewer needs: the owner's contact details, and a way to use the assistant.
-    status, reply = call("GET", f"/v1/apps/{app}/betaAppReviewDetail")
-    review = reply.get("data", {}).get("attributes", {}) if status < 300 else {}
+    reply = attempt(call("GET", f"/v1/apps/{app}/betaAppReviewDetail"), "read the review details")
+    review = (reply or {}).get("data", {}).get("attributes", {})
     if not all(review.get(k) for k in ("contactFirstName", "contactLastName", "contactPhone", "contactEmail")):
-        missing.append("your name, phone and email for the reviewer (TestFlight → Test Information → Beta App Review Information)")
+        missing.append("your name, phone and email under Beta App Review Information")
     if not review.get("notes"):
-        missing.append("review notes with an OpenRouter key for the reviewer (same place: Settings → Connect → paste the key)")
+        missing.append("review notes with an OpenRouter key for the reviewer (Settings → Connect → paste the key)")
 
     # The group, with its invitation link.
-    reply = ok(*call("GET", f"/v1/apps/{app}/betaGroups", query={"limit": 50}), "list TestFlight groups")
-    group = next((g for g in reply["data"] if not g["attributes"].get("isInternalGroup") and g["attributes"].get("name") == GROUP_NAME), None)
-    if not group:
+    reply = attempt(call("GET", f"/v1/apps/{app}/betaGroups", query={"limit": 50}), "list TestFlight groups")
+    group = next((g for g in (reply or {}).get("data", []) if not g["attributes"].get("isInternalGroup") and g["attributes"].get("name") == GROUP_NAME), None)
+    if not group and reply is not None:
         attributes = {"name": GROUP_NAME, "isInternalGroup": False, "feedbackEnabled": True}
         body = {"data": {"type": "betaGroups", "attributes": attributes, "relationships": {"app": {"data": {"type": "apps", "id": app}}}}}
-        group = ok(*call("POST", "/v1/betaGroups", body), "create the invited testers' group")["data"]
-        notice(f"Created the TestFlight group “{GROUP_NAME}” for invited testers.")
+        made = attempt(call("POST", "/v1/betaGroups", body), f"create the group “{GROUP_NAME}”")
+        if made:
+            group = made["data"]
+            notice(f"Created the TestFlight group “{GROUP_NAME}” for invited testers.")
+    if not group:
+        finish()
+        return
 
     # The build, once Apple has processed it.
     deadline = time.time() + 60 * int(os.environ.get("OSCURU_PROCESSING_MINUTES") or 60)
@@ -379,47 +404,46 @@ def share(build_number, what_to_test=None):
     while True:
         status, reply = call("GET", "/v1/builds", query={"filter[app]": app, "filter[version]": str(build_number), "limit": 5})
         found = reply.get("data", []) if status < 300 else []
-        if found and found[0]["attributes"].get("processingState") == "VALID":
+        state = found[0]["attributes"].get("processingState") if found else None
+        if state == "VALID":
             build = found[0]
             break
-        if found and found[0]["attributes"].get("processingState") in ("FAILED", "INVALID"):
-            sys.exit(f"Apple could not process build {build_number}.")
-        if time.time() > deadline:
-            sys.exit(f"Build {build_number} was not processed in time; the next build will be shared instead.")
+        if state in ("FAILED", "INVALID") or time.time() > deadline:
+            print(f"::warning::Build {build_number} was not processed ({state or 'not found'}); the next build will be shared instead.")
+            finish()
+            return
         time.sleep(30)
 
     if what_to_test:
-        reply = ok(*call("GET", f"/v1/builds/{build['id']}/betaBuildLocalizations"), "read what to test")
-        localizations = reply.get("data", [])
+        reply = attempt(call("GET", f"/v1/builds/{build['id']}/betaBuildLocalizations"), "read what to test")
+        localizations = (reply or {}).get("data", [])
         if localizations:
             body = {"data": {"type": "betaBuildLocalizations", "id": localizations[0]["id"], "attributes": {"whatsNew": what_to_test}}}
-            call("PATCH", f"/v1/betaBuildLocalizations/{localizations[0]['id']}", body)
-        else:
+            attempt(call("PATCH", f"/v1/betaBuildLocalizations/{localizations[0]['id']}", body), "write what to test")
+        elif reply is not None:
             body = {"data": {"type": "betaBuildLocalizations", "attributes": {"locale": "en-US", "whatsNew": what_to_test}, "relationships": {"build": {"data": {"type": "builds", "id": build["id"]}}}}}
-            call("POST", "/v1/betaBuildLocalizations", body)
+            attempt(call("POST", "/v1/betaBuildLocalizations", body), "write what to test")
 
-    ok(*call("POST", f"/v1/betaGroups/{group['id']}/relationships/builds", {"data": [{"type": "builds", "id": build["id"]}]}), "add the build to the invited testers' group")
-    print(f"Build {build_number} is in the group “{GROUP_NAME}”.")
+    added = attempt(call("POST", f"/v1/betaGroups/{group['id']}/relationships/builds", {"data": [{"type": "builds", "id": build["id"]}]}), "add the build to the group")
+    if added is not None:
+        print(f"Build {build_number} is in the group “{GROUP_NAME}”.")
 
     # The invitation link, letting in at most `limit` people.
     link = {"publicLinkEnabled": True, "publicLinkLimitEnabled": True, "publicLinkLimit": limit}
     if any(group["attributes"].get(k) != v for k, v in link.items()):
-        status, reply = call("PATCH", f"/v1/betaGroups/{group['id']}", {"data": {"type": "betaGroups", "id": group["id"], "attributes": link}})
-        if status < 300:
-            group = reply["data"]
-        else:
-            print(f"::warning::Could not turn on the invitation link: {reason(reply)}")
+        changed = attempt(call("PATCH", f"/v1/betaGroups/{group['id']}", {"data": {"type": "betaGroups", "id": group["id"], "attributes": link}}), "turn on the invitation link")
+        if changed:
+            group = changed["data"]
 
-    if missing:
-        notice("Build " + str(build_number) + " is not sent to Apple's beta review until App Store Connect has: " + "; ".join(missing) + ". The next build goes once they are there.")
-        return
-    status, reply = call("POST", "/v1/betaAppReviewSubmissions", {"data": {"type": "betaAppReviewSubmissions", "relationships": {"build": {"data": {"type": "builds", "id": build["id"]}}}}})
-    if status < 300:
-        print(f"Build {build_number} is sent to Apple's beta review.")
-    else:
-        print(f"::warning::Build {build_number} was not sent to beta review: {reason(reply)}")
+    if added is not None and not missing:
+        body = {"data": {"type": "betaAppReviewSubmissions", "relationships": {"build": {"data": {"type": "builds", "id": build["id"]}}}}}
+        if attempt(call("POST", "/v1/betaAppReviewSubmissions", body), "send the build to beta review") is not None:
+            print(f"Build {build_number} is sent to Apple's beta review.")
+    elif missing:
+        print(f"Build {build_number} is not sent to beta review until the details below are in App Store Connect.")
     if group["attributes"].get("publicLink"):
         notice(f"Invited testers join with {group['attributes']['publicLink']} (at most {limit} people), once Apple has approved a build.")
+    finish()
 
 
 def crashes(out):
