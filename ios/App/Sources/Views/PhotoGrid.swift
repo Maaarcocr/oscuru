@@ -122,14 +122,15 @@ struct PhotoGrid<Header: View>: View {
     private func tile(_ photo: PhotoDocument) -> some View {
         let selected = selection.map { $0.contains(photo.id) }
         let working = model.isWorking(on: photo.id)
+        let frames = photo.info.frames ?? 0
         return Thumbnail(
-            url: model.library.thumbnailURL(photo.id), stamp: photo.thumbnailStamp, isRaw: photo.info.isRaw, working: working, selected: selected
+            url: model.library.thumbnailURL(photo.id), stamp: photo.thumbnailStamp, isRaw: photo.info.isRaw, frames: frames, working: working, selected: selected
         )
         .onTapGesture { tap(photo.id) }
         .onLongPressGesture(minimumDuration: 0.4) { hold(photo.id) }
         .accessibilityElement(children: .ignore)
         .accessibilityLabel(photo.name)
-        .accessibilityValue(working ? L10n.working : "")
+        .accessibilityValue([working ? L10n.working : nil, frames > 1 ? "\(L10n.cameraFrames) ×\(frames)" : nil].compactMap { $0 }.joined(separator: ", "))
         .accessibilityAddTraits(selected == true ? [.isButton, .isSelected] : .isButton)
         .accessibilityAction { tap(photo.id) }
         .accessibilityAction(named: L10n.select) { hold(photo.id) }
@@ -270,6 +271,8 @@ private struct Thumbnail: View {
     let url: URL
     let stamp: Int
     let isRaw: Bool
+    /// How many frames the shot was merged from; 1 or less for a photo of one frame.
+    let frames: Int
     /// Whether the assistant is still working on it, after the photo was closed.
     let working: Bool
     /// Nil when not selecting; otherwise whether this photo is chosen.
@@ -286,14 +289,26 @@ private struct Thumbnail: View {
             }
             .clipped()
             .overlay(alignment: .bottomLeading) {
-                if isRaw {
-                    Text(verbatim: "RAW")
-                        .font(.system(size: 9, weight: .bold))
+                HStack(spacing: 3) {
+                    if isRaw {
+                        Text(verbatim: "RAW")
+                            .font(.system(size: 9, weight: .bold))
+                            .padding(.horizontal, 5)
+                            .padding(.vertical, 2)
+                            .glassEffect(.regular, in: .capsule)
+                    }
+                    // A shot of several frames: a stack, and how many.
+                    if frames > 1 {
+                        HStack(spacing: 2) {
+                            Image(systemName: "square.stack.fill").font(.system(size: 8, weight: .bold))
+                            Text(verbatim: "\(frames)").font(.system(size: 9, weight: .bold)).monospacedDigit()
+                        }
                         .padding(.horizontal, 5)
                         .padding(.vertical, 2)
                         .glassEffect(.regular, in: .capsule)
-                        .padding(5)
+                    }
                 }
+                .padding(5)
             }
             .overlay(alignment: .topTrailing) {
                 if working {
