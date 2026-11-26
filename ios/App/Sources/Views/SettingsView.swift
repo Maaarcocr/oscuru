@@ -40,8 +40,8 @@ struct SettingsView: View {
                         .accessibilityIdentifier("settings.frames")
                     // The frames of each shot are kept beside the photo, for the assistant to merge
                     // another way. This is where their room is given back.
-                    if let keptFrames, keptFrames > 0 {
-                        Button(L10n.settingsDiscardFrames(ByteCountFormatter.string(fromByteCount: keptFrames, countStyle: .file)), role: .destructive) {
+                    if let size = keptFrames, size > 0 {
+                        Button(L10n.settingsDiscardFrames(ByteCountFormatter.string(fromByteCount: size, countStyle: .file)), role: .destructive) {
                             confirmingDiscard = true
                         }
                         .accessibilityIdentifier("settings.discardFrames")
