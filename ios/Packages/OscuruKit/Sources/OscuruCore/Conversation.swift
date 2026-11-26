@@ -197,10 +197,27 @@ public struct Conversation: Sendable {
         "error": ["message": "This script did not run: you were stopped, or the app closed, before it started. Nothing was applied."],
     ]
 
+    /// How much of a request the pictures may take, written out (base64). Providers refuse a
+    /// request past a size of their own (Google's is 20 MB), and a long run that looked at the
+    /// photo at every step reaches it: past this, the oldest are let go.
+    public static let pictureBytes = 12_000_000
+
     /// The messages for the next request, in the Chat Completions shape. A failed attempt is left
     /// out; a script that never reported gets a report saying so; pictures that were let go get
-    /// a note.
-    public func messages(system: String, picture: (PictureRef) -> Data?) -> [JSONValue] {
+    /// a note. Of the pictures kept, the newest are sent, as many as fit in `pictureBytes`.
+    public func messages(system: String, pictureBytes: Int = Conversation.pictureBytes, picture: (PictureRef) -> Data?) -> [JSONValue] {
+        // The newest pictures first, until the room is used up.
+        var sent: [String: Data] = [:]
+        var room = pictureBytes
+        newest: for entry in placed[min(start, placed.count)...].reversed() {
+            for ref in Conversation.pictures(of: entry).reversed() where keptPictures.contains(ref.file) && sent[ref.file] == nil {
+                guard let jpeg = picture(ref) else { continue }
+                let size = (jpeg.count + 2) / 3 * 4
+                guard size <= room else { break newest }
+                room -= size
+                sent[ref.file] = jpeg
+            }
+        }
         var out: [JSONValue] = [["role": "system", "content": .string(system)]]
         if let summary { out.append(["role": "user", "content": .string("\(Conversation.summaryPreface)\n\n\(summary.summary)")]) }
 
@@ -211,7 +228,7 @@ public struct Conversation: Sendable {
             var parts: [JSONValue] = [["type": "text", "text": .string(text)]]
             for ref in pictures {
                 parts.append(["type": "text", "text": .string(ref.label)])
-                if keptPictures.contains(ref.file), let jpeg = picture(ref) {
+                if let jpeg = sent[ref.file] {
                     parts.append(["type": "image_url", "image_url": ["url": .string("data:image/jpeg;base64,\(jpeg.base64EncodedString())")]])
                 } else {
                     parts.append(["type": "text", "text": .string(Conversation.removedPictureNote)])

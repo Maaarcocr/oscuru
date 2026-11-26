@@ -325,6 +325,24 @@ final class AgentTests: XCTestCase {
         XCTAssertEqual(files.count, 3)
     }
 
+    func testPicturesOfALongRunAreSentNewestFirstWithinTheirRoom() async throws {
+        let transcript = try Transcript(folder: folder)
+        try await instruct(transcript, "Many steps")
+        try await run(transcript, FakeModel([{ _ in toolCall("c1", code: "1") }, { _ in toolCall("c2", code: "2") }, { _ in note("Done.") }]))
+        let conversation = Conversation(await transcript.entries)
+        func urls(_ messages: [JSONValue]) -> [String] {
+            messages.flatMap(parts).compactMap { $0["image_url"]?["url"]?.stringValue }
+        }
+        let all = urls(conversation.messages(system: "s", picture: transcript.picture))
+        XCTAssertGreaterThan(all.count, 2, "a run's pictures all go, while they fit")
+        // Room for the newest alone.
+        let newest = all.last!.count - "data:image/jpeg;base64,".count
+        let one = conversation.messages(system: "s", pictureBytes: newest, picture: transcript.picture)
+        XCTAssertEqual(urls(one), [all.last!], "past the room, the newest")
+        XCTAssertEqual(one.flatMap(parts).filter { $0["text"]?.stringValue == Conversation.removedPictureNote }.count, all.count - 1)
+        XCTAssertTrue(urls(conversation.messages(system: "s", pictureBytes: newest - 1, picture: transcript.picture)).isEmpty)
+    }
+
     func testALongConversationIsSummarizedAndTheModelSeesTheSummaryInstead() async throws {
         let transcript = try Transcript(folder: folder)
         for index in 0..<4 {
