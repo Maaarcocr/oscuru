@@ -24,7 +24,7 @@ struct PromptsView: View {
                                     .foregroundStyle(prompt.title.isEmpty ? .primary : .secondary)
                             }
                         }
-                        .accessibilityIdentifier("prompts.item")
+                        .accessibilityIdentifier("prompts.row")
                     }
                     .onDelete { drafts.remove(atOffsets: $0) }
                     .onMove { drafts.move(fromOffsets: $0, toOffset: $1) }

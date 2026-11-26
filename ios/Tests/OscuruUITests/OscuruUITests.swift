@@ -30,7 +30,7 @@ final class OscuruUITests: XCTestCase {
         element(app, "prompts.edit").tap()
         let add = element(app, "prompts.add")
         XCTAssertTrue(add.waitForExistence(timeout: 10), "the prompts can be changed")
-        XCTAssertEqual(app.descendants(matching: .any).matching(identifier: "prompts.item").count, 4, "the app starts with four")
+        XCTAssertEqual(app.descendants(matching: .any).matching(identifier: "prompts.row").count, 4, "the app starts with four")
         add.tap()
         let title = element(app, "prompts.title")
         XCTAssertTrue(title.waitForExistence(timeout: 10), "a new prompt opens to be written")
