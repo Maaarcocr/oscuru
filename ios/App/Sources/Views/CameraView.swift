@@ -521,7 +521,12 @@ struct CameraView: View {
         case .time: return ExposureScale.timeText(camera.shown(.time))
         case .iso: return "ISO " + ExposureScale.isoText(camera.shown(.iso))
         case .focus: return camera.isSet(.focus) ? "MF" : "AF"
-        case .frames: return "×\(Int(camera.shown(.frames)))" + (camera.frames > 1 && camera.bracket > 0 ? "±\(Int(camera.bracket))" : "")
+        case .frames:
+            let count = "×\(Int(camera.shown(.frames)))"
+            guard camera.frames > 1 else { return count }
+            if camera.focusBracket { return count + " " + L10n.cameraBracketFocus }
+            if camera.bracket > 0 { return count + "±\(Int(camera.bracket))" }
+            return count
         }
     }
 
@@ -643,9 +648,10 @@ struct CameraView: View {
                 .accessibilityHint(L10n.cameraAutoHint)
                 .accessibilityIdentifier("camera.auto")
             }
-            // With more than one frame: how far apart their exposures are.
+            // With more than one frame: how far apart their exposures are, or that their focus is.
             if value == .frames, camera.frames > 1 {
-                framesChoice(L10n.cameraBracket, "±\(Int(camera.bracket))", identifier: "camera.bracket") { camera.nextBracket() }
+                let bracket = camera.focusBracket ? L10n.cameraBracketFocus : "±\(Int(camera.bracket))"
+                framesChoice(L10n.cameraBracket, bracket, identifier: "camera.bracket") { camera.nextBracket() }
             }
         }
         .overlay(alignment: .topTrailing) {

@@ -214,6 +214,13 @@ final class OscuruUITests: XCTestCase {
         XCTAssertTrue(bracket.waitForExistence(timeout: 10), "more than one frame can be bracketed")
         bracket.tap()
         XCTAssertTrue(waitUntil(timeout: 10) { (bracket.value as? String) == "±1" }, "a tap goes to the next bracket")
+        // After the exposures, the focus: each frame focused further than the one before.
+        bracket.tap()
+        bracket.tap()
+        bracket.tap()
+        XCTAssertTrue(waitUntil(timeout: 10) { !((bracket.value as? String) ?? "±").hasPrefix("±") }, "the last bracket is of focus")
+        bracket.tap()
+        XCTAssertTrue(waitUntil(timeout: 10) { (bracket.value as? String) == "±0" }, "and round again")
         XCTAssertTrue(element(app, "camera.interval").exists, "and spaced apart")
         capture("16-camera-frames")
         element(app, "camera.close").tap()

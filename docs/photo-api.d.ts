@@ -518,9 +518,9 @@ interface FrameWay {
    *               place must be empty in more than half of the frames used.
    *   "brightest" what stayed put, with every bright thing that moved drawn along its way (car
    *               lights, fireworks, stars).
-   *   "sharpest"  each place from the frames where it is sharpest: frames focused at different
-   *               distances make one picture sharp throughout, and of frames a shaking hand
-   *               blurred unevenly, each part comes from the steadiest.
+   *   "sharpest"  each place from the frames where it is sharpest: a focus bracket (frames
+   *               with `focus` in `list()`) makes one picture sharp from near to far, and of
+   *               frames a shaking hand blurred unevenly, each part comes from the steadiest.
    * "mean", "median" and "brightest" only do much when something moved between the frames:
    * frames taken some time apart (see `after` in `list()`); back to back, little moves.
    * Setting it also sets `align` to what suits it, unless `align` is given too.
@@ -589,6 +589,12 @@ interface FrameInfo {
   stops: number;
   /** When it was taken, in seconds after the first. */
   after: number;
+  /**
+   * In a focus bracket, where the lens was focused: 0 its nearest, 1 its farthest. Each
+   * frame is focused further than the one before, from what the person focused on to the
+   * far distance; the camera merged them "sharpest". Absent for frames focused alike.
+   */
+  focus?: number;
   /** How much fine detail it holds, 0 to 1, against the sharpest frame: low means blurred by movement. */
   sharpness: number;
   /** The share of it that is blown, 0 to 1. */

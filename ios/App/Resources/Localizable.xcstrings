@@ -81,6 +81,22 @@
         }
       }
     },
+    "camera.bracket.focus": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Focus"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Fuoco"
+          }
+        }
+      }
+    },
     "camera.denied.message": {
       "localizations": {
         "en": {

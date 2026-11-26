@@ -19,8 +19,14 @@ public struct FrameSet: Codable, Equatable, Sendable {
         public var blown: Double
         /// How it lies against the base of the camera's own merge.
         public var report: FrameReport
+        /// Where the lens was held, 0 its nearest to 1 its farthest, for a frame of a focus
+        /// bracket; nil where the camera focused as it does for every shot.
+        public var focus: Double?
 
-        public init(time: Double, iso: Double, light: Double = 1, after: Double = 0, sharpness: Double = 1, blown: Double = 0, report: FrameReport = FrameReport()) {
+        public init(
+            time: Double, iso: Double, light: Double = 1, after: Double = 0, sharpness: Double = 1, blown: Double = 0, report: FrameReport = FrameReport(),
+            focus: Double? = nil
+        ) {
             self.time = time
             self.iso = iso
             self.light = light
@@ -28,6 +34,7 @@ public struct FrameSet: Codable, Equatable, Sendable {
             self.sharpness = sharpness
             self.blown = blown
             self.report = report
+            self.focus = focus
         }
     }
 
@@ -67,7 +74,7 @@ public struct FrameSet: Codable, Equatable, Sendable {
         func rounded(_ value: Double, _ places: Double) -> JSONValue { .number((value * places).rounded() / places) }
         return .array(
             frames.enumerated().map { index, frame in
-                [
+                var members: [String: JSONValue] = [
                     "frame": .number(Double(index + 1)),
                     "time": .number(frame.time),
                     "iso": .number(frame.iso.rounded()),
@@ -80,6 +87,8 @@ public struct FrameSet: Codable, Equatable, Sendable {
                     "used": .bool(way.use.contains(index + 1)),
                     "base": .bool(way.base == index + 1),
                 ]
+                if let focus = frame.focus { members["focus"] = rounded(focus, 100) }
+                return .object(members)
             })
     }
 
@@ -90,17 +99,22 @@ public struct FrameSet: Codable, Equatable, Sendable {
         public var time: Double
         public var iso: Double
         public var after: Double
+        /// Where the lens was held, for a frame of a focus bracket.
+        public var focus: Double?
 
-        public init(time: Double, iso: Double, after: Double) {
+        public init(time: Double, iso: Double, after: Double, focus: Double? = nil) {
             self.time = time
             self.iso = iso
             self.after = after
+            self.focus = focus
         }
     }
 
     /// What the camera makes of a shot's frames: the set, and its own merge of them, which is the
     /// photo's file. The base is the sharpest of the first three frames taken at the shot's own
     /// exposure (the first frame's); every frame is merged around it, movement frozen.
+    /// A focus bracket (frames held at different focus) is merged each place from the frames
+    /// sharpest there, on the first frame, focused where the person focused.
     public static func make(frames: [RawFrame], shots: [Shot]) throws -> (set: FrameSet, merged: MergedFrame) {
         guard let first = frames.first, frames.count == shots.count else { throw FrameMerging.Failure.noFrames }
         var described: [Frame] = []
@@ -112,13 +126,18 @@ public struct FrameSet: Codable, Equatable, Sendable {
             let blown = Double(frame.samples.reduce(0) { $0 + ($1 >= blownLevel ? 1 : 0) }) / Double(max(1, frame.samples.count))
             // Detail is measured in the frame's own numbers, which grow with its light.
             detail.append(BurstMerge.sharpness(of: frame) / (light * light))
-            described.append(Frame(time: shot.time, iso: shot.iso, light: light, after: shot.after, blown: blown))
+            described.append(Frame(time: shot.time, iso: shot.iso, light: light, after: shot.after, blown: blown, focus: shot.focus))
         }
         let sharpest = max(detail.max() ?? 1, 1e-9)
         for index in described.indices { described[index].sharpness = detail[index] / sharpest }
         let candidates = described.indices.prefix(3).filter { abs(log2(described[$0].light)) < 0.25 }
         let base = (candidates.max { detail[$0] < detail[$1] } ?? 0) + 1
-        let way = FrameMerge.Way(base: base, use: Array(1...frames.count))
+        let focuses = shots.compactMap(\.focus)
+        let focusBracket = focuses.count == shots.count && (focuses.max() ?? 0) - (focuses.min() ?? 0) > 0.01
+        let way =
+            focusBracket
+            ? FrameMerge.Way(base: 1, use: Array(1...frames.count), align: .tiles, combine: .sharpest)
+            : FrameMerge.Way(base: base, use: Array(1...frames.count))
         var set = FrameSet(frames: described, merge: way)
         let result = try FrameMerging.merge(way, light: set.light) { frames[$0 - 1] }
         for (frame, report) in result.reports where frame >= 1 && frame <= described.count { set.frames[frame - 1].report = report }

@@ -91,6 +91,10 @@ final class Camera {
     /// At ±2 the frames go round the exposure as set, two stops less light and two stops more, so
     /// that together they hold highlights and shadows no one frame could.
     private(set) var bracket = 0.0
+    /// With more than one frame: whether each is focused further than the one before, from where
+    /// the camera is focused to the far distance, to be merged sharp throughout (a focus stack).
+    /// The bracket's last step, after the exposures.
+    private(set) var focusBracket = false
     /// With more than one frame: the seconds left between one and the next, 0 for back to back.
     /// Frames spread over a few seconds hold what moved in the scene, to blur, remove or draw later.
     private(set) var interval = 0.0
@@ -130,7 +134,15 @@ final class Camera {
 
     /// The next bracket, or the next interval, round and round: each is one button beside the frames dial.
     func nextBracket() {
-        bracket = Self.brackets[((Self.brackets.firstIndex(of: bracket) ?? 0) + 1) % Self.brackets.count]
+        if focusBracket {
+            focusBracket = false
+            bracket = 0
+        } else if bracket == Self.brackets.last {
+            bracket = 0
+            focusBracket = true
+        } else {
+            bracket = Self.brackets[((Self.brackets.firstIndex(of: bracket) ?? 0) + 1) % Self.brackets.count]
+        }
     }
 
     func nextInterval() {
@@ -462,7 +474,7 @@ final class Camera {
                         burst = (0, count)
                         let taken: [TakenFrame]
                         do {
-                            taken = try await service.captureBurst(count: count, bracket: bracket, interval: interval, rotationAngle: angle) { done in
+                            taken = try await service.captureBurst(count: count, bracket: bracket, focusBracket: focusBracket, interval: interval, rotationAngle: angle) { done in
                                 Task { @MainActor in if self.burst != nil { self.burst = (done, count) } }
                             }
                         } catch {
@@ -513,12 +525,13 @@ final class Camera {
 
     /// Merges the frames of one shot into one DNG, the camera's way (`FrameSet.make`): built on the
     /// sharpest of the first three at the shot's own exposure, every frame lined up with it and
-    /// merged in, movement frozen. The file is that frame's own, with the merged picture in place
-    /// of its own; `set` describes the frames, which are kept beside it to be merged another way.
+    /// merged in, movement frozen (a focus bracket: each place from the frames sharpest there).
+    /// The file is that frame's own, with the merged picture in place of its own; `set` describes
+    /// the frames, which are kept beside it to be merged another way.
     nonisolated static func merge(_ taken: [TakenFrame]) throws -> (data: Data, set: FrameSet?) {
         guard taken.count > 1 else { return (taken[0].data, nil) }
         let frames = try taken.map { try DNG.frame(of: $0.data) }
-        let shots = taken.map { FrameSet.Shot(time: $0.time, iso: $0.iso, after: max(0, $0.at - taken[0].at)) }
+        let shots = taken.map { FrameSet.Shot(time: $0.time, iso: $0.iso, after: max(0, $0.at - taken[0].at), focus: $0.focus) }
         let made = try FrameSet.make(frames: frames, shots: shots)
         return (try DNG.replacingFrame(of: taken[made.set.merge.base - 1].data, with: made.merged.frame), made.set)
     }

@@ -114,6 +114,7 @@ enum L10n {
     static var cameraHoldStill: String { String(localized: "camera.holdStill") }
     static var cameraFramesFailed: String { String(localized: "camera.framesFailed") }
     static var cameraBracket: String { String(localized: "camera.bracket") }
+    static var cameraBracketFocus: String { String(localized: "camera.bracket.focus") }
     static var cameraInterval: String { String(localized: "camera.interval") }
     static var cameraZoom: String { String(localized: "camera.zoom") }
     static var cameraZeroProcessing: String { String(localized: "camera.mode.zero") }

@@ -373,20 +373,25 @@ final class CaptureService: @unchecked Sendable {
     ///
     /// With a `bracket` (in stops), the frames go round three exposures: the camera's own, that
     /// many stops less light, and that many more. The time changes, and the ISO only where the
-    /// time has reached the lens's limit. With an `interval` (in seconds), that long passes
-    /// between one frame and the next.
-    func captureBurst(count: Int, bracket: Double, interval: Double, rotationAngle: CGFloat, progress: @escaping @Sendable (Int) -> Void) async throws -> [TakenFrame] {
+    /// time has reached the lens's limit. With `focusBracket`, each frame is focused further than
+    /// the one before (`focusPositions`), at one exposure. With an `interval` (in seconds), that
+    /// long passes between one frame and the next.
+    func captureBurst(
+        count: Int, bracket: Double, focusBracket: Bool, interval: Double, rotationAngle: CGFloat, progress: @escaping @Sendable (Int) -> Void
+    ) async throws -> [TakenFrame] {
         await hold(true)
         var frames: [TakenFrame] = []
         do {
             guard let held = await heldExposure() else { throw CameraError.noRAW }
-            // One at a time when they are spaced out, or where the camera takes no more at once.
-            let single = interval > 0 || held.most < 2
+            let positions = focusBracket ? await focusPositions(count: count) : nil
+            // One at a time when they are spaced out or focused apart, or where the camera takes no more at once.
+            let single = interval > 0 || held.most < 2 || positions != nil
             while frames.count < count {
                 let start = frames.count
                 if single {
                     let exposure = held.exposure(of: start, bracket: bracket)
                     if bracket != 0 { await setExposure(time: exposure.time, iso: exposure.iso) }
+                    if let positions { await setLens(positions[start]) }
                     frames += try await request(rotationAngle: rotationAngle, didCapture: {}) {
                         guard let format = self.bayerFormat else { throw CameraError.noRAW }
                         // At speed: at any other quality Apple may shoot at a time and an ISO of its own.
@@ -419,6 +424,7 @@ final class CaptureService: @unchecked Sendable {
                     frames[index].time = exposure.time
                     frames[index].iso = exposure.iso
                 }
+                if let positions { for index in start..<min(frames.count, positions.count) { frames[index].focus = positions[index] } }
                 progress(frames.count)
                 if interval > 0, frames.count < count { try await Task.sleep(for: .seconds(interval)) }
             }
@@ -464,6 +470,36 @@ final class CaptureService: @unchecked Sendable {
                     returning: HeldExposure(
                         time: device.exposureDuration.seconds, iso: Double(device.iso), times: shortest...longest,
                         isos: Double(format.minISO)...Double(max(format.minISO, format.maxISO)), most: self.output.maxBracketedCapturePhotoCount))
+            }
+        }
+    }
+
+    /// Where the lens is held for each frame of a focus bracket, near to far: from where it is
+    /// focused now (on the nearest thing to be sharp: where the person tapped, or what the camera
+    /// chose) to its farthest, in even steps, which are about even steps of depth of field. Focused
+    /// far already, the whole of its travel. Nil where the lens cannot be held.
+    private func focusPositions(count: Int) async -> [Double]? {
+        await withCheckedContinuation { (continuation: CheckedContinuation<[Double]?, Never>) in
+            queue.async {
+                guard let device = self.input?.device, device.isLockingFocusWithCustomLensPositionSupported, count > 1 else {
+                    return continuation.resume(returning: nil)
+                }
+                let focused = Double(device.lensPosition)
+                let near = 1 - focused < 0.2 ? 0 : focused
+                continuation.resume(returning: (0..<count).map { near + (1 - near) * Double($0) / Double(count - 1) })
+            }
+        }
+    }
+
+    /// Holds the lens at `position` for the next frame, and waits until it is there.
+    private func setLens(_ position: Double) async {
+        await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
+            queue.async {
+                guard let device = self.input?.device, device.isLockingFocusWithCustomLensPositionSupported, (try? device.lockForConfiguration()) != nil else {
+                    return continuation.resume()
+                }
+                device.setFocusModeLocked(lensPosition: Float(min(max(position, 0), 1))) { _ in continuation.resume() }
+                device.unlockForConfiguration()
             }
         }
     }
@@ -582,6 +618,8 @@ struct TakenFrame: Sendable {
     var time: Double
     var iso: Double
     var at: Double
+    /// Where the lens was held, for a frame of a focus bracket.
+    var focus: Double? = nil
 }
 
 /// Collects the photos of one capture request: one, or the frames of a bracket.

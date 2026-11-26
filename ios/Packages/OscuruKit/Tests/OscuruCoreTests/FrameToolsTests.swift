@@ -119,6 +119,35 @@ final class FrameToolsTests: XCTestCase {
         XCTAssertLessThan(Scene.error(values, clean, width: 256, in: rightHalf), soft1 * 0.6, "the right from the other")
     }
 
+    func testTheCameraMergesAFocusBracketSharpThroughout() throws {
+        // Focused near (the left is near), then far, with the hand moving a little between them.
+        func soft(_ x: Double, _ y: Double) -> Double {
+            var total = 0.0
+            for j in -3...3 { for i in -3...3 { total += Scene.scene(x + Double(i), y + Double(j)) } }
+            return total / 49 - Scene.scene(x, y)
+        }
+        let near = Scene.frame(seed: 1, extra: { x, y in x < 128 ? 0 : soft(x, y) })
+        let far = Scene.frame(dx: 2, dy: -2, seed: 2, extra: { x, y in x + 2 < 128 ? soft(x + 2, y - 2) : 0 })
+        let shots = [FrameSet.Shot(time: 0.01, iso: 100, after: 0, focus: 0.3), FrameSet.Shot(time: 0.01, iso: 100, after: 0.2, focus: 1)]
+        let made = try FrameSet.make(frames: [near, far], shots: shots)
+        XCTAssertEqual(made.set.merge.combine, .sharpest)
+        XCTAssertEqual(made.set.merge.base, 1, "on the frame focused where the person focused")
+        XCTAssertEqual(made.set.frames.map(\.focus), [0.3, 1])
+        XCTAssertEqual(made.set.json(with: made.set.merge).arrayValue?.first?.objectValue?["focus"], 0.3)
+        let values = FrameMergingTests.light(.mosaic(made.merged), base: near)
+        let clean = Scene.frame(clean: true).samples.map { Double($0) - Scene.black }
+        let leftHalf = (16, 16, 96, 160)
+        let rightHalf = (144, 16, 96, 160)
+        let blurredRight = Scene.error(near.samples.map { Double($0) - Scene.black }, clean, width: 256, in: rightHalf)
+        XCTAssertLessThan(Scene.error(values, clean, width: 256, in: rightHalf), blurredRight * 0.6, "the far side from the frame focused far")
+        XCTAssertLessThan(Scene.error(values, clean, width: 256, in: leftHalf), blurredRight * 0.6)
+
+        // Frames focused alike are merged as ever.
+        let plain = try FrameSet.make(frames: [near, near], shots: [FrameSet.Shot(time: 0.01, iso: 100, after: 0), FrameSet.Shot(time: 0.01, iso: 100, after: 0.1)])
+        XCTAssertEqual(plain.set.merge.combine, .robust)
+        XCTAssertNil(plain.set.json(with: plain.set.merge).arrayValue?.first?.objectValue?["focus"])
+    }
+
     func testFollowingOnePartOfTheFrameKeepsItSharpAndBlursTheRest() throws {
         // A textured thing crossing a still scene, two photosites further in each frame: the camera
         // followed it, as in a panning shot (here the scene moves under the camera instead).
