@@ -358,7 +358,8 @@ private struct StepView: View {
                     .fixedSize(horizontal: false, vertical: true)
             }
             if !step.changes.isEmpty {
-                Text(step.changes.map(L10n.describe).joined(separator: " · "))
+                // Each kind of change once: a layout or a merge changes in several settings at a time.
+                Text(step.changes.map(L10n.describe).reduce(into: [String]()) { if !$0.contains($1) { $0.append($1) } }.joined(separator: " · "))
                     .font(.footnote)
                     .foregroundStyle(.secondary)
                     .fixedSize(horizontal: false, vertical: true)

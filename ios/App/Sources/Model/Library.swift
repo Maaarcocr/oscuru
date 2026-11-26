@@ -102,12 +102,21 @@ final class Library {
     }
 
     /// Copies a picked file (or a shot) into the library and opens it once to learn what it is.
-    /// `framing` is the crop a camera zoomed between lenses framed it with; `frames`, how many RAW
-    /// frames the camera averaged into the file, when more than one.
-    func add(from source: URL, name: String, framing: Crop? = nil, frames: Int? = nil) async throws -> PhotoDocument {
+    /// `framing` is the crop a camera zoomed between lenses framed it with; `shot`, the RAW frames
+    /// the camera merged into the file, when it took more than one: they are kept beside it
+    /// (`FrameSet`), so that the assistant can merge them another way.
+    func add(from source: URL, name: String, framing: Crop? = nil, shot: (set: FrameSet, frames: [Data])? = nil) async throws -> PhotoDocument {
         let originalFile = "original.\(source.pathExtension.isEmpty ? "img" : source.pathExtension.lowercased())"
-        return try await create(name: name, framing: framing, frames: frames) { folder in
+        let set = shot?.set
+        let frames = shot?.frames ?? []
+        return try await create(name: name, framing: framing, frames: set?.frames.count) { folder in
             try FileManager.default.copyItem(at: source, to: folder.appending(path: originalFile))
+            if let set {
+                let kept = folder.appending(path: FrameSet.folder, directoryHint: .isDirectory)
+                try FileManager.default.createDirectory(at: kept, withIntermediateDirectories: true)
+                for (index, frame) in frames.enumerated() { try frame.write(to: kept.appending(path: FrameSet.fileName(of: index + 1))) }
+                try JSONEncoder().encode(set).write(to: kept.appending(path: FrameSet.manifest), options: .atomic)
+            }
             return originalFile
         }
     }
@@ -139,9 +148,12 @@ final class Library {
         return try await create(name: name, framing: document.info.defaults.framing, frames: document.info.frames, state: { _ in state }) { folder in
             // Copies on the phone's own disk are clones: they take no space, and originals never change.
             try FileManager.default.copyItem(at: source.appending(path: originalFile), to: folder.appending(path: originalFile))
-            let pieces = source.appending(path: "pieces", directoryHint: .isDirectory)
-            if FileManager.default.fileExists(atPath: pieces.path) {
-                try FileManager.default.copyItem(at: pieces, to: folder.appending(path: "pieces", directoryHint: .isDirectory))
+            // What lies beside the original comes with it: a collage's pieces, a shot's frames and merges.
+            for beside in ["pieces", FrameSet.folder, FrameSet.mergesFolder] {
+                let from = source.appending(path: beside, directoryHint: .isDirectory)
+                if FileManager.default.fileExists(atPath: from.path) {
+                    try FileManager.default.copyItem(at: from, to: folder.appending(path: beside, directoryHint: .isDirectory))
+                }
             }
             return originalFile
         }
@@ -210,5 +222,40 @@ final class Library {
     func delete(id: String) {
         try? FileManager.default.removeItem(at: folder(id))
         photos.removeAll { $0.id == id }
+    }
+
+    // MARK: Kept frames
+
+    /// The frames kept beside the photos (see `FrameSet`): each one's file.
+    private nonisolated static func keptFrames(in root: URL) -> [URL] {
+        let folders = (try? FileManager.default.contentsOfDirectory(at: root, includingPropertiesForKeys: nil)) ?? []
+        return folders.flatMap { folder -> [URL] in
+            let kept = folder.appending(path: FrameSet.folder, directoryHint: .isDirectory)
+            return ((try? FileManager.default.contentsOfDirectory(at: kept, includingPropertiesForKeys: [.fileSizeKey])) ?? []).filter { $0.pathExtension == "dng" }
+        }
+    }
+
+    /// How much room the kept frames take, in bytes.
+    func keptFramesSize() async -> Int64 {
+        let root = root
+        return await Task.detached {
+            Library.keptFrames(in: root).reduce(Int64(0)) { $0 + Int64((try? $1.resourceValues(forKeys: [.fileSizeKey]).fileSize) ?? 0) }
+        }.value
+    }
+
+    /// Lets go of every photo's kept frames. Each photo stays as it is merged now (the merges already
+    /// made are kept); its frames can no longer be merged another way.
+    func discardKeptFrames() async {
+        let root = root
+        await Task.detached {
+            for frame in Library.keptFrames(in: root) {
+                let manifest = frame.deletingLastPathComponent().appending(path: FrameSet.manifest)
+                if let data = try? Data(contentsOf: manifest), var set = try? JSONDecoder().decode(FrameSet.self, from: data), set.kept {
+                    set.kept = false
+                    try? JSONEncoder().encode(set).write(to: manifest, options: .atomic)
+                }
+                try? FileManager.default.removeItem(at: frame)
+            }
+        }.value
     }
 }

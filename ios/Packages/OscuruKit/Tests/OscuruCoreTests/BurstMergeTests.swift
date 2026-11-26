@@ -25,7 +25,7 @@ final class BurstMergeTests: XCTestCase {
     /// A frame of `scene` moved by (dx, dy) photosites, with `extra` added over the scene where it
     /// applies, and the sensor's noise unless `clean`.
     static func frame(
-        width: Int = 256, height: Int = 192, dx: Double = 0, dy: Double = 0, seed: UInt64 = 0, clean: Bool = false,
+        width: Int = 256, height: Int = 192, dx: Double = 0, dy: Double = 0, seed: UInt64 = 0, clean: Bool = false, light: Double = 1,
         extra: (Double, Double) -> Double = { _, _ in 0 }
     ) -> RawFrame {
         var state = seed &* 2_862_933_555_777_941_757 &+ 3_037_000_493
@@ -38,7 +38,7 @@ final class BurstMergeTests: XCTestCase {
         for y in 0..<height {
             for x in 0..<width {
                 let gain = gains[(y % 2) * 2 + x % 2]
-                let signal = gain * (scene(Double(x) + dx, Double(y) + dy) + extra(Double(x), Double(y)))
+                let signal = light * gain * (scene(Double(x) + dx, Double(y) + dy) + extra(Double(x), Double(y)))
                 var value = black + signal
                 if !clean {
                     let deviation = (noise[0] * (signal / range) + noise[1]).squareRoot() * range
@@ -72,7 +72,7 @@ final class BurstMergeTests: XCTestCase {
         let moves: [(Double, Double)] = [(2, 4), (-6, 2), (10, -8), (4, 6), (-2, -4), (8, 2), (-4, 10)]
         for (index, move) in moves.enumerated() { merge.add(Self.frame(dx: move.0, dy: move.1, seed: UInt64(index + 2))) }
         XCTAssertEqual(merge.frames, 8)
-        let merged = merge.merged()
+        let merged = merge.merged().frame
         XCTAssertEqual(merged.whiteLevel, Self.white * 16, "the levels are scaled up to keep what averaging earned")
         XCTAssertEqual(merged.blackLevels, [Self.black * 16])
         XCTAssertEqual(merged.noiseProfile, Self.noise.map { $0 / 8 })
@@ -94,7 +94,7 @@ final class BurstMergeTests: XCTestCase {
         var merge = BurstMerge(reference: Self.frame(seed: 1, extra: square(at: (40, 40))))
         let places: [(Double, Double)] = [(150, 40), (150, 110), (40, 120), (100, 80), (190, 130), (96, 20), (20, 80)]
         for (index, place) in places.enumerated() { merge.add(Self.frame(seed: UInt64(index + 2), extra: square(at: place))) }
-        let merged = Self.values(merge.merged(), over: 16)
+        let merged = Self.values(merge.merged().frame, over: 16)
         let expected = Self.values(clean)
         // Nowhere is the picture far from the first frame's scene: not where the square was in
         // another frame (a ghost would be 190 or more above), nor where it is in the first.
@@ -121,7 +121,7 @@ final class BurstMergeTests: XCTestCase {
             for (index, value) in Self.values(frame).enumerated() { plain[index] += value }
         }
         plain = plain.map { $0 / 8 }
-        let merged = Self.values(merge.merged(), over: 16)
+        let merged = Self.values(merge.merged().frame, over: 16)
         let expected = Self.values(clean)
         let inside = (24, 24, 256 - 48, 192 - 48)
         let single = Self.error(Self.values(first), expected, width: 256, in: inside)
@@ -184,7 +184,7 @@ final class BurstMergeTests: XCTestCase {
         let moves = [(4, -2), (-6, 8), (12, 6), (-10, -4), (2, 14), (-14, 2), (8, -12)]
         let started = Date()
         for (index, move) in moves.enumerated() { merge.add(noisy(dx: move.0, dy: move.1, seed: UInt64(index + 2))) }
-        let merged = merge.merged()
+        let merged = merge.merged().frame
         print("merged \(merge.frames) frames of \(original.width)×\(original.height) in \(Date().timeIntervalSince(started)) s (the frames' making included)")
         try DNG.replacingFrame(of: file, with: merged).write(to: URL(fileURLWithPath: "\(folder)/xs.merged.dng"))
         XCTAssertEqual(merged.whiteLevel, original.whiteLevel * 16)

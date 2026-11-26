@@ -65,6 +65,22 @@
         }
       }
     },
+    "camera.bracket": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bracket"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bracketing"
+          }
+        }
+      }
+    },
     "camera.denied.message": {
       "localizations": {
         "en": {
@@ -237,6 +253,22 @@
           "stringUnit": {
             "state": "translated",
             "value": "Resta fermo"
+          }
+        }
+      }
+    },
+    "camera.interval": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Every"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ogni"
           }
         }
       }
@@ -541,6 +573,22 @@
           "stringUnit": {
             "state": "translated",
             "value": "Ritaglio"
+          }
+        }
+      }
+    },
+    "change.frames": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Frames merged"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Fotogrammi fusi"
           }
         }
       }
@@ -2337,6 +2385,70 @@
         }
       }
     },
+    "settings.discardFrames %@": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Discard Kept Frames (%@)"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Elimina i fotogrammi conservati (%@)"
+          }
+        }
+      }
+    },
+    "settings.discardFrames.confirm": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Discard"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Elimina"
+          }
+        }
+      }
+    },
+    "settings.discardFrames.message": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The frames of every shot are deleted to free their space. Each photo stays as it is merged now, and can no longer be merged another way."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "I fotogrammi di ogni scatto vengono eliminati per liberare spazio. Ogni foto resta fusa com’è ora e non potrà più essere fusa in un altro modo."
+          }
+        }
+      }
+    },
+    "settings.discardFrames.title": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Discard the kept frames?"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Eliminare i fotogrammi conservati?"
+          }
+        }
+      }
+    },
     "settings.disconnect": {
       "localizations": {
         "en": {
@@ -2406,13 +2518,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Adds a frames value to the camera in zero processing. At ×8 it takes eight RAW frames, lines them up and averages them into one RAW file with less noise: ×4 halves it, ×16 quarters it. Nothing else is done to the file. Hold still while it shoots."
+            "value": "Adds a frames value to the camera in zero processing. At ×8 it takes eight RAW frames and merges them into one RAW file with less noise: ×4 halves it, ×16 quarters it. Beside the dial, Bracket spreads the frames over darker and brighter exposures, to hold highlights and shadows together, and Every leaves time between them, to catch what moves. The frames are kept with the photo, so the assistant can merge them another way: choose the moment, or blur, remove or trace what moved. Hold still while it shoots."
           }
         },
         "it": {
           "stringUnit": {
             "state": "translated",
-            "value": "Aggiunge alla fotocamera, senza elaborazione, il valore dei fotogrammi. A ×8 scatta otto fotogrammi RAW, li allinea e ne fa la media in un solo file RAW con meno rumore: ×4 lo dimezza, ×16 lo riduce a un quarto. Al file non viene fatto altro. Resta fermo mentre scatta."
+            "value": "Aggiunge alla fotocamera, senza elaborazione, il valore dei fotogrammi. A ×8 scatta otto fotogrammi RAW e li fonde in un solo file RAW con meno rumore: ×4 lo dimezza, ×16 lo riduce a un quarto. Accanto alla ghiera, Bracketing distribuisce i fotogrammi su esposizioni più scure e più chiare, per tenere insieme luci e ombre, e Ogni lascia del tempo tra l’uno e l’altro, per cogliere ciò che si muove. I fotogrammi restano con la foto, così l’assistente può fonderli in un altro modo: scegliere il momento, oppure sfocare, togliere o tracciare ciò che si è mosso. Resta fermo mentre scatta."
           }
         }
       }

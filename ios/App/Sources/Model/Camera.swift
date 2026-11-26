@@ -87,6 +87,13 @@ final class Camera {
     private(set) var frames = 1
     /// Whether Frames is turned on in Settings.
     private(set) var framesEnabled = UserDefaults.standard.bool(forKey: Camera.framesKey)
+    /// With more than one frame: how many stops apart they are taken, 0 for all at one exposure.
+    /// At ±2 the frames go round the exposure as set, two stops less light and two stops more, so
+    /// that together they hold highlights and shadows no one frame could.
+    private(set) var bracket = 0.0
+    /// With more than one frame: the seconds left between one and the next, 0 for back to back.
+    /// Frames spread over a few seconds hold what moved in the scene, to blur, remove or draw later.
+    private(set) var interval = 0.0
     /// While the frames of a shot are being taken: how many so far, of how many. The phone should be held still.
     private(set) var burst: (taken: Int, of: Int)?
     /// Goes up as each shot is taken, for the shutter blink and the haptic.
@@ -118,6 +125,17 @@ final class Camera {
     /// Whether Frames is turned on: Settings writes it, the camera reads it.
     static let framesKey = "camera.frames"
     static let frameCounts: [Double] = [1, 2, 4, 8, 16]
+    static let brackets: [Double] = [0, 1, 2, 3]
+    static let intervals: [Double] = [0, 0.5, 1, 2, 4]
+
+    /// The next bracket, or the next interval, round and round: each is one button beside the frames dial.
+    func nextBracket() {
+        bracket = Self.brackets[((Self.brackets.firstIndex(of: bracket) ?? 0) + 1) % Self.brackets.count]
+    }
+
+    func nextInterval() {
+        interval = Self.intervals[((Self.intervals.firstIndex(of: interval) ?? 0) + 1) % Self.intervals.count]
+    }
     private static let modeKey = "camera.mode"
     private static let guidesKey = "camera.guides"
 
@@ -429,9 +447,9 @@ final class Camera {
             defer { saving -= 1 }
             do {
                 let file: URL
-                /// How many frames the file was averaged from, and one of them as taken, kept in
-                /// case the averaged file cannot be opened.
-                var averaged: Int?
+                /// The frames the file was merged from, and one of them as taken, kept in case the
+                /// merged file cannot be opened.
+                var shot: (set: FrameSet, frames: [Data])?
                 var spare: Data?
                 if simulated {
                     shots += 1
@@ -442,9 +460,9 @@ final class Camera {
                     let data: Data
                     if count > 1 {
                         burst = (0, count)
-                        let taken: [Data]
+                        let taken: [TakenFrame]
                         do {
-                            taken = try await service.captureBurst(count: count, rotationAngle: angle) { done in
+                            taken = try await service.captureBurst(count: count, bracket: bracket, interval: interval, rotationAngle: angle) { done in
                                 Task { @MainActor in if self.burst != nil { self.burst = (done, count) } }
                             }
                         } catch {
@@ -457,13 +475,13 @@ final class Camera {
                         do {
                             let merged = try await Task.detached(priority: .userInitiated) { try Camera.merge(taken) }.value
                             data = merged.data
-                            if merged.frames > 1 {
-                                averaged = merged.frames
-                                spare = taken[0]
+                            if let set = merged.set {
+                                shot = (set, taken.map(\.data))
+                                spare = taken[0].data
                             }
                         } catch {
-                            // Frames that cannot be averaged are still a photo: the first of them.
-                            data = taken[0]
+                            // Frames that cannot be merged are still a photo: the first of them.
+                            data = taken[0].data
                             problem = L10n.cameraFramesFailed
                         }
                     } else {
@@ -479,7 +497,7 @@ final class Camera {
                 let name = "\(Date.now.formatted(.dateTime.day().month(.abbreviated).hour().minute())).\(file.pathExtension)"
                 let document: PhotoDocument
                 do {
-                    document = try await library.add(from: file, name: name, framing: framing, frames: averaged)
+                    document = try await library.add(from: file, name: name, framing: framing, shot: shot)
                 } catch {
                     guard let spare else { throw error }
                     try spare.write(to: file)
@@ -493,18 +511,16 @@ final class Camera {
         }
     }
 
-    /// Averages the frames of one shot into one DNG: the sharpest of the first three is the
-    /// picture, and the others are lined up with it and averaged in (`BurstMerge`). The file is
-    /// that frame's own, with the averaged samples in place of its own.
-    nonisolated static func merge(_ files: [Data]) throws -> (data: Data, frames: Int) {
-        guard files.count > 1 else { return (files[0], 1) }
-        let first = try files.prefix(3).map { try DNG.frame(of: $0) }
-        let sharpness = first.map { BurstMerge.sharpness(of: $0) }
-        let sharpest = sharpness.indices.max { sharpness[$0] < sharpness[$1] } ?? 0
-        var merge = BurstMerge(reference: first[sharpest])
-        for (index, frame) in first.enumerated() where index != sharpest { merge.add(frame) }
-        for file in files.dropFirst(3) { merge.add(try DNG.frame(of: file)) }
-        return (try DNG.replacingFrame(of: files[sharpest], with: merge.merged()), merge.frames)
+    /// Merges the frames of one shot into one DNG, the camera's way (`FrameSet.make`): built on the
+    /// sharpest of the first three at the shot's own exposure, every frame lined up with it and
+    /// merged in, movement frozen. The file is that frame's own, with the merged picture in place
+    /// of its own; `set` describes the frames, which are kept beside it to be merged another way.
+    nonisolated static func merge(_ taken: [TakenFrame]) throws -> (data: Data, set: FrameSet?) {
+        guard taken.count > 1 else { return (taken[0].data, nil) }
+        let frames = try taken.map { try DNG.frame(of: $0.data) }
+        let shots = taken.map { FrameSet.Shot(time: $0.time, iso: $0.iso, after: max(0, $0.at - taken[0].at)) }
+        let made = try FrameSet.make(frames: frames, shots: shots)
+        return (try DNG.replacingFrame(of: taken[made.set.merge.base - 1].data, with: made.merged.frame), made.set)
     }
 
     /// Keeps the viewfinder upright and records which way the phone was held in each shot.

@@ -189,6 +189,13 @@ public final class Engine: @unchecked Sendable {
     }
   }
 
+  /// What lining up and merging a shot's frames the way `recipe` says found of each frame, by its
+  /// number, making the merge now if it is not kept already. Nil when the photo has no frames, or
+  /// they cannot be merged that way.
+  public func frameReports(id: String, recipe: RenderRecipe) throws -> [Int: FrameReport]? {
+    try using(id) { session in session.frameReports(for: recipe.frames?.way) }
+  }
+
   /// The mean of a grey mask's first channel (0 when it could not be measured).
   private func average(of mask: CIImage) -> Double {
     let average = CIFilter.areaAverage()
@@ -302,51 +309,56 @@ public final class Engine: @unchecked Sendable {
     // Ordinary previews share one developed image; exports and zooms develop at their own size.
     let cache = options.maxEdge > 0 && options.maxEdge <= Engine.previewEdge && options.region == nil
 
-    var image = try session.developed(recipe: recipe, scale: scale, cache: cache, context: context)
-    let developedImage = image
-    let extent = image.extent
+    let developedImage = try session.developed(recipe: recipe, scale: scale, cache: cache, context: context)
+    let extent = developedImage.extent
     let workingEdge = max(extent.width, extent.height)
 
-    if recipe.shadowAmount > 0 || recipe.highlightAmount < 1 {
-      let filter = CIFilter.highlightShadowAdjust()
-      filter.inputImage = image.clampedToExtent()
-      filter.shadowAmount = Float(recipe.shadowAmount)
-      filter.highlightAmount = Float(recipe.highlightAmount)
-      image = (filter.outputImage ?? image).cropped(to: extent)
-    }
+    /// Everything that is done to the whole of a developed picture, up to and with its framing.
+    func finished(_ developed: CIImage) -> CIImage {
+      var image = developed
 
-    for pass in recipe.localContrast where pass.intensity != 0 {
-      let filter = CIFilter.unsharpMask()
-      filter.inputImage = image.clampedToExtent()
-      filter.radius = Float(pass.radius * Double(workingEdge))
-      filter.intensity = Float(pass.intensity)
-      image = (filter.outputImage ?? image).cropped(to: extent)
-    }
+      if recipe.shadowAmount > 0 || recipe.highlightAmount < 1 {
+        let filter = CIFilter.highlightShadowAdjust()
+        filter.inputImage = image.clampedToExtent()
+        filter.shadowAmount = Float(recipe.shadowAmount)
+        filter.highlightAmount = Float(recipe.highlightAmount)
+        image = (filter.outputImage ?? image).cropped(to: extent)
+      }
 
-    if recipe.toneTableSize >= 2, recipe.toneTable.count == recipe.toneTableSize * 3 * MemoryLayout<Float32>.size {
-      let filter = CIFilter.colorCurves()
-      filter.inputImage = image
-      filter.curvesData = recipe.toneTable
-      filter.curvesDomain = CIVector(x: 0, y: 1)
-      filter.colorSpace = tableColorSpace
-      image = filter.outputImage ?? image
-    }
+      for pass in recipe.localContrast where pass.intensity != 0 {
+        let filter = CIFilter.unsharpMask()
+        filter.inputImage = image.clampedToExtent()
+        filter.radius = Float(pass.radius * Double(workingEdge))
+        filter.intensity = Float(pass.intensity)
+        image = (filter.outputImage ?? image).cropped(to: extent)
+      }
 
-    let cubeEntries = recipe.cubeSize * recipe.cubeSize * recipe.cubeSize
-    if recipe.cubeSize >= 2, recipe.cube.count == cubeEntries * 4 * MemoryLayout<Float32>.size {
-      let filter = CIFilter.colorCubeWithColorSpace()
-      filter.inputImage = image
-      filter.cubeDimension = Float(recipe.cubeSize)
-      filter.cubeData = recipe.cube
-      filter.colorSpace = tableColorSpace
-      image = filter.outputImage ?? image
-    }
+      if recipe.toneTableSize >= 2, recipe.toneTable.count == recipe.toneTableSize * 3 * MemoryLayout<Float32>.size {
+        let filter = CIFilter.colorCurves()
+        filter.inputImage = image
+        filter.curvesData = recipe.toneTable
+        filter.curvesDomain = CIVector(x: 0, y: 1)
+        filter.colorSpace = tableColorSpace
+        image = filter.outputImage ?? image
+      }
 
-    if let halation = recipe.halation {
-      image = Effects.halation(image, halation, edge: workingEdge)
-    }
+      let cubeEntries = recipe.cubeSize * recipe.cubeSize * recipe.cubeSize
+      if recipe.cubeSize >= 2, recipe.cube.count == cubeEntries * 4 * MemoryLayout<Float32>.size {
+        let filter = CIFilter.colorCubeWithColorSpace()
+        filter.inputImage = image
+        filter.cubeDimension = Float(recipe.cubeSize)
+        filter.cubeData = recipe.cube
+        filter.colorSpace = tableColorSpace
+        image = filter.outputImage ?? image
+      }
 
-    image = geometry(image, recipe: recipe, fullFrame: options.fullFrame)
+      if let halation = recipe.halation {
+        image = Effects.halation(image, halation, edge: workingEdge)
+      }
+
+      return geometry(image, recipe: recipe, fullFrame: options.fullFrame)
+    }
+    var image = finished(developedImage)
 
     // How far each part of the frame is: a band's weight, or without one the distance itself.
     let depth: (ValueRange?) -> CIImage? = { band in
@@ -362,7 +374,8 @@ public final class Engine: @unchecked Sendable {
     }
 
     var maskToShow: CIImage?
-    if !recipe.local.isEmpty || options.mask != nil {
+    let areas = recipe.frames?.areas ?? []
+    if !recipe.local.isEmpty || options.mask != nil || !areas.isEmpty {
       let frameExtent = image.extent
       // The subject and people masks follow the photo through the same flips, turns and crop.
       var framed: [String: CIImage] = [:]
@@ -396,17 +409,23 @@ public final class Engine: @unchecked Sendable {
       let frameEdge = max(image.extent.width, image.extent.height)
       // A mask that snaps to the photo's edges needs the whole frame as pixels. On a large render
       // (a zoom, an export) it is worked out on a small development instead: see `smallMask`.
-      let mask: (Mask, Int, CIImage) throws -> CIImage = { mask, before, current in
+      let mask: (Mask, MaskPlace, CIImage) throws -> CIImage = { mask, before, current in
         if mask.refine > 0, frameEdge > Engine.previewEdge {
           return try self.smallMask(mask, before: before, session: session, recipe: recipe, fullFrame: options.fullFrame, frame: current.extent)
         }
         return Effects.mask(mask, over: current, original: original, found: found, depth: { depth($0) }, context: self.context)
       }
+      // Parts of the picture from the shot's frames merged another way, each developed like the
+      // rest and laid in through its mask.
+      for (index, area) in areas.enumerated() {
+        let other = finished(try session.developed(recipe: recipe, way: area.way, scale: scale, cache: cache, context: context))
+        image = Effects.blend(other, over: image, mask: try mask(area.mask, MaskPlace(areas: index, local: 0), image))
+      }
       for (index, pass) in recipe.local.enumerated() {
-        image = Effects.local(pass, to: image, mask: try mask(pass.mask, index, image), edge: frameEdge)
+        image = Effects.local(pass, to: image, mask: try mask(pass.mask, MaskPlace(areas: areas.count, local: index), image), edge: frameEdge)
       }
       if let shown = options.mask {
-        maskToShow = try mask(shown, recipe.local.count, image)
+        maskToShow = try mask(shown, MaskPlace(areas: areas.count, local: recipe.local.count), image)
       }
     }
 
@@ -427,15 +446,23 @@ public final class Engine: @unchecked Sendable {
   /// on. Snapping works on at most 1024 pixels in any case (`Effects.refined`).
   static let maskEdge: Double = 1024
 
-  /// A mask as it would be over the photo just before local pass `before`, worked out on a small
+  /// Where in the order of things done through masks one stands: after this many of the frames'
+  /// areas and this many local adjustments.
+  struct MaskPlace {
+    var areas: Int
+    var local: Int
+  }
+
+  /// A mask as it would be over the photo at the place `before`, worked out on a small
   /// development of the photo and stretched over `frame`. Snapping a mask to the photo's edges reads
   /// the whole frame back as pixels; on a full-size picture that develops all of it at full size
   /// (for a zoom of one corner, or one band of an export, as much as for the whole), which can need
   /// more graphics memory than a phone has. The snapped mask is only ever 1024 pixels across, so
   /// working it out small gives the same mask.
-  private func smallMask(_ mask: Mask, before: Int, session: PhotoSession, recipe: RenderRecipe, fullFrame: Bool, frame: CGRect) throws -> CIImage {
+  private func smallMask(_ mask: Mask, before: MaskPlace, session: PhotoSession, recipe: RenderRecipe, fullFrame: Bool, frame: CGRect) throws -> CIImage {
     var earlier = recipe
-    earlier.local = Array(recipe.local.prefix(before))
+    earlier.local = Array(recipe.local.prefix(before.local))
+    earlier.frames?.areas = Array((recipe.frames?.areas ?? []).prefix(before.areas))
     earlier.vignette = 0
     earlier.grain = nil
     var found: CIImage?

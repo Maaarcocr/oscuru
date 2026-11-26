@@ -26,6 +26,9 @@ public struct PhotoInfo: Codable, Equatable, Sendable {
     /// How many RAW frames the camera averaged into this file, when more than one: its noise is
     /// lower than its ISO says, by the square root of this. Kept in the photo's record.
     public var frames: Int?
+    /// The frames themselves, when the camera kept them beside the file: what `photo.current.frames`
+    /// works on. Read from the photo's folder each time it is opened.
+    public var frameSet: FrameSet?
 
     public init(fileName: String, typeIdentifier: String, isRaw: Bool, width: Int, height: Int, defaults: PhotoDefaults = PhotoDefaults()) {
         self.fileName = fileName
@@ -58,7 +61,8 @@ public struct PhotoInfo: Codable, Equatable, Sendable {
         if let framing = defaults.framing {
             members["framedInCamera"] = ["x": .number(framing.x), "y": .number(framing.y), "width": .number(framing.width), "height": .number(framing.height)]
         }
-        if let frames, frames > 1 { members["frames"] = .number(Double(frames)) }
+        if let count = frameSet?.frames.count ?? frames, count > 1 { members["frames"] = .number(Double(count)) }
+        if let frameSet { members["framesKept"] = .bool(frameSet.kept) }
         if let pieces {
             members["pieces"] = .array(
                 pieces.enumerated().map { ["piece": .number(Double($0.offset)), "name": .string($0.element.name), "width": .number(Double($0.element.width)), "height": .number(Double($0.element.height))] })

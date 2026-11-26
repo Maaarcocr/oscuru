@@ -1,5 +1,6 @@
 import AVFoundation
 import Foundation
+import ImageIO
 import OscuruCore
 
 /// What a change of lens or of mode leaves the camera with.
@@ -363,38 +364,63 @@ final class CaptureService: @unchecked Sendable {
             return settings
         }
         guard let photo = photos.first else { throw CameraError.noPhoto }
-        return photo
+        return photo.data
     }
 
     /// Takes `count` Bayer RAW frames one after another, at the exposure and the focus the camera
-    /// has when it starts, and returns each as DNG data in the order taken: the frames of one
-    /// picture, to be averaged. `progress` says how many have been taken so far.
-    func captureBurst(count: Int, rotationAngle: CGFloat, progress: @escaping @Sendable (Int) -> Void) async throws -> [Data] {
+    /// has when it starts, and returns each in the order taken, with how it was taken: the frames
+    /// of one picture, to be merged. `progress` says how many have been taken so far.
+    ///
+    /// With a `bracket` (in stops), the frames go round three exposures: the camera's own, that
+    /// many stops less light, and that many more. The time changes, and the ISO only where the
+    /// time has reached the lens's limit. With an `interval` (in seconds), that long passes
+    /// between one frame and the next.
+    func captureBurst(count: Int, bracket: Double, interval: Double, rotationAngle: CGFloat, progress: @escaping @Sendable (Int) -> Void) async throws -> [TakenFrame] {
         await hold(true)
-        var frames: [Data] = []
+        var frames: [TakenFrame] = []
         do {
+            guard let held = await heldExposure() else { throw CameraError.noRAW }
+            // One at a time when they are spaced out, or where the camera takes no more at once.
+            let single = interval > 0 || held.most < 2
             while frames.count < count {
-                let wanted = count - frames.count
-                frames += try await request(rotationAngle: rotationAngle, didCapture: {}) {
-                    guard let format = self.bayerFormat else { throw CameraError.noRAW }
-                    // As many at once as the camera takes in one go, back to back; where it takes
-                    // only one, one. The exposure is the camera's own, which is held for the burst.
-                    let most = min(wanted, self.output.maxBracketedCapturePhotoCount)
-                    guard most >= 2 else {
+                let start = frames.count
+                if single {
+                    let exposure = held.exposure(of: start, bracket: bracket)
+                    if bracket != 0 { await setExposure(time: exposure.time, iso: exposure.iso) }
+                    frames += try await request(rotationAngle: rotationAngle, didCapture: {}) {
+                        guard let format = self.bayerFormat else { throw CameraError.noRAW }
+                        // At speed: at any other quality Apple may shoot at a time and an ISO of its own.
                         let settings = AVCapturePhotoSettings(rawPixelFormatType: format)
                         settings.photoQualityPrioritization = .speed
                         return settings
                     }
-                    let each = (0..<most).map { _ in
-                        AVCaptureManualExposureBracketedStillImageSettings.manualExposureSettings(
-                            exposureDuration: AVCaptureDevice.currentExposureDuration, iso: AVCaptureDevice.currentISO)
+                } else {
+                    let most = min(count - start, held.most)
+                    frames += try await request(rotationAngle: rotationAngle, didCapture: {}) {
+                        guard let format = self.bayerFormat else { throw CameraError.noRAW }
+                        // As many at once as the camera takes in one go, back to back, each at its exposure.
+                        let each = (0..<most).map { index in
+                            let exposure = held.exposure(of: start + index, bracket: bracket)
+                            return bracket == 0
+                                ? AVCaptureManualExposureBracketedStillImageSettings.manualExposureSettings(
+                                    exposureDuration: AVCaptureDevice.currentExposureDuration, iso: AVCaptureDevice.currentISO)
+                                : AVCaptureManualExposureBracketedStillImageSettings.manualExposureSettings(
+                                    exposureDuration: CMTime(seconds: exposure.time, preferredTimescale: 1_000_000_000), iso: Float(exposure.iso))
+                        }
+                        let settings = AVCapturePhotoBracketSettings(rawPixelFormatType: format, processedFormat: nil, bracketedSettings: each)
+                        settings.photoQualityPrioritization = .speed
+                        if self.output.isLensStabilizationDuringBracketedCaptureSupported { settings.isLensStabilizationEnabled = true }
+                        return settings
                     }
-                    let settings = AVCapturePhotoBracketSettings(rawPixelFormatType: format, processedFormat: nil, bracketedSettings: each)
-                    settings.photoQualityPrioritization = .speed
-                    if self.output.isLensStabilizationDuringBracketedCaptureSupported { settings.isLensStabilizationEnabled = true }
-                    return settings
+                }
+                // A frame whose file does not say how it was taken was taken as asked.
+                for index in start..<frames.count where frames[index].time <= 0 || frames[index].iso <= 0 {
+                    let exposure = held.exposure(of: index, bracket: bracket)
+                    frames[index].time = exposure.time
+                    frames[index].iso = exposure.iso
                 }
                 progress(frames.count)
+                if interval > 0, frames.count < count { try await Task.sleep(for: .seconds(interval)) }
             }
         } catch {
             await hold(false)
@@ -404,6 +430,57 @@ final class CaptureService: @unchecked Sendable {
         }
         await hold(false)
         return frames
+    }
+
+    /// The exposure a burst is taken around, and what the lens allows around it.
+    private struct HeldExposure: Sendable {
+        var time: Double
+        var iso: Double
+        var times: ClosedRange<Double>
+        var isos: ClosedRange<Double>
+        /// How many frames the camera takes in one go.
+        var most: Int
+
+        /// The exposure of a burst's frame, counted from 0: its own, then `bracket` stops less
+        /// light, then as many more, and round again.
+        func exposure(of index: Int, bracket: Double) -> (time: Double, iso: Double) {
+            let stops = bracket * [0.0, -1, 1][index % 3]
+            guard stops != 0 else { return (time, iso) }
+            let wanted = time * pow(2, stops)
+            let taken = min(max(wanted, times.lowerBound), times.upperBound)
+            // What the time could not give, the ISO does, as far as it goes.
+            return (taken, min(max(iso * wanted / taken, isos.lowerBound), isos.upperBound))
+        }
+    }
+
+    private func heldExposure() async -> HeldExposure? {
+        await withCheckedContinuation { (continuation: CheckedContinuation<HeldExposure?, Never>) in
+            queue.async {
+                guard let device = self.input?.device else { return continuation.resume(returning: nil) }
+                let format = device.activeFormat
+                let shortest = format.minExposureDuration.seconds
+                let longest = max(shortest, format.maxExposureDuration.seconds)
+                continuation.resume(
+                    returning: HeldExposure(
+                        time: device.exposureDuration.seconds, iso: Double(device.iso), times: shortest...longest,
+                        isos: Double(format.minISO)...Double(max(format.minISO, format.maxISO)), most: self.output.maxBracketedCapturePhotoCount))
+            }
+        }
+    }
+
+    /// Sets the exposure for the next frame of a burst, and waits until the camera has it.
+    private func setExposure(time: Double, iso: Double) async {
+        await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
+            queue.async {
+                guard let device = self.input?.device, device.isExposureModeSupported(.custom), (try? device.lockForConfiguration()) != nil else {
+                    return continuation.resume()
+                }
+                device.setExposureModeCustom(
+                    lensAperture: AVCaptureDevice.currentLensAperture, duration: CMTime(seconds: time, preferredTimescale: 1_000_000_000), iso: Float(iso)
+                ) { _ in continuation.resume() }
+                device.unlockForConfiguration()
+            }
+        }
     }
 
     /// Holds the exposure and the focus where they are for a burst, or gives them back to what
@@ -429,10 +506,10 @@ final class CaptureService: @unchecked Sendable {
     }
 
     /// One capture request: `settings` makes it (on the queue), and every photo it gives comes
-    /// back as DNG data, in order.
+    /// back as DNG data with how it was taken, in order.
     private func request(
         rotationAngle: CGFloat, didCapture: @escaping @Sendable () -> Void, settings: @escaping @Sendable () throws -> AVCapturePhotoSettings
-    ) async throws -> [Data] {
+    ) async throws -> [TakenFrame] {
         try await withCheckedThrowingContinuation { continuation in
             queue.async {
                 let made: AVCapturePhotoSettings
@@ -498,15 +575,24 @@ private final class FrameMeter: NSObject, AVCaptureVideoDataOutputSampleBufferDe
     }
 }
 
+/// One RAW frame as the camera gave it: its DNG, the exposure it says it was taken at (0 where it
+/// does not say), and when, in seconds on the camera's clock.
+struct TakenFrame: Sendable {
+    var data: Data
+    var time: Double
+    var iso: Double
+    var at: Double
+}
+
 /// Collects the photos of one capture request: one, or the frames of a bracket.
 private final class PhotoCapture: NSObject, AVCapturePhotoCaptureDelegate {
     private let didCapture: @Sendable () -> Void
-    private let completion: (Result<[Data], Error>) -> Void
-    /// Each photo's data by its place in the request.
-    private var photos: [Int: Data] = [:]
+    private let completion: (Result<[TakenFrame], Error>) -> Void
+    /// Each photo by its place in the request.
+    private var photos: [Int: TakenFrame] = [:]
     private var failure: Error?
 
-    init(didCapture: @escaping @Sendable () -> Void, completion: @escaping (Result<[Data], Error>) -> Void) {
+    init(didCapture: @escaping @Sendable () -> Void, completion: @escaping (Result<[TakenFrame], Error>) -> Void) {
         self.didCapture = didCapture
         self.completion = completion
     }
@@ -519,7 +605,11 @@ private final class PhotoCapture: NSObject, AVCapturePhotoCaptureDelegate {
         if let error {
             failure = error
         } else if photo.isRawPhoto, let data = photo.fileDataRepresentation() {
-            photos[photo.photoCount] = data
+            let exif = photo.metadata[kCGImagePropertyExifDictionary as String] as? [String: Any] ?? [:]
+            let time = (exif[kCGImagePropertyExifExposureTime as String] as? NSNumber)?.doubleValue ?? 0
+            let iso = (exif[kCGImagePropertyExifISOSpeedRatings as String] as? [NSNumber])?.first?.doubleValue ?? 0
+            let at = photo.timestamp.isNumeric ? photo.timestamp.seconds : 0
+            photos[photo.photoCount] = TakenFrame(data: data, time: time, iso: iso, at: at)
         }
     }
 

@@ -113,6 +113,8 @@ enum L10n {
     static var cameraFrames: String { String(localized: "camera.frames") }
     static var cameraHoldStill: String { String(localized: "camera.holdStill") }
     static var cameraFramesFailed: String { String(localized: "camera.framesFailed") }
+    static var cameraBracket: String { String(localized: "camera.bracket") }
+    static var cameraInterval: String { String(localized: "camera.interval") }
     static var cameraZoom: String { String(localized: "camera.zoom") }
     static var cameraZeroProcessing: String { String(localized: "camera.mode.zero") }
     static var cameraZeroProcessingHint: String { String(localized: "camera.mode.zero.hint") }
@@ -246,6 +248,8 @@ enum L10n {
             return String(localized: "change.crop")
         case ("layout", _):
             return String(localized: "change.layout")
+        case ("frames", _):
+            return String(localized: "change.frames")
         default:
             return change.path
         }
@@ -345,6 +349,10 @@ enum L10n {
     static var signInExpired: String { String(localized: "settings.signInExpired") }
     static var settingsFrames: String { String(localized: "settings.frames") }
     static var settingsFramesFooter: String { String(localized: "settings.frames.footer") }
+    static func settingsDiscardFrames(_ size: String) -> String { String(localized: "settings.discardFrames \(size)") }
+    static var settingsDiscardFramesTitle: String { String(localized: "settings.discardFrames.title") }
+    static var settingsDiscardFramesMessage: String { String(localized: "settings.discardFrames.message") }
+    static var settingsDiscardFramesConfirm: String { String(localized: "settings.discardFrames.confirm") }
     static var settingsModel: String { String(localized: "settings.model") }
     static var settingsModelFooter: String { String(localized: "settings.model.footer") }
     static func modelPrice(id: String, input: Double, output: Double) -> String {

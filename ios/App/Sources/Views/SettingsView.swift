@@ -11,6 +11,9 @@ struct SettingsView: View {
     @State private var showingOtherWays = false
     /// Whether the camera offers frames: several RAW frames averaged into one shot.
     @AppStorage(Camera.framesKey) private var frames = false
+    /// How much room the frames kept beside the photos take, once measured.
+    @State private var keptFrames: Int64?
+    @State private var confirmingDiscard = false
 
     private var account: Account { model.account }
 
@@ -35,11 +38,31 @@ struct SettingsView: View {
                 Section {
                     Toggle(L10n.settingsFrames, isOn: $frames)
                         .accessibilityIdentifier("settings.frames")
+                    // The frames of each shot are kept beside the photo, for the assistant to merge
+                    // another way. This is where their room is given back.
+                    if let keptFrames, keptFrames > 0 {
+                        Button(L10n.settingsDiscardFrames(ByteCountFormatter.string(fromByteCount: keptFrames, countStyle: .file)), role: .destructive) {
+                            confirmingDiscard = true
+                        }
+                        .accessibilityIdentifier("settings.discardFrames")
+                        .alert(L10n.settingsDiscardFramesTitle, isPresented: $confirmingDiscard) {
+                            Button(L10n.settingsDiscardFramesConfirm, role: .destructive) {
+                                Task {
+                                    await model.library.discardKeptFrames()
+                                    keptFrames = await model.library.keptFramesSize()
+                                }
+                            }
+                            Button(L10n.cancel, role: .cancel) {}
+                        } message: {
+                            Text(L10n.settingsDiscardFramesMessage)
+                        }
+                    }
                 } header: {
                     Text(L10n.camera)
                 } footer: {
                     Text(L10n.settingsFramesFooter)
                 }
+                .task { keptFrames = await model.library.keptFramesSize() }
                 if account.isConnected {
                     usage
                     Section {

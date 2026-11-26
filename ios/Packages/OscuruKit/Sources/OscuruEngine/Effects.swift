@@ -360,6 +360,15 @@ enum Effects {
     return matrix.outputImage ?? image
   }
 
+  /// One picture laid over another through a grey mask: white takes the first, black keeps the second.
+  static func blend(_ image: CIImage, over background: CIImage, mask: CIImage) -> CIImage {
+    let blend = CIFilter.blendWithMask()
+    blend.inputImage = image
+    blend.backgroundImage = background
+    blend.maskImage = mask
+    return (blend.outputImage ?? background).cropped(to: background.extent)
+  }
+
   /// The first channel to every channel, fully opaque: masks are read as greys.
   static func opaque(_ image: CIImage) -> CIImage {
     let matrix = CIFilter.colorMatrix()

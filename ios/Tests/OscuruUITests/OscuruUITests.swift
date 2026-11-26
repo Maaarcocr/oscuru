@@ -186,6 +186,12 @@ final class OscuruUITests: XCTestCase {
         element(app, "camera.value.frames").tap()
         XCTAssertTrue(element(app, "camera.dial").waitForExistence(timeout: 10))
         element(app, "camera.dial").swipeLeft()
+        // With more than one frame, the two choices that go with them are beside the dial.
+        let bracket = element(app, "camera.bracket")
+        XCTAssertTrue(bracket.waitForExistence(timeout: 10), "more than one frame can be bracketed")
+        bracket.tap()
+        XCTAssertTrue(waitUntil(timeout: 10) { (bracket.value as? String) == "±1" }, "a tap goes to the next bracket")
+        XCTAssertTrue(element(app, "camera.interval").exists, "and spaced apart")
         capture("16-camera-frames")
         element(app, "camera.close").tap()
         XCTAssertTrue(photo.waitForExistence(timeout: 30))

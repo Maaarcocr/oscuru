@@ -521,8 +521,38 @@ struct CameraView: View {
         case .time: return ExposureScale.timeText(camera.shown(.time))
         case .iso: return "ISO " + ExposureScale.isoText(camera.shown(.iso))
         case .focus: return camera.isSet(.focus) ? "MF" : "AF"
-        case .frames: return "×\(Int(camera.shown(.frames)))"
+        case .frames: return "×\(Int(camera.shown(.frames)))" + (camera.frames > 1 && camera.bracket > 0 ? "±\(Int(camera.bracket))" : "")
         }
+    }
+
+    /// One of the two choices that go with frames, beside their dial: a name over its value. A tap
+    /// goes to the next value, round and round.
+    private func framesChoice(_ name: String, _ value: String, identifier: String, next: @escaping () -> Void) -> some View {
+        Button {
+            dialUse += 1
+            next()
+            closeDial(after: .seconds(5))
+        } label: {
+            VStack(spacing: 0) {
+                Text(name).font(.system(size: 9, weight: .semibold)).opacity(0.75)
+                Text(verbatim: value).font(.caption.weight(.bold)).monospacedDigit()
+            }
+            .padding(.horizontal, 6)
+            .padding(.vertical, 2)
+        }
+        .buttonStyle(.glass)
+        .buttonBorderShape(.capsule)
+        .padding(.horizontal, 12)
+        .padding(.top, 6)
+        .transition(.scale.combined(with: .opacity))
+        .accessibilityLabel(name)
+        .accessibilityValue(Text(verbatim: value))
+        .accessibilityIdentifier(identifier)
+    }
+
+    /// The seconds between frames as written: "0″", "½″", "2″".
+    private static func intervalText(_ seconds: Double) -> String {
+        seconds == 0.5 ? "½″" : "\(Int(seconds))″"
     }
 
     /// Where a value sits on its dial. A unit is a stop of light, or a third of the lens's focus travel.
@@ -613,7 +643,18 @@ struct CameraView: View {
                 .accessibilityHint(L10n.cameraAutoHint)
                 .accessibilityIdentifier("camera.auto")
             }
+            // With more than one frame: how far apart their exposures are.
+            if value == .frames, camera.frames > 1 {
+                framesChoice(L10n.cameraBracket, "±\(Int(camera.bracket))", identifier: "camera.bracket") { camera.nextBracket() }
+            }
         }
+        .overlay(alignment: .topTrailing) {
+            // And how long passes between one and the next.
+            if value == .frames, camera.frames > 1 {
+                framesChoice(L10n.cameraInterval, Self.intervalText(camera.interval), identifier: "camera.interval") { camera.nextInterval() }
+            }
+        }
+        .animation(.snappy(duration: 0.2), value: camera.frames > 1)
         .simultaneousGesture(
             DragGesture(minimumDistance: 4)
                 .onChanged { drag in

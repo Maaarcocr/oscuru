@@ -96,7 +96,7 @@ public enum Specs {
     public static let colorRanges = ["red", "orange", "yellow", "green", "aqua", "blue", "purple", "magenta"]
     public static let curveChannels = ["rgb", "red", "green", "blue"]
     public static let gradingRanges = ["shadows", "midtones", "highlights"]
-    public static let resetSections = ["all", "light", "color", "curves", "hsl", "grading", "detail", "effects", "local", "crop", "layout"]
+    public static let resetSections = ["all", "light", "color", "curves", "hsl", "grading", "detail", "effects", "local", "crop", "layout", "frames"]
 
     public static let maxCurvePoints = 16
     public static let minCurveGap = 0.004
@@ -128,10 +128,13 @@ public struct PhotoDefaults: Codable, Equatable, Sendable {
     /// How the camera framed the photo when it was zoomed between lenses: its settings start with
     /// this crop, and the rest of the frame is still there to zoom out to. Nil for the whole frame.
     public var framing: Crop?
+    /// How the camera merged a shot's frames into the photo's file, when it kept them: where
+    /// their merging starts. Nil for any other photo.
+    public var frames: FrameMerge?
 
     public init(
         temperature: Double = 6500, tint: Double = 0, sharpening: Double = 0, noiseReduction: Double = 0, colorNoiseReduction: Double = 0,
-        layout: CollageLayout? = nil, framing: Crop? = nil
+        layout: CollageLayout? = nil, framing: Crop? = nil, frames: FrameMerge? = nil
     ) {
         self.temperature = temperature
         self.tint = tint
@@ -140,6 +143,7 @@ public struct PhotoDefaults: Codable, Equatable, Sendable {
         self.colorNoiseReduction = colorNoiseReduction
         self.layout = layout
         self.framing = framing
+        self.frames = frames
     }
 }
 
@@ -203,6 +207,8 @@ public struct EditingState: Codable, Equatable, Sendable {
     public var crop: Crop
     /// How a collage's pieces are arranged; nil for a photo.
     public var layout: CollageLayout?
+    /// How a shot's frames are merged into the picture; nil unless the camera kept them.
+    public var frames: FrameMerge?
 
     static let identityCurve: [[Double]] = [[0, 0], [1, 1]]
 
@@ -211,7 +217,7 @@ public struct EditingState: Codable, Equatable, Sendable {
     }
 
     enum CodingKeys: String, CodingKey {
-        case global, curves, hsl, grading, detail, grain, halation, local, crop, layout
+        case global, curves, hsl, grading, detail, grain, halation, local, crop, layout, frames
     }
 
     /// Reads a saved state. Photos saved before grain, halation and local adjustments existed have none.
@@ -227,6 +233,7 @@ public struct EditingState: Codable, Equatable, Sendable {
         local = try container.decodeIfPresent([LocalAdjustment].self, forKey: .local) ?? []
         crop = try container.decode(Crop.self, forKey: .crop)
         layout = try container.decodeIfPresent(CollageLayout.self, forKey: .layout)
+        frames = try container.decodeIfPresent(FrameMerge.self, forKey: .frames)
     }
 
     /// The state of an untouched photo.
@@ -253,6 +260,7 @@ public struct EditingState: Codable, Equatable, Sendable {
         local = []
         crop = defaults.framing ?? Crop()
         layout = defaults.layout
+        frames = defaults.frames
     }
 
     public func value(_ name: String) -> Double { global[name] ?? 0 }
@@ -395,6 +403,7 @@ public struct EditingState: Codable, Equatable, Sendable {
             halation = fresh.halation
         case "local": local = []
         case "layout": layout = fresh.layout
+        case "frames": frames = fresh.frames
         default: crop = fresh.crop
         }
     }
@@ -451,6 +460,10 @@ public struct EditingState: Codable, Equatable, Sendable {
             members["layout"] = layout.json
             json = .object(members)
         }
+        if let frames, case .object(var members) = json {
+            members["frames"] = frames.json
+            json = .object(members)
+        }
         return json
     }
 
@@ -485,6 +498,10 @@ public struct EditingState: Codable, Equatable, Sendable {
             layout = CollageLayout(aspect: 1, cells: [])
             try setLayout(value, pieces: CollageLayout.maxPieces)
         }
+        if let value = json["frames"], value != .null {
+            frames = FrameMerge(way: .single(1))
+            try setFrames(value, count: FrameMerge.maxFrames)
+        }
     }
 
     // MARK: Changes
@@ -509,7 +526,7 @@ public struct EditingState: Codable, Equatable, Sendable {
                 changes.append(Change(path: path, from: old, to: new))
             }
         }
-        let order = ["global", "curves", "hsl", "grading", "detail", "grain", "halation", "local", "crop", "layout"]
+        let order = ["global", "curves", "hsl", "grading", "detail", "grain", "halation", "local", "crop", "layout", "frames"]
         let old = before.json
         let new = json
         for section in order { compare(section, old[section] ?? .null, new[section] ?? .null) }

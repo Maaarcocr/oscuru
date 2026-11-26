@@ -49,6 +49,9 @@ public enum PhotoAPI {
            *              `options.mask` painted red, and how much of the frame it covers
            *   "depth"    how far each part of the frame is, as greys from black (nearest) to white
            *              (farthest): the scale of a mask's `depth` range, to choose its from and to
+           *   "frame"    one frame of the shot alone, as it was taken (`options.frame`, counted from 1),
+           *              with the settings as they are: only for a photo whose frames were kept
+           *              (see `photo.current.frames`)
            * `region` zooms in on part of the frame, given as fractions from its top-left corner, to
            * judge detail, noise, skin or edges. `maxEdge` is the long edge in pixels (default \(Prompt.defaultImageEdge),
            * up to \(Prompt.maxImageEdge)).
@@ -56,7 +59,7 @@ public enum PhotoAPI {
            * You do not need this for the usual case: whenever a script changes the photo, the reply
            * already includes it before your edits and as it is now.
            */
-          show(which?: "current" | "before" | "original" | "mask" | "depth", options?: { region?: Region; maxEdge?: number; mask?: string }): void;
+          show(which?: "current" | "before" | "original" | "mask" | "depth" | "frame", options?: { region?: Region; maxEdge?: number; mask?: string; frame?: number }): void;
 
           /**
            * The person's saved styles: looks they can put on any photo. Some were learned from pictures
@@ -178,6 +181,32 @@ public enum PhotoAPI {
             get(): CollageLayout;
             /** Values given replace theirs; `cells`, when given, replaces all the cells. */
             set(settings: Partial<CollageLayout>): void;
+          };
+
+          /**
+           * The frames of the shot. With Frames on, Oscuru's camera takes several RAW frames of one
+           * scene, one after another, and keeps each beside the photo. How they become the picture is
+           * a setting like any other, and yours to decide: which frame it is built on, which frames
+           * go into it, and what becomes of whatever moved between them. Nothing is invented: every
+           * photosite of the picture comes from the frames. A photo without kept frames has none of
+           * this (`list()` is empty, `merge` throws).
+           *
+           * The frames are merged as RAW, before any development, so every other setting applies to
+           * the merged picture as to any RAW. Merging takes a few seconds; a merge already made is kept.
+           */
+          readonly frames: {
+            /** Each frame, in the order taken. Empty when the photo has no kept frames. */
+            list(): FrameInfo[];
+            /** How the frames are merged now. */
+            get(): FrameMerge;
+            /**
+             * Merges the frames another way, and says what lining them up found. Settings left out
+             * keep their value; `areas`, when given, replaces all the areas. Look at the result (the
+             * reply's pictures, or `photo.show` with a region) before telling the person it worked.
+             */
+            merge(settings: Partial<FrameMerge>): FrameMergeReport;
+            /** Back to the way the camera merged them. */
+            reset(): void;
           };
 
           /** Puts a section back to how the photo was opened. Default "all". */
@@ -363,6 +392,95 @@ public enum PhotoAPI {
           crop: CropSettings;
           /** Only on a collage. */
           layout?: CollageLayout;
+          /** Only on a photo whose frames were kept. */
+          frames?: FrameMerge;
+        }
+
+        /** One way of merging a shot's frames. */
+        interface FrameWay {
+          /**
+           * The frame the picture is built on, counted from 1: its framing, its brightness and, when
+           * movement is frozen, its moment. To choose a moment (the frame where someone looks at the
+           * camera, or before something walked in), look at the frames with `photo.show("frame")` and
+           * make that one the base.
+           */
+          base: number;
+          /** The frames that go into the picture, e.g. [1, 2, 4], or "all". The base must be among them. Leave out a frame that is blurred or spoiled. */
+          use: number[] | "all";
+          /**
+           * What becomes of whatever moved between the frames:
+           *   "freeze"  the base frame's moment. The other frames only take noise away, where they agree
+           *             with it; where something moved, the base is kept alone. The camera's own choice.
+           *   "blur"    everything averaged: what moved blurs along its way, as in one long exposure
+           *             (silky water, streaked clouds, a crowd dissolved into a haze).
+           *   "remove"  what stayed put in most frames: people or cars that passed through are gone. It
+           *             needs each place to be empty in more than half of the frames used.
+           *   "trails"  what stayed put, with every bright thing that moved drawn along its way
+           *             (car lights, fireworks, stars).
+           * "blur", "remove" and "trails" only do much when the frames were taken some time apart
+           * (see `after` in `list()`); frames taken back to back hold little movement.
+           */
+          movement: "freeze" | "blur" | "remove" | "trails";
+          /**
+           * For "freeze", how readily a difference from the base counts as movement, 0 to 1 (default
+           * 0.5). Lower averages more: less noise, at the risk of faint ghosts of what moved. Higher
+           * keeps more of the base alone: no ghosts, more noise around movement.
+           */
+          caution: number;
+        }
+
+        /** How a shot's frames are merged: the picture as a whole, and parts of it merged another way. */
+        interface FrameMerge extends FrameWay {
+          /**
+           * Parts of the picture merged their own way, each through a mask (as for a local adjustment),
+           * later ones over earlier ones: the water blurred while the people stay frozen, or one face
+           * from another frame (`base` and `use` of that frame alone). An area starts from the
+           * picture's own way and changes what it names. At most \(FrameMerge.maxAreas).
+           */
+          areas: Array<Partial<FrameWay> & { mask: Mask }>;
+        }
+
+        /** One frame of a shot. */
+        interface FrameInfo {
+          /** Its number, counted from 1 in the order taken. */
+          frame: number;
+          /** The exposure it was taken at: time in seconds, and ISO. */
+          time: number;
+          iso: number;
+          /**
+           * The light it took, in stops against the first frame. All 0 for a plain shot. In a bracket
+           * some are darker (they hold the highlights the others blew) and some brighter (they hold
+           * cleaner shadows): merged, each counts for as much as the light it took, and the picture has
+           * the base frame's brightness.
+           */
+          stops: number;
+          /** When it was taken, in seconds after the first. */
+          after: number;
+          /** How much fine detail it holds, 0 to 1, against the sharpest frame: low means blurred by movement. */
+          sharpness: number;
+          /** The share of it that is blown, 0 to 1. */
+          blown: number;
+          /** How far the camera had moved from the base of the camera's own merge, in pixels. */
+          shift: number;
+          /** The share of it that differs from that base by more than noise, 0 to 1: what moved, or blur. */
+          differs: number;
+          /** Whether it goes into the picture as merged now, and whether it is its base. */
+          used: boolean;
+          base: boolean;
+        }
+
+        /** What merging found. */
+        interface FrameMergeReport {
+          /** How many frames went into the picture. */
+          merged: number;
+          /** For each frame used other than the base: how far the camera had moved from the base, in pixels, and the share of it that differs from the base by more than noise. */
+          frames: Array<{ frame: number; shift: number; differs: number }>;
+          /**
+           * How many stops above white the merged picture holds, when the frames used include ones
+           * darker than the base (a bracket): highlights the base blew are there to bring back, with
+           * a lower exposure or highlights, or a local adjustment over them.
+           */
+          highlightStops: number;
         }
 
         /**
@@ -428,6 +546,8 @@ public enum PhotoAPI {
            * noise reduction than a single frame at that ISO, often none.
            */
           frames?: number;
+          /** Whether those frames were kept beside the photo, so that they can be merged another way (`photo.current.frames`). */
+          framesKept?: boolean;
           /** Only on a collage: the photos it is made of, in order, at the size they were added. */
           pieces?: { piece: number; name: string; width: number; height: number }[];
         }

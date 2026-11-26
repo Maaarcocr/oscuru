@@ -228,6 +228,7 @@ public final class ScriptRuntime: @unchecked Sendable {
             local: group("local", ["set", "get", "list", "remove", "reset"]),
             crop: bind("crop"),
             layout: group("layout", ["get", "set"]),
+            frames: group("frames", ["list", "get", "merge", "reset"]),
             reset: bind("reset"),
             revert: bind("revert"),
           });

@@ -1049,6 +1049,85 @@ final class EngineTests: XCTestCase {
     XCTAssertLessThan(try render("darker").1.mean.g, before.g - 15)
   }
 
+  func testAShotsFramesAreMergedTheWayItsSettingsSay() throws {
+    // A photo's folder as the camera leaves it: its file, and the frames it was merged from.
+    let folder = directory.appendingPathComponent("shot", isDirectory: true)
+    let kept = folder.appendingPathComponent(FrameSet.folder, isDirectory: true)
+    try FileManager.default.createDirectory(at: kept, withIntermediateDirectories: true)
+    let template = try Data(contentsOf: makeDNG("template.dng", extended: true))
+    let wall = try DNG.frame(of: template)
+    // Three frames of a grey wall, with a lamp further along it in each.
+    func place(_ frame: Int) -> (x: Int, y: Int) { (50 + 100 * (frame - 1), 120) }
+    let frames: [RawFrame] = (1...3).map { number in
+      var frame = wall
+      for y in 100..<140 {
+        for x in (place(number).x - 20)..<(place(number).x + 20) { frame.samples[y * frame.width + x] = 40000 }
+      }
+      return frame
+    }
+    let made = try FrameSet.make(frames: frames, shots: (0..<3).map { FrameSet.Shot(time: 1.0 / 30, iso: 100, after: Double($0)) })
+    let original = folder.appendingPathComponent("original.dng")
+    try DNG.replacingFrame(of: template, with: made.merged.frame).write(to: original)
+    for (index, frame) in frames.enumerated() {
+      try DNG.replacingFrame(of: template, with: frame).write(to: kept.appendingPathComponent(FrameSet.fileName(of: index + 1)))
+    }
+    try JSONEncoder().encode(made.set).write(to: kept.appendingPathComponent(FrameSet.manifest))
+
+    let info = try engine.open(id: "shot", url: original)
+    XCTAssertEqual(info.frameSet, made.set)
+    XCTAssertEqual(info.defaults.frames, FrameMerge(way: made.set.merge), "its settings start with the camera's own merge")
+    XCTAssertEqual(info.json["frames"], 3)
+    XCTAssertEqual(info.json["framesKept"], true)
+
+    /// Where the picture has a lamp, of the three places.
+    func lamps(_ id: String, _ frames: FrameMerge?) throws -> [Bool] {
+      var recipe = RenderRecipe()
+      recipe.frames = frames
+      let pixels = try render(id, recipe).1
+      return (1...3).map { pixels.at(place($0).x, place($0).y).g > 170 }
+    }
+    let base = made.set.merge.base
+    let camera = (1...3).map { $0 == base }
+    XCTAssertEqual(try lamps("shot", nil), camera, "the file is the camera's merge: the lamp where its base frame has it")
+    XCTAssertEqual(try lamps("shot", FrameMerge(way: made.set.merge)), camera)
+    XCTAssertEqual(try lamps("shot", FrameMerge(way: .single(2))), [false, true, false], "one frame alone is that frame")
+    let drawn = FrameMerge(way: FrameMerge.Way(base: 1, use: [1, 2, 3], movement: .trails))
+    let removed = FrameMerge(way: FrameMerge.Way(base: 1, use: [1, 2, 3], movement: .remove))
+    XCTAssertEqual(try lamps("shot", drawn), [true, true, true])
+    XCTAssertEqual(try lamps("shot", removed), [false, false, false])
+    XCTAssertEqual(try lamps("shot", FrameMerge(way: FrameMerge.Way(base: 3, use: [1, 3]))), [false, false, true], "built on another frame, the moment is that frame's")
+    let merges = folder.appendingPathComponent(FrameSet.mergesFolder)
+    XCTAssertEqual(try FileManager.default.contentsOfDirectory(atPath: merges.path).filter { $0.hasSuffix(".dng") }.count, 3, "each merge is kept as a file")
+
+    // A part of the picture merged another way: the lamps drawn on the right, removed on the left.
+    let right = try Mask.parse("mask", ["area": ["type": "linear", "from": [0.4, 0.5], "to": [0.3, 0.5]]])
+    let mixed = FrameMerge(way: removed.way, areas: [FrameMerge.Area(mask: right, way: drawn.way)])
+    XCTAssertEqual(try lamps("shot", mixed), [false, true, true])
+
+    // What merging found of each frame: the other two differ from the base where their lamps are.
+    var recipe = RenderRecipe()
+    recipe.frames = drawn
+    let reports = try XCTUnwrap(try engine.frameReports(id: "shot", recipe: recipe))
+    XCTAssertEqual(reports.keys.sorted(), [2, 3])
+    XCTAssertGreaterThan(reports[2]?.differs ?? 0, 0.005)
+    recipe.frames = nil
+    XCTAssertNil(try engine.frameReports(id: "shot", recipe: recipe))
+
+    // With the frames gone, a merge already made is still the picture; one that was never made
+    // leaves the photo as its file has it.
+    engine.close(id: "shot")
+    for frame in 1...3 { try FileManager.default.removeItem(at: kept.appendingPathComponent(FrameSet.fileName(of: frame))) }
+    var gone = made.set
+    gone.kept = false
+    try JSONEncoder().encode(gone).write(to: kept.appendingPathComponent(FrameSet.manifest))
+    XCTAssertEqual(try engine.open(id: "later", url: original).json["framesKept"], false)
+    XCTAssertEqual(try lamps("later", drawn), [true, true, true])
+    XCTAssertEqual(try lamps("later", FrameMerge(way: .single(2))), camera)
+    XCTAssertEqual(try lamps("later", FrameMerge(way: FrameMerge.Way(base: 2, use: [1, 2, 3], movement: .blur))), camera)
+    recipe.frames = FrameMerge(way: .single(2))
+    XCTAssertNil(try engine.frameReports(id: "later", recipe: recipe))
+  }
+
   private func checkRAW(_ url: URL) throws {
     let info = try engine.open(id: "raw", url: url)
     XCTAssertTrue(info.isRaw)

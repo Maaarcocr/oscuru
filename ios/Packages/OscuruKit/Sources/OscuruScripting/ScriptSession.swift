@@ -79,6 +79,29 @@ final class ScriptSession {
         case "crop": try draft.setCrop(argument(0))
         case "layout.get": return try draft.collageLayout().json
         case "layout.set": try draft.setLayout(argument(0), pieces: request.info.pieces?.count ?? 0)
+        case "frames.list":
+            guard let set = request.info.frameSet else { return [] }
+            return set.json(with: draft.frames?.way ?? set.merge)
+        case "frames.get": return try draft.frameMerge().json
+        case "frames.reset": try draft.reset(section: "frames", defaults: defaults)
+        case "frames.merge":
+            let set = try keptFrames()
+            var next = draft
+            try next.setFrames(argument(0), count: set.frames.count)
+            // Merged now, so that the script learns at once what it gave (and whether it could be done).
+            guard let reports = host.frameReports(of: next), let way = next.frames?.way else {
+                throw Failure(message: "The frames could not be merged that way: one of them could not be read.")
+            }
+            draft = next
+            return [
+                "merged": .number(Double(way.use.count)),
+                "frames": .array(
+                    way.use.filter { $0 != way.base }.map { frame in
+                        let report = reports[frame] ?? FrameReport()
+                        return ["frame": .number(Double(frame)), "shift": .number((report.shift * 10).rounded() / 10), "differs": .number((report.differs * 100).rounded() / 100)]
+                    }),
+                "highlightStops": .number((set.brightening(of: way) * 100).rounded() / 100),
+            ]
         case "split":
             let regions = try FrameRegion.parts(argument(0))
             guard parts.count + regions.count <= FrameRegion.maxParts else {
@@ -122,6 +145,15 @@ final class ScriptSession {
         return text
     }
 
+    /// The shot's frames, for merging: only while their files are kept.
+    private func keptFrames() throws -> FrameSet {
+        guard let set = request.info.frameSet else { _ = try draft.frameMerge(); throw Failure(message: "This photo has no frames to merge.") }
+        guard set.kept else {
+            throw Failure(message: "This photo's frames were discarded to free space, so it stays merged as it is: the frames can no longer be merged another way or looked at one by one.")
+        }
+        return set
+    }
+
     private func styleName(_ value: JSONValue) throws -> String {
         guard let text = value.stringValue, !StyleCollection.cleanName(text).isEmpty else {
             throw StateError("a style name must be a non-empty string, got \(value.described)")
@@ -130,16 +162,18 @@ final class ScriptSession {
     }
 
     private func show(which: JSONValue, options: JSONValue) throws {
-        let kind = which == .null ? "current" : try choice(which, in: ["current", "before", "original", "mask", "depth"], "what to show")
+        let kind = which == .null ? "current" : try choice(which, in: ["current", "before", "original", "mask", "depth", "frame"], "what to show")
         var region: ScriptRegion?
         var maxEdge = Prompt.defaultImageEdge
         var maskName: JSONValue = .null
+        var frame: JSONValue = .null
         if options != .null {
             guard let members = options.objectValue else { throw StateError("show options must be an object, got \(options.described)") }
-            for key in members.keys where !["region", "maxEdge", "mask"].contains(key) {
-                throw StateError("show has no option \"\(key)\". Valid options: region, maxEdge, mask")
+            for key in members.keys where !["region", "maxEdge", "mask", "frame"].contains(key) {
+                throw StateError("show has no option \"\(key)\". Valid options: region, maxEdge, mask, frame")
             }
             maskName = members["mask"] ?? .null
+            frame = members["frame"] ?? .null
             if let value = members["maxEdge"], value != .null {
                 guard let number = value.doubleValue, number.isFinite else { throw StateError("show maxEdge must be a number, got \(value.described)") }
                 maxEdge = Int(min(Double(Prompt.maxImageEdge), max(Double(Prompt.minImageEdge), number)).rounded())
@@ -172,6 +206,23 @@ final class ScriptSession {
             return
         } else if maskName != .null {
             throw StateError("options.mask is only for show(\"mask\", { mask: name })")
+        }
+        if kind == "frame" {
+            let set = try keptFrames()
+            guard let number = frame.doubleValue, number == number.rounded(), number >= 1, number <= Double(set.frames.count) else {
+                throw StateError("show(\"frame\") needs options.frame: a frame of this shot, from 1 to \(set.frames.count), got \(frame.described)")
+            }
+            var alone = draft
+            alone.frames = FrameMerge(way: .single(Int(number)))
+            guard let jpeg = host.image(of: alone, region: region, maxEdge: maxEdge) else { throw Failure(message: "The frame could not be rendered.") }
+            let taken = set.frames[Int(number) - 1]
+            let time = taken.time >= 0.4 ? "\(formatNumber((taken.time * 10).rounded() / 10)) s" : "1/\(Int((1 / max(taken.time, 1e-6)).rounded())) s"
+            let stops = abs(log2(taken.light)) < 0.1 ? "" : ", \(formatNumber((log2(taken.light) * 10).rounded() / 10)) stops against the first frame"
+            let label = "Shown by your script, picture \(shown.count + 1): frame \(Int(number)) of \(set.frames.count) alone, as it was taken (\(time), ISO \(Int(taken.iso.rounded()))\(stops)), with the other settings at that point in your script\(zoom)."
+            shown.append(LabeledImage(label: label, jpeg: jpeg))
+            return
+        } else if frame != .null {
+            throw StateError("options.frame is only for show(\"frame\", { frame: number })")
         }
         if kind == "depth" {
             guard let jpeg = host.depthImage(of: draft, region: region, maxEdge: maxEdge) else {
