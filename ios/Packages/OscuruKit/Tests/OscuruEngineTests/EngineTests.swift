@@ -1091,8 +1091,8 @@ final class EngineTests: XCTestCase {
     XCTAssertEqual(try lamps("shot", nil), camera, "the file is the camera's merge: the lamp where its base frame has it")
     XCTAssertEqual(try lamps("shot", FrameMerge(way: made.set.merge)), camera)
     XCTAssertEqual(try lamps("shot", FrameMerge(way: .single(2))), [false, true, false], "one frame alone is that frame")
-    let drawn = FrameMerge(way: FrameMerge.Way(base: 1, use: [1, 2, 3], movement: .trails))
-    let removed = FrameMerge(way: FrameMerge.Way(base: 1, use: [1, 2, 3], movement: .remove))
+    let drawn = FrameMerge(way: FrameMerge.Way(base: 1, use: [1, 2, 3], align: .camera, combine: .brightest))
+    let removed = FrameMerge(way: FrameMerge.Way(base: 1, use: [1, 2, 3], align: .camera, combine: .median))
     XCTAssertEqual(try lamps("shot", drawn), [true, true, true])
     XCTAssertEqual(try lamps("shot", removed), [false, false, false])
     XCTAssertEqual(try lamps("shot", FrameMerge(way: FrameMerge.Way(base: 3, use: [1, 3]))), [false, false, true], "built on another frame, the moment is that frame's")
@@ -1103,6 +1103,26 @@ final class EngineTests: XCTestCase {
     let right = try Mask.parse("mask", ["area": ["type": "linear", "from": [0.4, 0.5], "to": [0.3, 0.5]]])
     let mixed = FrameMerge(way: removed.way, areas: [FrameMerge.Area(mask: right, way: drawn.way)])
     XCTAssertEqual(try lamps("shot", mixed), [false, true, true])
+
+    // Onto a finer grid: the photo is twice as wide and high, with all three colours at every
+    // pixel; another way laid in through a mask is developed to that size.
+    let finer = FrameMerge(way: FrameMerge.Way(base: 1, use: [1, 2, 3], align: .camera, combine: .median, scale: 2))
+    func fineLamps(_ frames: FrameMerge) throws -> [Bool] {
+      var recipe = RenderRecipe()
+      recipe.frames = frames
+      let (size, pixels) = try render("shot", recipe, maxEdge: 0)
+      XCTAssertEqual(size.width, 2 * wall.width)
+      XCTAssertEqual(size.height, 2 * wall.height)
+      let factor = Double(pixels.width) / Double(wall.width)
+      return (1...3).map { pixels.at(Int(Double(place($0).x) * factor), Int(Double(place($0).y) * factor)).g > 170 }
+    }
+    XCTAssertEqual(try fineLamps(finer), [false, false, false])
+    var plainRecipe = RenderRecipe()
+    plainRecipe.frames = removed
+    var fineRecipe = RenderRecipe()
+    fineRecipe.frames = finer
+    XCTAssertEqual(try render("shot", fineRecipe).1.mean.g, try render("shot", plainRecipe).1.mean.g, accuracy: 10, "it develops as the mosaic does")
+    XCTAssertEqual(try fineLamps(FrameMerge(way: finer.way, areas: [FrameMerge.Area(mask: right, way: drawn.way)])), [false, true, true])
 
     // What merging found of each frame: the other two differ from the base where their lamps are.
     var recipe = RenderRecipe()
@@ -1123,7 +1143,7 @@ final class EngineTests: XCTestCase {
     XCTAssertEqual(try engine.open(id: "later", url: original).json["framesKept"], false)
     XCTAssertEqual(try lamps("later", drawn), [true, true, true])
     XCTAssertEqual(try lamps("later", FrameMerge(way: .single(2))), camera)
-    XCTAssertEqual(try lamps("later", FrameMerge(way: FrameMerge.Way(base: 2, use: [1, 2, 3], movement: .blur))), camera)
+    XCTAssertEqual(try lamps("later", FrameMerge(way: FrameMerge.Way(base: 2, use: [1, 2, 3], align: .camera, combine: .mean))), camera)
     recipe.frames = FrameMerge(way: .single(2))
     XCTAssertNil(try engine.frameReports(id: "later", recipe: recipe))
   }

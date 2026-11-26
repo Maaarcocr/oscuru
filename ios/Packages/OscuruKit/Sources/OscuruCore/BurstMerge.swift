@@ -86,9 +86,14 @@ public struct BurstMerge {
 
     /// Lines a frame up with the reference and adds it in. It must be the reference's size.
     /// `light` is how much light it took, as a share of the reference's (1 for the same exposure).
+    /// `offsets`, when given, say where its tiles lie instead of lining them up here.
     public mutating func add(_ frame: RawFrame, light share: Double = 1) {
+        add(frame, light: share, offsets: nil)
+    }
+
+    mutating func add(_ frame: RawFrame, light share: Double, offsets given: TileOffsets?) {
         guard frame.width == reference.width, frame.height == reference.height, frame.samples.count == reference.samples.count, share > 0 else { return }
-        let offsets = Alignment.offsets(of: frame, light: share, against: reference, pyramid: pyramid, tilesAcross: tilesAcross, tilesDown: tilesDown)
+        let offsets = given ?? Alignment.offsets(of: frame, light: share, against: reference, pyramid: pyramid, tilesAcross: tilesAcross, tilesDown: tilesDown)
         let differs = merge(frame, light: Float(share), offsets: offsets)
         frames += 1
         least = min(least, share)
@@ -119,8 +124,13 @@ public struct BurstMerge {
 
     /// The fine tiles: `tile` wide, half a tile apart, starting half a tile outside the picture so
     /// that every sample lies in two tiles each way.
-    private var tilesAcross: Int { (planeWidth + Self.tile / 2 - 1) / (Self.tile / 2) + 1 }
-    private var tilesDown: Int { (planeHeight + Self.tile / 2 - 1) / (Self.tile / 2) + 1 }
+    private var tilesAcross: Int { Self.tiles(width: reference.width, height: reference.height).across }
+    private var tilesDown: Int { Self.tiles(width: reference.width, height: reference.height).down }
+
+    /// How many fine tiles a frame of this many photosites has each way.
+    static func tiles(width: Int, height: Int) -> (across: Int, down: Int) {
+        ((width / 2 + tile / 2 - 1) / (tile / 2) + 1, (height / 2 + tile / 2 - 1) / (tile / 2) + 1)
+    }
 
     // MARK: Merging
 

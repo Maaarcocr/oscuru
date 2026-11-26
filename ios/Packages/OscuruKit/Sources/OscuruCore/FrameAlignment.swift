@@ -120,6 +120,39 @@ struct TileOffsets: Sendable {
     var down: Int
     var x: [Int16]
     var y: [Int16]
+    /// The same moves to a fraction of a pixel: where the difference between the tiles is least,
+    /// between the whole pixels searched.
+    var fx: [Float]
+    var fy: [Float]
+
+    init(across: Int, down: Int, x: [Int16], y: [Int16], fx: [Float]? = nil, fy: [Float]? = nil) {
+        self.across = across
+        self.down = down
+        self.x = x
+        self.y = y
+        self.fx = fx ?? x.map(Float.init)
+        self.fy = fy ?? y.map(Float.init)
+    }
+
+    /// The tiles of a frame that moves as `motion` says, each by the whole pixels nearest its centre's move.
+    init(motion: Motion, across: Int, down: Int) {
+        let half = BurstMerge.tile / 2
+        var x = [Int16](repeating: 0, count: across * down)
+        var y = [Int16](repeating: 0, count: across * down)
+        var fx = [Float](repeating: 0, count: across * down)
+        var fy = [Float](repeating: 0, count: across * down)
+        for row in 0..<down {
+            for column in 0..<across {
+                let move = motion.at(Double(column * half), Double(row * half))
+                let index = row * across + column
+                x[index] = Int16(clamping: Int(move.x.rounded()))
+                y[index] = Int16(clamping: Int(move.y.rounded()))
+                fx[index] = Float(move.x)
+                fy[index] = Float(move.y)
+            }
+        }
+        self.init(across: across, down: down, x: x, y: y, fx: fx, fy: fy)
+    }
 
     /// How far the frame as a whole moved: the middle of its tiles' moves, in photosites.
     var shift: Double {
@@ -133,12 +166,31 @@ struct TileOffsets: Sendable {
     /// a place in the grey picture as `x = a + b·px + c·py` (and the same for y), fitted to the
     /// tiles so that those that disagree with most (something moving, or nothing to hold on to)
     /// count for little.
-    func camera() -> CameraMove {
+    /// With `within` (a rectangle of the grey picture), only the tiles in it are followed: the
+    /// movement of one part of the scene, such as a subject the camera was following.
+    func camera(within: (x: Double, y: Double, width: Double, height: Double)? = nil) -> CameraMove {
         let half = BurstMerge.tile / 2
         var move = CameraMove()
         guard !x.isEmpty else { return move }
-        move.x.0 = Double(x.sorted()[x.count / 2])
-        move.y.0 = Double(y.sorted()[y.count / 2])
+        // Which tiles count: all of them, or those whose centres lie in `within` when there are enough.
+        var counted = [Bool](repeating: true, count: x.count)
+        if let within {
+            var inside = 0
+            for row in 0..<down {
+                for column in 0..<across {
+                    let px = Double(column * half)
+                    let py = Double(row * half)
+                    let yes = px >= within.x && px <= within.x + within.width && py >= within.y && py <= within.y + within.height
+                    counted[row * across + column] = yes
+                    if yes { inside += 1 }
+                }
+            }
+            if inside < 6 { counted = [Bool](repeating: true, count: x.count) }
+        }
+        let startX = zip(fx, counted).filter(\.1).map { Double($0.0) }.sorted()
+        let startY = zip(fy, counted).filter(\.1).map { Double($0.0) }.sorted()
+        move.x.0 = startX.isEmpty ? 0 : startX[startX.count / 2]
+        move.y.0 = startY.isEmpty ? 0 : startY[startY.count / 2]
         let centreX = Double(across - 1) * Double(half) / 2
         let centreY = Double(down - 1) * Double(half) / 2
         let reach = max(1, max(centreX, centreY))
@@ -148,13 +200,13 @@ struct TileOffsets: Sendable {
             var rightX = [Double](repeating: 0, count: 3)
             var rightY = [Double](repeating: 0, count: 3)
             for row in 0..<down {
-                for column in 0..<across {
+                for column in 0..<across where counted[row * across + column] {
                     let px = Double(column * half)
                     let py = Double(row * half)
                     let u = (px - centreX) / reach
                     let v = (py - centreY) / reach
-                    let foundX = Double(x[row * across + column])
-                    let foundY = Double(y[row * across + column])
+                    let foundX = Double(fx[row * across + column])
+                    let foundY = Double(fy[row * across + column])
                     let offX = foundX - move.at(px, py).x
                     let offY = foundY - move.at(px, py).y
                     let distance = (offX * offX + offY * offY) / 9
@@ -191,6 +243,42 @@ struct TileOffsets: Sendable {
         let y = (a * (r[1] * f - e * r[2]) - r[0] * (b * f - e * c) + c * (b * r[2] - r[1] * c)) / determinant
         let z = (a * (d * r[2] - r[1] * e) - b * (b * r[2] - r[1] * c) + r[0] * (b * e - d * c)) / determinant
         return [x, y, z]
+    }
+}
+
+/// Where a frame's picture lies against the base's, at each place of the base's grey picture, in
+/// grey pixels (two photosites each): the frame's picture of the place at (px, py) of the base is
+/// at (px, py) + `at(px, py)` in the frame.
+enum Motion: Sendable {
+    /// None: a camera that did not move.
+    case none
+    /// The camera's own movement, the same for the whole scene however things in it moved.
+    case camera(CameraMove)
+    /// Each part of the picture on its own: things that moved are followed too.
+    case tiles(TileOffsets)
+
+    func at(_ px: Double, _ py: Double) -> (x: Double, y: Double) {
+        switch self {
+        case .none: return (0, 0)
+        case .camera(let move): return move.at(px, py)
+        case .tiles(let tiles):
+            // Between the four nearest tile centres, which are half a tile apart.
+            let half = Double(BurstMerge.tile / 2)
+            let u = min(max(px / half, 0), Double(tiles.across - 1))
+            let v = min(max(py / half, 0), Double(tiles.down - 1))
+            let c0 = min(Int(u), tiles.across - 1)
+            let r0 = min(Int(v), tiles.down - 1)
+            let c1 = min(c0 + 1, tiles.across - 1)
+            let r1 = min(r0 + 1, tiles.down - 1)
+            let a = u - Double(c0)
+            let b = v - Double(r0)
+            func blend(_ values: [Float]) -> Double {
+                let top = Double(values[r0 * tiles.across + c0]) * (1 - a) + Double(values[r0 * tiles.across + c1]) * a
+                let bottom = Double(values[r1 * tiles.across + c0]) * (1 - a) + Double(values[r1 * tiles.across + c1]) * a
+                return top * (1 - b) + bottom * b
+            }
+            return (blend(tiles.fx), blend(tiles.fy))
+        }
     }
 }
 
@@ -241,13 +329,17 @@ enum Alignment {
             let radius = coarse == nil ? 4 : (finest ? 1 : scale)
             var foundX = [Int16](repeating: 0, count: across * down)
             var foundY = [Int16](repeating: 0, count: across * down)
+            var fineX = [Float](repeating: 0, count: across * down)
+            var fineY = [Float](repeating: 0, count: across * down)
             let before = coarse
             let beforeTile = coarseTile
             ours.pixels.withUnsafeBufferPointer { reference in
                 theirs.pixels.withUnsafeBufferPointer { moved in
                     foundX.withUnsafeMutableBufferPointer { foundX in
                         foundY.withUnsafeMutableBufferPointer { foundY in
-                            let out = Found(x: foundX.baseAddress!, y: foundY.baseAddress!)
+                          fineX.withUnsafeMutableBufferPointer { fineX in
+                            fineY.withUnsafeMutableBufferPointer { fineY in
+                            let out = Found(x: foundX.baseAddress!, y: foundY.baseAddress!, fx: fineX.baseAddress!, fy: fineY.baseAddress!)
                             let search = Search(reference: reference.baseAddress!, moved: moved.baseAddress!, width: ours.width, height: ours.height, size: size)
                             DispatchQueue.concurrentPerform(iterations: down) { row in
                                 for column in 0..<across {
@@ -276,13 +368,34 @@ enum Alignment {
                                     best = search.best(x0: x0, y0: y0, around: best, radius: radius)
                                     out.x[row * across + column] = Int16(clamping: best.x)
                                     out.y[row * across + column] = Int16(clamping: best.y)
+                                    // To a fraction of a pixel: the lowest point of the parabola through the
+                                    // differences at the best move and its neighbours, each way.
+                                    var fraction = (x: 0.0, y: 0.0)
+                                    if finest {
+                                        func vertex(_ before: Int, _ here: Int, _ after: Int) -> Double {
+                                            let curve = Double(before) - 2 * Double(here) + Double(after)
+                                            guard curve > 0 else { return 0 }
+                                            return min(0.5, max(-0.5, (Double(before) - Double(after)) / (2 * curve)))
+                                        }
+                                        let here = search.difference(x0: x0, y0: y0, dx: best.x, dy: best.y, limit: Int.max)
+                                        fraction.x = vertex(
+                                            search.difference(x0: x0, y0: y0, dx: best.x - 1, dy: best.y, limit: Int.max), here,
+                                            search.difference(x0: x0, y0: y0, dx: best.x + 1, dy: best.y, limit: Int.max))
+                                        fraction.y = vertex(
+                                            search.difference(x0: x0, y0: y0, dx: best.x, dy: best.y - 1, limit: Int.max), here,
+                                            search.difference(x0: x0, y0: y0, dx: best.x, dy: best.y + 1, limit: Int.max))
+                                    }
+                                    out.fx[row * across + column] = Float(Double(best.x) + fraction.x)
+                                    out.fy[row * across + column] = Float(Double(best.y) + fraction.y)
                                 }
                             }
+                            }
+                          }
                         }
                     }
                 }
             }
-            coarse = TileOffsets(across: across, down: down, x: foundX, y: foundY)
+            coarse = TileOffsets(across: across, down: down, x: foundX, y: foundY, fx: fineX, fy: fineY)
             coarseTile = size
         }
         return coarse ?? TileOffsets(across: tilesAcross, down: tilesDown, x: [Int16](repeating: 0, count: tilesAcross * tilesDown), y: [Int16](repeating: 0, count: tilesAcross * tilesDown))
@@ -292,6 +405,8 @@ enum Alignment {
     struct Found: @unchecked Sendable {
         let x: UnsafeMutablePointer<Int16>
         let y: UnsafeMutablePointer<Int16>
+        let fx: UnsafeMutablePointer<Float>
+        let fy: UnsafeMutablePointer<Float>
     }
 
     /// Comparing one tile of the reference with the same tile of another frame, moved.
@@ -427,3 +542,173 @@ struct Grey {
     }
 }
 
+
+extension Alignment {
+    /// The tiles' moves to a small fraction of a photosite, for merging onto a finer grid, where a
+    /// sample put a third of a photosite from where it fell blurs what it was meant to sharpen. The
+    /// grey at half size that frames are searched on is too coarse for that, so each tile is
+    /// followed on the light of every group of four photosites (taken at every photosite, so
+    /// nothing is lost to halving), by the gradients of the reference (after Lucas and Kanade): a
+    /// few steps, each the move that best explains what still differs.
+    /// Fine repeating things (roof tiles, gravel, cloth) look alike a stripe further on, and a tile
+    /// alone can settle there; so each tile is followed from where `camera` (the frame's movement
+    /// as a whole) puts it, and from its own search, and keeps its own only where that explains it
+    /// clearly better (something that moved on its own). A tile with too little to hold on to, or
+    /// that wanders off, keeps the move it had.
+    static func refined(_ offsets: TileOffsets, of frame: RawFrame, light: Double, against reference: RawFrame, camera: CameraMove? = nil) -> TileOffsets {
+        var out = offsets
+        let width = reference.width
+        let height = reference.height
+        // As in `offsets`: both at the scale of the one that took more light, cut off where either is blown.
+        let ourGain = Float(max(1, light))
+        let theirGain = Float(max(1, 1 / light))
+        let ceiling = Float.minimum(Float(reference.blownLevel - reference.blackLevel) * ourGain, Float(frame.blownLevel - frame.blackLevel) * theirGain)
+        let ourBlack = Float((0..<4).map { reference.black($0 % 2, $0 / 2) }.reduce(0, +))
+        let theirBlack = Float((0..<4).map { frame.black($0 % 2, $0 / 2) }.reduce(0, +))
+        let tile = BurstMerge.tile * 2
+        let across = offsets.across
+        // The light of the four photosites from each photosite, in either frame.
+        func groups(of frame: RawFrame, black: Float, gain: Float) -> [Float] {
+            var out = [Float](repeating: 0, count: width * height)
+            frame.samples.withUnsafeBufferPointer { samples in
+                out.withUnsafeMutableBufferPointer { out in
+                    let samples = UnsafeSendable(samples.baseAddress!)
+                    let target = UnsafeMutableSendable(out.baseAddress!)
+                    DispatchQueue.concurrentPerform(iterations: height) { y in
+                        let cy = min(y, height - 2)
+                        for x in 0..<width {
+                            let at = cy * width + min(x, width - 2)
+                            let sum = Float(samples.pointer[at]) + Float(samples.pointer[at + 1]) + Float(samples.pointer[at + width]) + Float(samples.pointer[at + width + 1])
+                            target.pointer[y * width + x] = min(ceiling * 4, max(0, sum - black) * gain)
+                        }
+                    }
+                }
+            }
+            return out
+        }
+        let ourGroups = groups(of: reference, black: ourBlack, gain: ourGain)
+        let theirGroups = groups(of: frame, black: theirBlack, gain: theirGain)
+        out.fx.withUnsafeMutableBufferPointer { fx in
+            out.fy.withUnsafeMutableBufferPointer { fy in
+                ourGroups.withUnsafeBufferPointer { ours in
+                    theirGroups.withUnsafeBufferPointer { theirs in
+                        let fx = UnsafeMutableSendable(fx.baseAddress!)
+                        let fy = UnsafeMutableSendable(fy.baseAddress!)
+                        let ours = UnsafeSendable(ours.baseAddress!)
+                        let theirs = UnsafeSendable(theirs.baseAddress!)
+                        DispatchQueue.concurrentPerform(iterations: offsets.down) { row in
+                            func group(_ groups: UnsafePointer<Float>, _ x: Int, _ y: Int) -> Float {
+                                groups[min(max(y, 0), height - 1) * width + min(max(x, 0), width - 1)]
+                            }
+                            func theirsAt(_ x: Float, _ y: Float) -> Float {
+                                let x0 = Int(x.rounded(.down))
+                                let y0 = Int(y.rounded(.down))
+                                let a = x - Float(x0)
+                                let b = y - Float(y0)
+                                let g = theirs.pointer
+                                guard x0 >= 0, y0 >= 0, x0 + 1 < width, y0 + 1 < height else {
+                                    let top = group(g, x0, y0) * (1 - a) + group(g, x0 + 1, y0) * a
+                                    let bottom = group(g, x0, y0 + 1) * (1 - a) + group(g, x0 + 1, y0 + 1) * a
+                                    return top * (1 - b) + bottom * b
+                                }
+                                let at = y0 * width + x0
+                                let top = g[at] * (1 - a) + g[at + 1] * a
+                                let bottom = g[at + width] * (1 - a) + g[at + width + 1] * a
+                                return top * (1 - b) + bottom * b
+                            }
+                            var reference = [Float](repeating: 0, count: tile * tile)
+                            var gradientX = [Float](repeating: 0, count: tile * tile)
+                            var gradientY = [Float](repeating: 0, count: tile * tile)
+                            for column in 0..<across {
+                                let index = row * across + column
+                                // The tile in photosites: where the grey tile lies, at twice the scale.
+                                let left = 2 * (-BurstMerge.tile / 2 + column * BurstMerge.tile / 2)
+                                let top = 2 * (-BurstMerge.tile / 2 + row * BurstMerge.tile / 2)
+                                guard left >= 1, top >= 1, left + tile + 2 < width, top + tile + 2 < height else {
+                                    // At the edge, where a tile hangs over, the frame's movement as a whole.
+                                    if let camera {
+                                        let move = camera.at(Double(left / 2 + BurstMerge.tile / 2), Double(top / 2 + BurstMerge.tile / 2))
+                                        fx.pointer[index] = Float(move.x)
+                                        fy.pointer[index] = Float(move.y)
+                                    }
+                                    continue
+                                }
+                                var xx: Float = 0
+                                var xy: Float = 0
+                                var yy: Float = 0
+                                for j in 0..<tile {
+                                    for i in 0..<tile {
+                                        let x = left + i
+                                        let y = top + j
+                                        reference[j * tile + i] = group(ours.pointer, x, y)
+                                        let gx = (group(ours.pointer, x + 1, y) - group(ours.pointer, x - 1, y)) / 2
+                                        let gy = (group(ours.pointer, x, y + 1) - group(ours.pointer, x, y - 1)) / 2
+                                        gradientX[j * tile + i] = gx
+                                        gradientY[j * tile + i] = gy
+                                        xx += gx * gx
+                                        xy += gx * gy
+                                        yy += gy * gy
+                                    }
+                                }
+                                // How much the tiles still differ with the frame moved by `move`, in photosites.
+                                func residual(_ move: (x: Float, y: Float)) -> Float {
+                                    var total: Float = 0
+                                    for j in 0..<tile {
+                                        for i in 0..<tile {
+                                            let difference = theirsAt(Float(left + i) + move.x, Float(top + j) + move.y) - reference[j * tile + i]
+                                            total += difference * difference
+                                        }
+                                    }
+                                    return total
+                                }
+                                let determinant = xx * yy - xy * xy
+                                let trace = xx + yy
+                                let holds = trace > 1e-3 && determinant > 0.05 * trace * trace / 4
+                                // Followed from `start`; nil when it wanders off.
+                                func followed(from start: (x: Float, y: Float)) -> (x: Float, y: Float)? {
+                                    guard holds else { return start }
+                                    var move = start
+                                    for _ in 0..<6 {
+                                        var bx: Float = 0
+                                        var by: Float = 0
+                                        for j in 0..<tile {
+                                            for i in 0..<tile {
+                                                let difference = theirsAt(Float(left + i) + move.x, Float(top + j) + move.y) - reference[j * tile + i]
+                                                bx += gradientX[j * tile + i] * difference
+                                                by += gradientY[j * tile + i] * difference
+                                            }
+                                        }
+                                        let stepX = -(yy * bx - xy * by) / determinant
+                                        let stepY = -(xx * by - xy * bx) / determinant
+                                        move.x += stepX
+                                        move.y += stepY
+                                        if stepX * stepX + stepY * stepY < 1e-4 { break }
+                                    }
+                                    guard move.x.isFinite, move.y.isFinite, abs(move.x - start.x) <= 1.5, abs(move.y - start.y) <= 1.5 else { return nil }
+                                    return move
+                                }
+                                let own = (x: 2 * fx.pointer[index], y: 2 * fy.pointer[index])
+                                var best = followed(from: own)
+                                if let camera {
+                                    let predicted = camera.at(Double(left / 2 + BurstMerge.tile / 2), Double(top / 2 + BurstMerge.tile / 2))
+                                    if let along = followed(from: (Float(2 * predicted.x), Float(2 * predicted.y))) {
+                                        // Its own only where that explains it far better.
+                                        if let mine = best, residual(mine) < 0.5 * residual(along) {
+                                            best = mine
+                                        } else {
+                                            best = along
+                                        }
+                                    }
+                                }
+                                guard let best else { continue }
+                                fx.pointer[index] = best.x / 2
+                                fy.pointer[index] = best.y / 2
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        return out
+    }
+}

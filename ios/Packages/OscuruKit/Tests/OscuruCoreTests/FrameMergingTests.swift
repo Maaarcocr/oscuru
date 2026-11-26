@@ -4,7 +4,7 @@ import XCTest
 @testable import OscuruCore
 
 /// Merging a shot's frames the ways the assistant can ask for: around any of them, with or
-/// without some, across a bracket of exposures, and with movement frozen, blurred, removed or drawn.
+/// without some, across a bracket of exposures, lined up and combined each way, and onto a finer grid.
 final class FrameMergingTests: XCTestCase {
     typealias Scene = BurstMergeTests
 
@@ -12,6 +12,16 @@ final class FrameMergingTests: XCTestCase {
     static func light(_ merged: MergedFrame, base: RawFrame) -> [Double] {
         let scale = merged.frame.blackLevel / base.blackLevel
         return merged.frame.samples.map { Double($0) / scale - base.blackLevel }
+    }
+
+    static func light(_ merged: MergedPicture, base: RawFrame) -> [Double] {
+        guard case .mosaic(let mosaic) = merged else { XCTFail("not a mosaic"); return [] }
+        return light(mosaic, base: base)
+    }
+
+    static func mosaic(_ merged: MergedPicture) -> MergedFrame {
+        guard case .mosaic(let mosaic) = merged else { fatalError("not a mosaic") }
+        return mosaic
     }
 
     /// The mean of `values` over an area (x, y, width, height), one colour of the pattern only.
@@ -39,7 +49,7 @@ final class FrameMergingTests: XCTestCase {
         XCTAssertEqual(FrameMerging.light(of: brighter, against: base, nominal: 4), 4, accuracy: 0.3)
 
         let result = try FrameMerging.merge(FrameMerge.Way(base: 1, use: [1, 2, 3]), light: [1, 0.25, 4]) { frames[$0 - 1] }
-        let merged = result.merged
+        let merged = Self.mosaic(result.merged)
         // The darkest frame took a quarter of the light: the file reaches two stops above the base's white.
         XCTAssertEqual(merged.brightening, 2, accuracy: 1e-9)
         let scale = merged.frame.blackLevel / base.blackLevel
@@ -81,11 +91,12 @@ final class FrameMergingTests: XCTestCase {
         return (frames, clean, { index in (42 + 30 * index, 82, 16, 16) })
     }
 
-    func testMovementIsFrozenBlurredRemovedOrDrawn() throws {
+    func testMovementIsFrozenAveragedRemovedOrDrawn() throws {
         let (frames, clean, spot) = Self.crossing()
         let light = [Double](repeating: 1, count: frames.count)
-        func merged(_ movement: FrameMerge.Movement, base: Int = 1) throws -> (values: [Double], reports: [Int: FrameReport]) {
-            let result = try FrameMerging.merge(FrameMerge.Way(base: base, use: [1, 2, 3, 4, 5], movement: movement), light: light) { frames[$0 - 1] }
+        func merged(_ combine: FrameMerge.Combine, base: Int = 1) throws -> (values: [Double], reports: [Int: FrameReport]) {
+            let way = FrameMerge.Way(base: base, use: [1, 2, 3, 4, 5], align: FrameMerge.Way.align(for: combine), combine: combine)
+            let result = try FrameMerging.merge(way, light: light) { frames[$0 - 1] }
             XCTAssertEqual(result.merged.brightening, 0)
             return (Self.light(result.merged, base: frames[base - 1]), result.reports)
         }
@@ -94,16 +105,16 @@ final class FrameMergingTests: XCTestCase {
         }
 
         // Frozen: the thing where the base frame saw it, and nowhere else.
-        let frozen = try merged(.freeze)
+        let frozen = try merged(.robust)
         XCTAssertEqual(above(frozen.values, 0), 1000, accuracy: 90)
         for index in 1..<5 { XCTAssertEqual(above(frozen.values, index), 0, accuracy: 60, "frozen, place \(index)") }
 
         // Blurred: a fifth of it everywhere it went.
-        let blurred = try merged(.blur)
+        let blurred = try merged(.mean)
         for index in 0..<5 { XCTAssertEqual(above(blurred.values, index), 200, accuracy: 60, "blurred, place \(index)") }
 
         // Removed: gone, and the still scene cleaner than one frame of it.
-        let removed = try merged(.remove)
+        let removed = try merged(.median)
         for index in 0..<5 { XCTAssertEqual(above(removed.values, index), 0, accuracy: 60, "removed, place \(index)") }
         let inside = (16, 16, 224, 160)
         let one = Scene.error(frames[0].samples.map { Double($0) - Scene.black }, clean, width: 256, in: (16, 110, 224, 60))
@@ -116,13 +127,13 @@ final class FrameMergingTests: XCTestCase {
         }
 
         // Drawn: all of it everywhere it went, and the rest as still as when it is removed.
-        let drawn = try merged(.trails)
+        let drawn = try merged(.brightest)
         for index in 0..<5 { XCTAssertEqual(above(drawn.values, index), 1000, accuracy: 90, "drawn, place \(index)") }
         XCTAssertLessThan(Scene.error(drawn.values, clean, width: 256, in: (16, 110, 224, 60)), one * 0.7)
 
         // Around another frame, the moment is that frame's: the thing where the third frame saw it
         // (which the camera's drift put two photosites off).
-        let third = try merged(.freeze, base: 3)
+        let third = try merged(.robust, base: 3)
         let place = (42 + 60 + 2, 82 - 2, 16, 16)
         let still = Scene.frame(dx: -2, dy: 2, clean: true).samples.map { Double($0) - Scene.black }
         let thirdAbove: Double = Self.mean(third.values, width: 256, in: place) - Self.mean(still, width: 256, in: place)
@@ -171,31 +182,48 @@ final class FrameMergingTests: XCTestCase {
         var state = EditingState(defaults: PhotoDefaults(frames: camera))
         XCTAssertEqual(state.frames, camera)
         var plain = EditingState()
-        XCTAssertThrowsError(try plain.setFrames(["movement": "blur"], count: 4)) { XCTAssertTrue("\($0)".contains("no frames to merge")) }
+        XCTAssertThrowsError(try plain.setFrames(["combine": "mean"], count: 4)) { XCTAssertTrue("\($0)".contains("no frames to merge")) }
 
-        try state.setFrames(["movement": "remove"], count: 4)
-        XCTAssertEqual(state.frames?.way, FrameMerge.Way(base: 2, use: [1, 2, 3, 4], movement: .remove))
-        try state.setFrames(["base": 3, "use": [4, 3, 1], "movement": "freeze", "caution": 0.8], count: 4)
-        XCTAssertEqual(state.frames?.way, FrameMerge.Way(base: 3, use: [1, 3, 4], movement: .freeze, caution: 0.8))
+        // A way of combining brings the lining up that goes with it, unless one is given.
+        try state.setFrames(["combine": "median"], count: 4)
+        XCTAssertEqual(state.frames?.way, FrameMerge.Way(base: 2, use: [1, 2, 3, 4], align: .camera, combine: .median))
+        try state.setFrames(["combine": "mean", "align": "none"], count: 4)
+        XCTAssertEqual(state.frames?.way.align, FrameMerge.Align.none)
+        try state.setFrames(["base": 3, "use": [4, 3, 1], "combine": "robust", "caution": 0.8], count: 4)
+        XCTAssertEqual(state.frames?.way, FrameMerge.Way(base: 3, use: [1, 3, 4], align: .tiles, combine: .robust, caution: 0.8))
+        // Following one part of the frame is for lining up by the camera.
+        XCTAssertThrowsError(try state.setFrames(["alignOn": ["x": 0.4, "y": 0.4, "width": 0.2, "height": 0.2]], count: 4)) { XCTAssertTrue("\($0)".contains("only align")) }
+        var panned = state
+        try panned.setFrames(["combine": "mean", "alignOn": ["x": 0.4, "y": 0.4, "width": 0.2, "height": 0.2], "scale": 2], count: 4)
+        XCTAssertEqual(panned.frames?.way.alignOn, FrameMerge.Rect(x: 0.4, y: 0.4, width: 0.2, height: 0.2))
+        XCTAssertEqual(panned.frames?.way.scale, 2)
+        XCTAssertThrowsError(try panned.setFrames(["scale": 3], count: 4))
+        XCTAssertThrowsError(try panned.setFrames(["alignOn": ["x": 0.9, "y": 0.4, "width": 0.2, "height": 0.2]], count: 4))
+        // A way an earlier version saved, with a movement, reads as align and combine.
+        let saved = try JSONDecoder().decode(FrameMerge.Way.self, from: Data(#"{"base":2,"use":[1,2],"movement":"trails","caution":0.5}"#.utf8))
+        XCTAssertEqual(saved, FrameMerge.Way(base: 2, use: [1, 2], align: .camera, combine: .brightest))
+        var legacy = state
+        try legacy.setFrames(["movement": "remove"], count: 4)
+        XCTAssertEqual(legacy.frames?.way.combine, .median)
         // The base must be one of the frames used, and frames must be of the shot.
         XCTAssertThrowsError(try state.setFrames(["use": [1, 4]], count: 4)) { XCTAssertTrue("\($0)".contains("not among the frames used")) }
         XCTAssertThrowsError(try state.setFrames(["base": 5], count: 4))
         XCTAssertThrowsError(try state.setFrames(["use": [1, 1, 3]], count: 4))
-        XCTAssertThrowsError(try state.setFrames(["movement": "smear"], count: 4))
+        XCTAssertThrowsError(try state.setFrames(["combine": "smear"], count: 4))
         XCTAssertThrowsError(try state.setFrames(["strength": 1], count: 4))
-        XCTAssertEqual(state.frames?.way, FrameMerge.Way(base: 3, use: [1, 3, 4], movement: .freeze, caution: 0.8), "a refused change changes nothing")
+        XCTAssertEqual(state.frames?.way, FrameMerge.Way(base: 3, use: [1, 3, 4], align: .tiles, combine: .robust, caution: 0.8), "a refused change changes nothing")
 
         // A part of the picture merged another way starts from the picture's own.
-        try state.setFrames(["use": "all", "areas": [["mask": ["area": ["type": "subject"]], "movement": "blur"]]], count: 4)
+        try state.setFrames(["use": "all", "areas": [["mask": ["area": ["type": "subject"]], "combine": "mean"]]], count: 4)
         XCTAssertEqual(state.frames?.areas.count, 1)
-        XCTAssertEqual(state.frames?.areas.first?.way, FrameMerge.Way(base: 3, use: [1, 2, 3, 4], movement: .blur, caution: 0.8))
-        XCTAssertThrowsError(try state.setFrames(["areas": [["movement": "blur"]]], count: 4)) { XCTAssertTrue("\($0)".contains("mask is required")) }
-        let area: JSONValue = ["mask": ["area": ["type": "subject"]], "movement": "blur"]
+        XCTAssertEqual(state.frames?.areas.first?.way, FrameMerge.Way(base: 3, use: [1, 2, 3, 4], align: .camera, combine: .mean, caution: 0.8))
+        XCTAssertThrowsError(try state.setFrames(["areas": [["combine": "mean"]]], count: 4)) { XCTAssertTrue("\($0)".contains("mask is required")) }
+        let area: JSONValue = ["mask": ["area": ["type": "subject"]], "combine": "mean"]
         XCTAssertThrowsError(try state.setFrames(["areas": [area, area, area, area]], count: 4))
 
         // Scripts and saved photos see it in the state; versions that differ in it differ.
-        XCTAssertEqual(state.json["frames"]?["movement"], "freeze")
-        XCTAssertEqual(state.json["frames"]?["areas"]?.arrayValue?.first?["movement"], "blur")
+        XCTAssertEqual(state.json["frames"]?["combine"], "robust")
+        XCTAssertEqual(state.json["frames"]?["areas"]?.arrayValue?.first?["combine"], "mean")
         XCTAssertEqual(try EditingState(json: state.json).frames, state.frames)
         XCTAssertEqual(try JSONDecoder().decode(EditingState.self, from: JSONEncoder().encode(state)), state)
         let untouched = EditingState(defaults: PhotoDefaults(frames: camera))
@@ -208,6 +236,9 @@ final class FrameMergingTests: XCTestCase {
         XCTAssertEqual(FrameMerge.Way.single(3).key, "frame 3")
         XCTAssertNotEqual(FrameMerge.Way(base: 1, use: [1, 2]).key, FrameMerge.Way(base: 2, use: [1, 2]).key)
         XCTAssertNotEqual(FrameMerge.Way(base: 1, use: [1, 2], caution: 0.2).key, FrameMerge.Way(base: 1, use: [1, 2], caution: 0.8).key)
-        XCTAssertEqual(FrameMerge.Way(base: 1, use: [1, 2], movement: .blur, caution: 0.2).key, FrameMerge.Way(base: 1, use: [1, 2], movement: .blur, caution: 0.8).key)
+        XCTAssertEqual(FrameMerge.Way(base: 1, use: [1, 2], align: .camera, combine: .mean, caution: 0.2).key, FrameMerge.Way(base: 1, use: [1, 2], align: .camera, combine: .mean, caution: 0.8).key)
+        XCTAssertNotEqual(FrameMerge.Way(base: 1, use: [1, 2]).key, FrameMerge.Way(base: 1, use: [1, 2], scale: 2).key)
+        XCTAssertNotEqual(FrameMerge.Way(base: 1, use: [1, 2], align: .camera).key, FrameMerge.Way(base: 1, use: [1, 2], align: .none).key)
+        XCTAssertFalse(FrameMerge.Way(base: 1, use: [1], scale: 2).isSingle, "one frame on a finer grid is still made")
     }
 }

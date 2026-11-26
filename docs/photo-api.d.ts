@@ -490,35 +490,73 @@ interface SavedStyle {
   fingerprint?: { quantiles: number[]; red: number[]; green: number[]; blue: number[]; colourfulness: number };
 }
 
-/** One way of merging a shot's frames. */
+/**
+ * One way of merging a shot's frames: which frames, how they are lined up (`align`), how each
+ * place is made from them (`combine`), and onto what grid (`scale`). Together these make
+ * every kind of merge: less noise ("robust"), a long exposure ("mean"), passers-by removed
+ * ("median"), light trails ("brightest"), each place from the frame where it is sharpest
+ * ("sharpest"), a panning shot ("camera" on the subject with "mean"), more detail than the
+ * sensor holds (scale 2).
+ */
 interface FrameWay {
   /**
-   * The frame the picture is built on, counted from 1: its framing, its brightness and, when
-   * movement is frozen, its moment. To choose a moment (the frame where someone looks at the
-   * camera, or before something walked in), look at the frames with `photo.show("frame")` and
-   * make that one the base.
+   * The frame the picture is built on, counted from 1: its framing, its brightness and, with
+   * "robust", its moment. To choose a moment (the frame where someone looks at the camera, or
+   * before something walked in), look at the frames with `photo.show("frame")` and make that
+   * one the base.
    */
   base: number;
   /** The frames that go into the picture, e.g. [1, 2, 4], or "all". The base must be among them. Leave out a frame that is blurred or spoiled. */
   use: number[] | "all";
   /**
-   * What becomes of whatever moved between the frames:
-   *   "freeze"  the base frame's moment. The other frames only take noise away, where they agree
-   *             with it; where something moved, the base is kept alone. The camera's own choice.
-   *   "blur"    everything averaged: what moved blurs along its way, as in one long exposure
-   *             (silky water, streaked clouds, a crowd dissolved into a haze).
-   *   "remove"  what stayed put in most frames: people or cars that passed through are gone. It
-   *             needs each place to be empty in more than half of the frames used.
-   *   "trails"  what stayed put, with every bright thing that moved drawn along its way
-   *             (car lights, fireworks, stars).
-   * "blur", "remove" and "trails" only do much when the frames were taken some time apart
-   * (see `after` in `list()`); frames taken back to back hold little movement.
+   * How each place of the picture is made from the frames lined up there:
+   *   "robust"    the base, with noise averaged away where the other frames agree with it;
+   *               where something moved, the base alone. Its moment, frozen. The camera's own.
+   *   "mean"      everything averaged: what moved blurs along its way, as in one long exposure
+   *               (silky water, streaked clouds, a crowd dissolved into a haze).
+   *   "median"    what most frames agree on: people or cars that passed through are gone. Each
+   *               place must be empty in more than half of the frames used.
+   *   "brightest" what stayed put, with every bright thing that moved drawn along its way (car
+   *               lights, fireworks, stars).
+   *   "sharpest"  each place from the frames where it is sharpest: frames focused at different
+   *               distances make one picture sharp throughout, and of frames a shaking hand
+   *               blurred unevenly, each part comes from the steadiest.
+   * "mean", "median" and "brightest" only do much when something moved between the frames:
+   * frames taken some time apart (see `after` in `list()`); back to back, little moves.
+   * Setting it also sets `align` to what suits it, unless `align` is given too.
    */
-  movement: "freeze" | "blur" | "remove" | "trails";
+  combine: "robust" | "mean" | "median" | "brightest" | "sharpest";
   /**
-   * For "freeze", how readily a difference from the base counts as movement, 0 to 1 (default
-   * 0.5). Lower averages more: less noise, at the risk of faint ghosts of what moved. Higher
-   * keeps more of the base alone: no ghosts, more noise around movement.
+   * How the frames are lined up with the base:
+   *   "tiles"  each small part on its own, so everything that can be matched is: the hand's
+   *            movement, and what moved a little in the scene. With "robust" and "sharpest".
+   *   "camera" each frame as a whole, by how the camera moved: what moved in the scene keeps
+   *            its own movement (to blur, remove or draw). With "mean", "median" and "brightest".
+   *   "none"   as taken: a camera on a tripod, or to keep the camera's own movement.
+   */
+  align: "tiles" | "camera" | "none";
+  /**
+   * With align "camera", follow one part of the frame instead of the whole: it stays where it
+   * is in the base, and everything else moves around it. With "mean", a panning shot (the car
+   * or runner sharp, the background streaked along its way); with the stars, the sky held
+   * still and the ground blurred. Fractions of the frame as `photo.show("frame")` shows it
+   * (before any crop or turn), from its top-left. Null follows the whole frame.
+   */
+  alignOn: { x: number; y: number; width: number; height: number } | null;
+  /**
+   * 1: the sensor's own size. 2: twice as wide and high, with real detail no single frame has.
+   * A hand never holds still, so each frame samples the scene at slightly different places;
+   * every pixel of the finer grid is made from the samples of every frame that fell near it,
+   * all three colours measured. It needs four or more frames taken back to back in a hand
+   * (frames from a tripod sample the same places), takes tens of seconds to merge, and gives
+   * a four-times larger photo. Fine textures (leaves, gravel, roof tiles, fabric, text) gain
+   * the most. Use it when the person wants detail or a large print, not by default.
+   */
+  scale: 1 | 2;
+  /**
+   * For "robust", "median" and "brightest": how readily a difference counts as something
+   * that moved, 0 to 1 (default 0.5). Lower averages more: less noise, at the risk of faint
+   * ghosts. Higher keeps more apart: no ghosts, more noise around what moved.
    */
   caution: number;
 }
@@ -529,7 +567,8 @@ interface FrameMerge extends FrameWay {
    * Parts of the picture merged their own way, each through a mask (as for a local adjustment),
    * later ones over earlier ones: the water blurred while the people stay frozen, or one face
    * from another frame (`base` and `use` of that frame alone). An area starts from the
-   * picture's own way and changes what it names. At most 3.
+   * picture's own way and changes what it names; it is brought to the picture's size (its
+   * own `scale` is the picture's). At most 3.
    */
   areas: Array<Partial<FrameWay> & { mask: Mask }>;
 }

@@ -37,6 +37,8 @@ public final class PhotoSession {
   private static let maxSources = 3
   /// How many merges other than the camera's are kept as files: older ones are made again when asked for.
   private static let maxMerges = 5
+  /// What the kept merges may take together, in bytes.
+  private static let mergesRoom = 1_000_000_000
   /// What Vision found in the photo ("subject", "people"), searched for once each.
   private var found: [String: CIImage] = [:]
   private var searched: Set<String> = []
@@ -109,7 +111,7 @@ public final class PhotoSession {
       size = output.extent.size
       fullImage = nil
       previewImage = nil
-      original = RawSource(filter: filter)
+      original = RawSource(filter: filter, size: output.extent.size)
     } else {
       isRaw = false
       rawDefaults = (6500, 0, 0, 0, 0)
@@ -167,6 +169,20 @@ public final class PhotoSession {
     selections = [:]
   }
 
+  /// Takes the photo's size from the picture its frames are merged into as `way` says (its file's
+  /// when nil) before it is rendered: frames merged onto a finer grid make a photo twice as wide
+  /// and high. Every other picture of the photo (another way of merging laid in through a mask) is
+  /// developed to this size. Does nothing for a photo without frames.
+  func use(frames way: FrameMerge.Way?) {
+    guard let original, frameSet != nil else { return }
+    let wanted = rawSource(for: way)?.size ?? original.size
+    guard wanted != size, wanted.width >= 1, wanted.height >= 1 else { return }
+    size = wanted
+    info.width = Int(wanted.width.rounded())
+    info.height = Int(wanted.height.rounded())
+    analysisPicture = nil
+  }
+
   /// The photo after exposure, white balance, noise reduction and (for RAW) sharpening, scaled so that
   /// its size is about `scale` times the full size, with its extent starting at the origin.
   /// A shot's frames are merged as `way` says: the picture's own way (`recipe.frames`) unless another is given.
@@ -179,15 +195,18 @@ public final class PhotoSession {
       var developScale = cache ? max(scale, baseScale) : scale
       let keep = cache && developScale * max(size.width, size.height) <= PhotoSession.keptEdge
       if !keep { developScale = scale }
+      // The source may be smaller or larger than the photo (frames merged onto a finer grid, or
+      // the photo's file beside such a merge): it is developed to the photo's size.
+      let relative = max(size.width, size.height) / max(source.size.width, source.size.height)
       let key = [
-        Double(developScale), recipe.exposureEV, recipe.temperature ?? -1, recipe.tint ?? -1000, recipe.sharpening ?? -1,
+        Double(developScale), Double(size.width), recipe.exposureEV, recipe.temperature ?? -1, recipe.tint ?? -1000, recipe.sharpening ?? -1,
         recipe.noiseReduction ?? -1, recipe.colorNoiseReduction ?? -1,
       ].map { String($0) }.joined(separator: "|")
       var image: CIImage
       if keep, let cached = source.developed, cached.key == key {
         image = cached.image
       } else {
-        filter.scaleFactor = Float(min(1, developScale))
+        filter.scaleFactor = Float(min(1, developScale * relative))
         // A merge that holds highlights above its base frame's white sits that much lower in its file.
         filter.exposure = Float(recipe.exposureEV) + source.brightening
         filter.neutralTemperature = Float(recipe.temperature ?? Double(rawDefaults.temperature))
@@ -210,8 +229,9 @@ public final class PhotoSession {
           source.developed = (key, image)
         }
       }
-      let factor = scale / developScale
-      if factor < 0.999 {
+      // To the size wanted: down from a kept preview's development, or up from a smaller source.
+      let factor = scale * max(size.width, size.height) / max(image.extent.width, image.extent.height)
+      if abs(factor - 1) > 0.001 {
         let resize = CIFilter.lanczosScaleTransform()
         resize.inputImage = image
         resize.scale = Float(factor)
@@ -291,9 +311,9 @@ public final class PhotoSession {
       sources.append(found)
       return found.source
     }
-    guard let file = try? rawFile(for: way, set: set), let filter = CIRAWFilter(imageURL: file), filter.outputImage != nil else { return original }
+    guard let file = try? rawFile(for: way, set: set), let filter = CIRAWFilter(imageURL: file), let output = filter.outputImage else { return original }
     PhotoSession.neutralize(filter)
-    let source = RawSource(filter: filter, brightening: Float(set.brightening(of: way)))
+    let source = RawSource(filter: filter, size: output.extent.size, brightening: Float(set.brightening(of: way)))
     sources.append((way.key, source))
     if sources.count > PhotoSession.maxSources { sources.removeFirst() }
     return source
@@ -318,17 +338,30 @@ public final class PhotoSession {
     guard set.kept else { throw EngineError.cannotOpen("the frames are not kept") }
     let result = try FrameMerging.merge(way, light: set.light) { try DNG.frame(of: Data(contentsOf: frame($0))) }
     // The base frame's own file, with the merged picture in place of its own.
-    let merged = try DNG.replacingFrame(of: Data(contentsOf: frame(way.base)), with: result.merged.frame)
+    let base = try Data(contentsOf: frame(way.base))
+    let merged: Data
+    switch result.merged {
+    case .mosaic(let picture): merged = try DNG.replacingFrame(of: base, with: picture.frame)
+    case .rgb(let picture, _): merged = try DNG.replacingFrame(of: base, with: picture)
+    }
     try FileManager.default.createDirectory(at: merges, withIntermediateDirectories: true)
     try merged.write(to: file, options: .atomic)
     let reports = Dictionary(uniqueKeysWithValues: result.reports.map { (String($0.key), $0.value) })
     try? JSONEncoder().encode(reports).write(to: file.deletingPathExtension().appendingPathExtension("json"), options: .atomic)
-    // Room for it: the merges used longest ago go.
-    let kept = (try? FileManager.default.contentsOfDirectory(at: merges, includingPropertiesForKeys: [.contentModificationDateKey])) ?? []
-    let dated = kept.filter { $0.pathExtension == "dng" }.map { ($0, (try? $0.resourceValues(forKeys: [.contentModificationDateKey]).contentModificationDate) ?? .distantPast) }
-    for (old, _) in dated.sorted(by: { $0.1 > $1.1 }).dropFirst(PhotoSession.maxMerges) {
-      try? FileManager.default.removeItem(at: old)
-      try? FileManager.default.removeItem(at: old.deletingPathExtension().appendingPathExtension("json"))
+    // Room for it: the merges used longest ago go, past a few of them or past what they may take
+    // together (one onto a finer grid takes several times a frame's room). The newest stays.
+    let keys: [URLResourceKey] = [.contentModificationDateKey, .fileSizeKey]
+    let kept = (try? FileManager.default.contentsOfDirectory(at: merges, includingPropertiesForKeys: keys)) ?? []
+    let dated = kept.filter { $0.pathExtension == "dng" }.map { url -> (url: URL, date: Date, size: Int) in
+      let values = try? url.resourceValues(forKeys: Set(keys))
+      return (url, values?.contentModificationDate ?? .distantPast, values?.fileSize ?? 0)
+    }
+    var room = 0
+    for (index, merge) in dated.sorted(by: { $0.date > $1.date }).enumerated() {
+      room += merge.size
+      guard index > 0, index >= PhotoSession.maxMerges || room > PhotoSession.mergesRoom else { continue }
+      try? FileManager.default.removeItem(at: merge.url)
+      try? FileManager.default.removeItem(at: merge.url.deletingPathExtension().appendingPathExtension("json"))
     }
     return file
   }
@@ -480,10 +513,13 @@ public final class PhotoSession {
 final class RawSource {
   let filter: CIRAWFilter
   var brightening: Float
+  /// Its full size, upright: the sensor's, or twice it for frames merged onto a finer grid.
+  let size: CGSize
   var developed: (key: String, image: CIImage)?
 
-  init(filter: CIRAWFilter, brightening: Float = 0) {
+  init(filter: CIRAWFilter, size: CGSize, brightening: Float = 0) {
     self.filter = filter
+    self.size = size
     self.brightening = brightening
   }
 }

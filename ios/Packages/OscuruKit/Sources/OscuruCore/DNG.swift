@@ -16,18 +16,59 @@ public struct RawFrame: Sendable, Equatable {
     /// The file's noise model, as it gives it: pairs of a variance per unit of signal and a
     /// variance at no signal, on a scale where black is 0 and white is 1. Empty when it has none.
     public var noiseProfile: [Double]
+    /// The colour behind each place of the two-by-two filter pattern (0 red, 1 green, 2 blue), in
+    /// the order top left, top right, bottom left, bottom right.
+    public var cfa: [Int]
+    /// How the picture is turned to stand upright, as TIFF says it (1 as it is, 3 half a turn, 6 a
+    /// quarter turn clockwise, 8 a quarter turn anticlockwise).
+    public var orientation: Int
 
-    public init(width: Int, height: Int, samples: [UInt16], blackLevels: [Double] = [0], whiteLevel: Double = 65535, noiseProfile: [Double] = []) {
+    public init(
+        width: Int, height: Int, samples: [UInt16], blackLevels: [Double] = [0], whiteLevel: Double = 65535, noiseProfile: [Double] = [],
+        cfa: [Int] = [0, 1, 1, 2], orientation: Int = 1
+    ) {
         self.width = width
         self.height = height
         self.samples = samples
         self.blackLevels = blackLevels
         self.whiteLevel = whiteLevel
         self.noiseProfile = noiseProfile
+        self.cfa = cfa.count == 4 && cfa.allSatisfy({ (0...2).contains($0) }) ? cfa : [0, 1, 1, 2]
+        self.orientation = orientation
     }
 
     /// No light, as one number.
     public var blackLevel: Double { blackLevels.isEmpty ? 0 : blackLevels.reduce(0, +) / Double(blackLevels.count) }
+
+    /// No light at the photosite (x, y).
+    public func black(_ x: Int, _ y: Int) -> Double {
+        blackLevels.count == 4 ? blackLevels[(y & 1) * 2 + (x & 1)] : blackLevel
+    }
+
+    /// The colour behind the photosite (x, y): 0 red, 1 green, 2 blue.
+    public func colour(_ x: Int, _ y: Int) -> Int { cfa[(y & 1) * 2 + (x & 1)] }
+}
+
+/// A raw picture with all three colours at every pixel, linear as the sensor measured them (a
+/// "linear raw" DNG, as Apple ProRAW is): what merging frames onto a finer grid than the sensor's
+/// gives, since every pixel then has samples of every colour near it.
+public struct RGBFrame: Sendable, Equatable {
+    public var width: Int
+    public var height: Int
+    /// Red, green and blue of each pixel, row after row.
+    public var samples: [UInt16]
+    public var blackLevel: Double
+    public var whiteLevel: Double
+    public var noiseProfile: [Double]
+
+    public init(width: Int, height: Int, samples: [UInt16], blackLevel: Double, whiteLevel: Double, noiseProfile: [Double] = []) {
+        self.width = width
+        self.height = height
+        self.samples = samples
+        self.blackLevel = blackLevel
+        self.whiteLevel = whiteLevel
+        self.noiseProfile = noiseProfile
+    }
 }
 
 /// Reading the raw picture out of a DNG as the iPhone's camera writes it (a Bayer mosaic, in
@@ -54,7 +95,43 @@ public enum DNG {
     public static func replacingFrame(of data: Data, with frame: RawFrame) throws -> Data {
         let file = try TIFF(bytes: [UInt8](data))
         let raw = try file.rawDirectory()
-        return Data(try file.replacing(raw, with: frame))
+        let layout = try file.layout(raw)
+        guard frame.width == layout.width, frame.height == layout.height, frame.samples.count == frame.width * frame.height else {
+            throw DNG.Failure.unsupported("the new raw picture is not the size of the old one")
+        }
+        return Data(
+            try file.replacing(
+                raw, picture: Replacement(width: frame.width, height: frame.height, channels: 1, samples: frame.samples, blackLevels: frame.blackLevels,
+                    whiteLevel: frame.whiteLevel, noiseProfile: frame.noiseProfile)))
+    }
+
+    /// The same DNG with `frame` in place of its Bayer picture: a linear raw picture of three
+    /// colours a pixel, of any size, uncompressed. The colour matrices still apply (its colours are
+    /// the camera's own); what describes the filter pattern goes, and what describes the old
+    /// picture's pixels (its crop) goes with it. A lens correction given in the old picture's
+    /// pixels cannot be carried over, and a file that has one is refused.
+    public static func replacingFrame(of data: Data, with frame: RGBFrame) throws -> Data {
+        let file = try TIFF(bytes: [UInt8](data))
+        let raw = try file.rawDirectory()
+        guard frame.samples.count == frame.width * frame.height * 3, frame.width > 0, frame.height > 0 else {
+            throw DNG.Failure.unsupported("the new picture's samples are not three a pixel")
+        }
+        return Data(
+            try file.replacing(
+                raw, picture: Replacement(width: frame.width, height: frame.height, channels: 3, samples: frame.samples,
+                    blackLevels: [frame.blackLevel, frame.blackLevel, frame.blackLevel], whiteLevel: frame.whiteLevel, noiseProfile: frame.noiseProfile)))
+    }
+
+    /// A picture to write in place of a DNG's raw picture.
+    fileprivate struct Replacement {
+        var width: Int
+        var height: Int
+        /// 1 for a Bayer mosaic, 3 for linear red, green and blue.
+        var channels: Int
+        var samples: [UInt16]
+        var blackLevels: [Double]
+        var whiteLevel: Double
+        var noiseProfile: [Double]
     }
 }
 
@@ -76,7 +153,19 @@ private enum Tag {
     static let tileOffsets = 324
     static let tileByteCounts = 325
     static let subIFDs = 330
+    static let orientation = 274
+    static let planarConfiguration = 284
     static let cfaRepeatPatternDim = 33421
+    static let cfaPattern = 33422
+    static let cfaPlaneColor = 50710
+    static let cfaLayout = 50711
+    static let blackLevelRepeatDim = 50713
+    static let defaultCropOrigin = 50719
+    static let defaultCropSize = 50720
+    static let activeArea = 50829
+    static let maskedAreas = 50830
+    static let opcodeList1 = 51008
+    static let opcodeList2 = 51009
     static let linearizationTable = 50712
     static let blackLevel = 50714
     static let whiteLevel = 50717
@@ -205,7 +294,7 @@ private struct TIFF {
     }
 
     /// Where the raw picture's samples are in the file, and how they are cut up.
-    private struct Layout {
+    struct Layout {
         var width = 0
         var height = 0
         var pieceWidth = 0
@@ -215,7 +304,7 @@ private struct TIFF {
         var compression = 1
     }
 
-    private func layout(_ raw: Directory) throws -> Layout {
+    func layout(_ raw: Directory) throws -> Layout {
         func one(_ tag: Int) throws -> Int? { try raw.entry(tag).flatMap { try integers($0).first } }
         guard let width = try one(Tag.imageWidth), let height = try one(Tag.imageLength), width > 0, height > 0, width % 2 == 0, height % 2 == 0 else {
             throw DNG.Failure.unsupported("its raw picture has no usable size")
@@ -295,11 +384,14 @@ private struct TIFF {
             }
         }
         if let error = failure.error { throw error }
+        let first = try directory(at: try u32(4), pointer: 4)
+        let orientation = try (raw.entry(Tag.orientation) ?? first.entry(Tag.orientation)).flatMap { try integers($0).first } ?? 1
+        let pattern = try raw.entry(Tag.cfaPattern).map { try integers($0) } ?? [0, 1, 1, 2]
         return RawFrame(
             width: layout.width, height: layout.height, samples: samples,
             blackLevels: try raw.entry(Tag.blackLevel).map { try numbers($0) } ?? [0],
             whiteLevel: try raw.entry(Tag.whiteLevel).flatMap { try numbers($0).first } ?? 65535,
-            noiseProfile: try noiseEntry(raw).map { try numbers($0) } ?? [])
+            noiseProfile: try noiseEntry(raw).map { try numbers($0) } ?? [], cfa: pattern, orientation: orientation)
     }
 
     /// The noise model, which an iPhone's DNG keeps with the raw picture and others with the file.
@@ -308,14 +400,21 @@ private struct TIFF {
         return try directory(at: try u32(4), pointer: 4).entry(Tag.noiseProfile)
     }
 
-    /// The file with `frame` as its raw picture. The raw picture's directory is written again at
+    /// The file with `picture` as its raw picture. The raw picture's directory is written again at
     /// the end of the file, describing one uncompressed strip that is written before it; where the
     /// old samples were the end of the file (as an iPhone writes it) they are dropped, otherwise
     /// they stay where they are, unused.
-    func replacing(_ raw: Directory, with frame: RawFrame) throws -> [UInt8] {
+    func replacing(_ raw: Directory, picture frame: DNG.Replacement) throws -> [UInt8] {
         let layout = try layout(raw)
-        guard frame.width == layout.width, frame.height == layout.height, frame.samples.count == frame.width * frame.height else {
-            throw DNG.Failure.unsupported("the new raw picture is not the size of the old one")
+        let linear = frame.channels == 3
+        if linear {
+            // Lens corrections given in the old picture's own pixels would land in the wrong places.
+            if raw.entry(Tag.opcodeList1) != nil || raw.entry(Tag.opcodeList2) != nil {
+                throw DNG.Failure.unsupported("its raw picture carries corrections in its own pixels")
+            }
+            if let area = raw.entry(Tag.activeArea), try integers(area) != [0, 0, layout.height, layout.width] {
+                throw DNG.Failure.unsupported("its raw picture has a border")
+            }
         }
         // Keep the file up to the old samples when nothing else follows them.
         var keep = bytes.count
@@ -364,6 +463,11 @@ private struct TIFF {
             put32(Int((max(0, level) * 256).rounded()))
             put32(256)
         }
+        let white = Int(min(max(frame.whiteLevel, 1), 4_294_967_295).rounded())
+        let whites = output.count
+        if linear { for _ in 0..<3 { put32(white) } }
+        let bits = output.count
+        if linear { for _ in 0..<3 { put16(16) } }
 
         // The noise model is changed where it stands: it keeps its place and its length.
         if let noise = try noiseEntry(raw), noise.type == 12, noise.count == frame.noiseProfile.count, noise.offset + noise.count * 8 <= keep {
@@ -375,10 +479,17 @@ private struct TIFF {
         }
 
         // The directory: what it had, but for how the samples are stored and what their levels are.
-        let replaced: Set<Int> = [
+        var replaced: Set<Int> = [
             Tag.bitsPerSample, Tag.compression, Tag.stripOffsets, Tag.rowsPerStrip, Tag.stripByteCounts, Tag.predictor, Tag.tileWidth, Tag.tileLength,
             Tag.tileOffsets, Tag.tileByteCounts, Tag.blackLevel, Tag.whiteLevel,
         ]
+        if linear {
+            // A picture of its own size and kind: none of what described the mosaic, or its crop, carries over.
+            replaced.formUnion([
+                Tag.imageWidth, Tag.imageLength, Tag.photometric, Tag.samplesPerPixel, Tag.planarConfiguration, Tag.cfaRepeatPatternDim, Tag.cfaPattern,
+                Tag.cfaPlaneColor, Tag.cfaLayout, Tag.blackLevelRepeatDim, Tag.defaultCropOrigin, Tag.defaultCropSize, Tag.activeArea, Tag.maskedAreas,
+            ])
+        }
         /// A tag, its type, its count and the four bytes of its value field.
         var records: [(tag: Int, type: Int, count: Int, field: [UInt8])] = try raw.entries.filter { !replaced.contains($0.tag) }.map { entry in
             guard entry.field + 4 <= keep, entry.offset == entry.field || entry.offset + entry.count * (Entry.sizes[entry.type] ?? 1) <= keep else {
@@ -391,13 +502,20 @@ private struct TIFF {
             let b = [UInt8(value >> 24 & 0xFF), UInt8(value >> 16 & 0xFF), UInt8(value >> 8 & 0xFF), UInt8(value & 0xFF)]
             return bigEndian ? b : b.reversed()
         }
-        records.append((Tag.bitsPerSample, 3, 1, short(16)))
+        records.append(linear ? (Tag.bitsPerSample, 3, 3, long(bits)) : (Tag.bitsPerSample, 3, 1, short(16)))
         records.append((Tag.compression, 3, 1, short(1)))
         records.append((Tag.stripOffsets, 4, 1, long(strip)))
         records.append((Tag.rowsPerStrip, 4, 1, long(frame.height)))
         records.append((Tag.stripByteCounts, 4, 1, long(frame.samples.count * 2)))
         records.append((Tag.blackLevel, 5, frame.blackLevels.count, long(blacks)))
-        records.append((Tag.whiteLevel, 4, 1, long(Int(min(max(frame.whiteLevel, 1), 4_294_967_295).rounded()))))
+        records.append(linear ? (Tag.whiteLevel, 4, 3, long(whites)) : (Tag.whiteLevel, 4, 1, long(white)))
+        if linear {
+            records.append((Tag.imageWidth, 4, 1, long(frame.width)))
+            records.append((Tag.imageLength, 4, 1, long(frame.height)))
+            records.append((Tag.photometric, 3, 1, short(34892)))
+            records.append((Tag.samplesPerPixel, 3, 1, short(3)))
+            records.append((Tag.planarConfiguration, 3, 1, short(1)))
+        }
         records.sort { $0.tag < $1.tag }
 
         pad()

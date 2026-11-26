@@ -374,15 +374,15 @@ final class ScriptRuntimeTests: XCTestCase {
             const frames = photo.current.frames;
             const listed = frames.list();
             photo.show("frame", { frame: 2 });
-            const report = frames.merge({ base: 4, use: [1, 2, 4], movement: "remove", areas: [{ mask: { area: { type: "subject" } }, movement: "freeze", use: [4] }] });
-            [listed.length, listed[1].stops, listed[2].sharpness, listed[0].base, photo.current.getMetadata().framesKept, report.merged, report.frames.map((f) => f.frame), report.highlightStops, frames.get().movement]
+            const report = frames.merge({ base: 4, use: [1, 2, 4], combine: "median", areas: [{ mask: { area: { type: "subject" } }, combine: "robust", use: [4] }] });
+            [listed.length, listed[1].stops, listed[2].sharpness, listed[0].base, photo.current.getMetadata().framesKept, report.merged, report.frames.map((f) => f.frame), report.highlightStops, frames.get().combine]
             """, info: shot)
         XCTAssertNil(outcome.error)
-        XCTAssertEqual(outcome.returnValue, #"[4,-2,0.4,true,true,3,[1,2],2,"remove"]"#)
-        XCTAssertEqual(outcome.state.frames?.way, FrameMerge.Way(base: 4, use: [1, 2, 4], movement: .remove))
-        XCTAssertEqual(outcome.state.frames?.areas.first?.way, FrameMerge.Way(base: 4, use: [4], movement: .freeze))
-        XCTAssertEqual(host.mergeRequests, [FrameMerge.Way(base: 4, use: [1, 2, 4], movement: .remove)], "merged at once, so the script learns what it gave")
-        XCTAssertTrue(outcome.changes.contains { $0.path == "frames.movement" })
+        XCTAssertEqual(outcome.returnValue, #"[4,-2,0.4,true,true,3,[1,2],2,"median"]"#)
+        XCTAssertEqual(outcome.state.frames?.way, FrameMerge.Way(base: 4, use: [1, 2, 4], align: .camera, combine: .median))
+        XCTAssertEqual(outcome.state.frames?.areas.first?.way, FrameMerge.Way(base: 4, use: [4], align: .tiles, combine: .robust))
+        XCTAssertEqual(host.mergeRequests, [FrameMerge.Way(base: 4, use: [1, 2, 4], align: .camera, combine: .median)], "merged at once, so the script learns what it gave")
+        XCTAssertTrue(outcome.changes.contains { $0.path == "frames.combine" })
         // The frame shown is that frame alone, with the rest of the settings as they are.
         XCTAssertEqual(host.imageRequests.first?.state.frames, FrameMerge(way: .single(2)))
         XCTAssertTrue(outcome.shown.first?.label.contains("frame 2 of 4 alone") ?? false)
@@ -399,7 +399,7 @@ final class ScriptRuntimeTests: XCTestCase {
 
         // Frames that were discarded can be listed, not merged or looked at.
         shot.frameSet?.kept = false
-        let gone = await run(#"const count = photo.current.frames.list().length; photo.current.frames.merge({ movement: "blur" }); count"#, info: shot)
+        let gone = await run(#"const count = photo.current.frames.list().length; photo.current.frames.merge({ combine: "mean" }); count"#, info: shot)
         XCTAssertTrue(gone.error?.message.contains("discarded") ?? false)
         let look = await run(#"photo.show("frame", { frame: 1 })"#, info: shot)
         XCTAssertTrue(look.error?.message.contains("discarded") ?? false)
@@ -407,7 +407,7 @@ final class ScriptRuntimeTests: XCTestCase {
         // A photo without frames has an empty list, and nothing to merge.
         let plain = await run("photo.current.frames.list().length")
         XCTAssertEqual(plain.returnValue, "0")
-        let none = await run(#"photo.current.frames.merge({ movement: "blur" })"#)
+        let none = await run(#"photo.current.frames.merge({ combine: "mean" })"#)
         XCTAssertTrue(none.error?.message.contains("no frames to merge") ?? false)
     }
 

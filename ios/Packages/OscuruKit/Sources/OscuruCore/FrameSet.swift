@@ -122,6 +122,8 @@ public struct FrameSet: Codable, Equatable, Sendable {
         var set = FrameSet(frames: described, merge: way)
         let result = try FrameMerging.merge(way, light: set.light) { frames[$0 - 1] }
         for (frame, report) in result.reports where frame >= 1 && frame <= described.count { set.frames[frame - 1].report = report }
-        return (set, result.merged)
+        // The camera's own way keeps the sensor's grid: its merge is a mosaic.
+        guard case .mosaic(let merged) = result.merged else { throw FrameMerging.Failure.sizes }
+        return (set, merged)
     }
 }
