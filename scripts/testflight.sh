@@ -140,6 +140,8 @@ if ! (cd "$WORK" && xcrun altool --upload-app -f "$IPA" -t ios "${AUTH[@]}" > "$
   exit 1
 fi
 echo "::notice::Uploaded Oscuru build $BUILD_NUMBER. It appears in TestFlight once Apple has processed it (usually 5–30 minutes)."
+# For the job that gives the build to the invited testers once Apple has processed it.
+if [[ -n "${GITHUB_OUTPUT:-}" ]]; then echo "build=$BUILD_NUMBER" >> "$GITHUB_OUTPUT"; fi
 
 STAGE='setting up TestFlight testers'
 "$WORK/venv/bin/python" "$ROOT/scripts/asc.py" testers "$APP_ID"

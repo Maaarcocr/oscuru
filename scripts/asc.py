@@ -3,9 +3,13 @@
 
     asc.py prepare WORK_DIR CERT_SERIAL   bundle IDs, app record, profiles and next build number
     asc.py testers APP_ID                 an internal TestFlight group that gets every build
+    asc.py share BUILD [WHAT_TO_TEST]     that build, once Apple has processed it, to the invited testers
     asc.py crashes OUT_DIR                the crash reports testers sent from TestFlight, with their logs
 
 Reads ASC_KEY_ID, ASC_ISSUER_ID and ASC_KEY_PATH (the .p8 file). Prints no secrets.
+`share` also reads OSCURU_PRIVACY_URL (the privacy policy's address, once there is one),
+OSCURU_TESTER_LIMIT (how many people the invitation link lets in, 20 unless set) and
+OSCURU_PROCESSING_MINUTES (how long to wait for Apple to process the build, 60 unless set).
 """
 import base64
 import json
@@ -301,6 +305,121 @@ def testers(app):
         print(f"Internal tester {'added' if status < 300 else 'already present or not added'} ({status}).")
 
 
+# The invited testers: people outside the team, who join with the group's link.
+GROUP_NAME = "Friends"
+BETA_DESCRIPTION = """Oscuru is a RAW camera and photo editor you talk to. Take RAW photos (one frame, or several the camera merges), or open RAW photos you already have, and tell the assistant what you want: it edits the photo with a photographer's tools and shows you each step. Nothing is generated: every pixel comes from the light the camera recorded.
+
+You need your own OpenRouter account (openrouter.ai): connect it in Oscuru's Settings, and what the assistant does is paid from your OpenRouter credit. Oscuru has no server and no account of its own; your photos stay on your phone, and only the pictures the assistant looks at go to OpenRouter and the model you chose.
+
+What to try: shoot or import a RAW photo, ask for a look ("moody film", "make the sky pop"), ask for changes, save a style and apply it to other photos. With Frames on in Settings, the camera takes several frames: ask the assistant for less noise, more detail, a long exposure or a focus stack."""
+
+
+def app_id():
+    reply = ok(*call("GET", "/v1/apps", query={"filter[bundleId]": BUNDLE_ID}), "look up the app")
+    apps = [a for a in reply["data"] if a["attributes"]["bundleId"] == BUNDLE_ID]
+    if not apps:
+        sys.exit("No App Store Connect app for " + BUNDLE_ID)
+    return apps[0]["id"]
+
+
+def share(build_number, what_to_test=None):
+    """Gives a build to the invited testers: once Apple has processed it, it joins the external
+    group (made the first time, with an invitation link that lets in OSCURU_TESTER_LIMIT people)
+    and goes to Apple's beta review, which external testers need. What only the owner can give
+    (their contact details and an OpenRouter key for the reviewer) is left to them in App Store
+    Connect: this only says what is still missing."""
+    app = app_id()
+    limit = int(os.environ.get("OSCURU_TESTER_LIMIT") or 20)
+    missing = []
+
+    # What testers read about the beta, and where its privacy policy is. The feedback email is the owner's to give.
+    privacy = (os.environ.get("OSCURU_PRIVACY_URL") or "").strip()
+    reply = ok(*call("GET", f"/v1/apps/{app}/betaAppLocalizations"), "read the beta's description")
+    localizations = reply.get("data", [])
+    english = next((l for l in localizations if l["attributes"].get("locale", "").startswith("en")), localizations[0] if localizations else None)
+    wanted = {"description": BETA_DESCRIPTION}
+    if privacy:
+        wanted["privacyPolicyUrl"] = privacy
+    if english:
+        changed = {k: v for k, v in wanted.items() if english["attributes"].get(k) != v}
+        if changed:
+            ok(*call("PATCH", f"/v1/betaAppLocalizations/{english['id']}", {"data": {"type": "betaAppLocalizations", "id": english["id"], "attributes": changed}}), "write the beta's description")
+        attributes = {**english["attributes"], **wanted}
+    else:
+        body = {"data": {"type": "betaAppLocalizations", "attributes": {"locale": "en-US", **wanted}, "relationships": {"app": {"data": {"type": "apps", "id": app}}}}}
+        ok(*call("POST", "/v1/betaAppLocalizations", body), "write the beta's description")
+        attributes = wanted
+    if not attributes.get("feedbackEmail"):
+        missing.append("a feedback email (TestFlight → Test Information)")
+    if not attributes.get("privacyPolicyUrl"):
+        print("::warning::The beta has no privacy policy URL yet (docs/privacy.md, once it has an address: the OSCURU_PRIVACY_URL variable).")
+
+    # What Apple's reviewer needs: the owner's contact details, and a way to use the assistant.
+    status, reply = call("GET", f"/v1/apps/{app}/betaAppReviewDetail")
+    review = reply.get("data", {}).get("attributes", {}) if status < 300 else {}
+    if not all(review.get(k) for k in ("contactFirstName", "contactLastName", "contactPhone", "contactEmail")):
+        missing.append("your name, phone and email for the reviewer (TestFlight → Test Information → Beta App Review Information)")
+    if not review.get("notes"):
+        missing.append("review notes with an OpenRouter key for the reviewer (same place: Settings → Connect → paste the key)")
+
+    # The group, with its invitation link.
+    reply = ok(*call("GET", f"/v1/apps/{app}/betaGroups", query={"limit": 50}), "list TestFlight groups")
+    group = next((g for g in reply["data"] if not g["attributes"].get("isInternalGroup") and g["attributes"].get("name") == GROUP_NAME), None)
+    if not group:
+        attributes = {"name": GROUP_NAME, "isInternalGroup": False, "feedbackEnabled": True}
+        body = {"data": {"type": "betaGroups", "attributes": attributes, "relationships": {"app": {"data": {"type": "apps", "id": app}}}}}
+        group = ok(*call("POST", "/v1/betaGroups", body), "create the invited testers' group")["data"]
+        notice(f"Created the TestFlight group “{GROUP_NAME}” for invited testers.")
+
+    # The build, once Apple has processed it.
+    deadline = time.time() + 60 * int(os.environ.get("OSCURU_PROCESSING_MINUTES") or 60)
+    build = None
+    while True:
+        status, reply = call("GET", "/v1/builds", query={"filter[app]": app, "filter[version]": str(build_number), "limit": 5})
+        found = reply.get("data", []) if status < 300 else []
+        if found and found[0]["attributes"].get("processingState") == "VALID":
+            build = found[0]
+            break
+        if found and found[0]["attributes"].get("processingState") in ("FAILED", "INVALID"):
+            sys.exit(f"Apple could not process build {build_number}.")
+        if time.time() > deadline:
+            sys.exit(f"Build {build_number} was not processed in time; the next build will be shared instead.")
+        time.sleep(30)
+
+    if what_to_test:
+        reply = ok(*call("GET", f"/v1/builds/{build['id']}/betaBuildLocalizations"), "read what to test")
+        localizations = reply.get("data", [])
+        if localizations:
+            body = {"data": {"type": "betaBuildLocalizations", "id": localizations[0]["id"], "attributes": {"whatsNew": what_to_test}}}
+            call("PATCH", f"/v1/betaBuildLocalizations/{localizations[0]['id']}", body)
+        else:
+            body = {"data": {"type": "betaBuildLocalizations", "attributes": {"locale": "en-US", "whatsNew": what_to_test}, "relationships": {"build": {"data": {"type": "builds", "id": build["id"]}}}}}
+            call("POST", "/v1/betaBuildLocalizations", body)
+
+    ok(*call("POST", f"/v1/betaGroups/{group['id']}/relationships/builds", {"data": [{"type": "builds", "id": build["id"]}]}), "add the build to the invited testers' group")
+    print(f"Build {build_number} is in the group “{GROUP_NAME}”.")
+
+    # The invitation link, letting in at most `limit` people.
+    link = {"publicLinkEnabled": True, "publicLinkLimitEnabled": True, "publicLinkLimit": limit}
+    if any(group["attributes"].get(k) != v for k, v in link.items()):
+        status, reply = call("PATCH", f"/v1/betaGroups/{group['id']}", {"data": {"type": "betaGroups", "id": group["id"], "attributes": link}})
+        if status < 300:
+            group = reply["data"]
+        else:
+            print(f"::warning::Could not turn on the invitation link: {reason(reply)}")
+
+    if missing:
+        notice("Build " + str(build_number) + " is not sent to Apple's beta review until App Store Connect has: " + "; ".join(missing) + ". The next build goes once they are there.")
+        return
+    status, reply = call("POST", "/v1/betaAppReviewSubmissions", {"data": {"type": "betaAppReviewSubmissions", "relationships": {"build": {"data": {"type": "builds", "id": build["id"]}}}}})
+    if status < 300:
+        print(f"Build {build_number} is sent to Apple's beta review.")
+    else:
+        print(f"::warning::Build {build_number} was not sent to beta review: {reason(reply)}")
+    if group["attributes"].get("publicLink"):
+        notice(f"Invited testers join with {group['attributes']['publicLink']} (at most {limit} people), once Apple has approved a build.")
+
+
 def crashes(out):
     """Saves every crash report sent from TestFlight for this app: what Apple records with it (the
     build, device, system, how long the app had run) and the crash log itself. Leaves out who sent
@@ -355,6 +474,12 @@ if __name__ == "__main__":
         prepare(sys.argv[2], sys.argv[3])
     elif sys.argv[1] == "testers":
         testers(sys.argv[2])
+    elif sys.argv[1] == "share":
+        text = None
+        if len(sys.argv) > 3 and os.path.exists(sys.argv[3]):
+            with open(sys.argv[3]) as handle:
+                text = handle.read().strip()[:3900] or None
+        share(sys.argv[2], text)
     elif sys.argv[1] == "crashes":
         crashes(sys.argv[2])
     else:
