@@ -5,7 +5,7 @@ import SwiftUI
 struct PromptsView: View {
     @Environment(AppModel.self) private var model
     @Environment(\.dismiss) private var dismiss
-    @State private var drafts: [Prompt] = []
+    @State private var drafts: [SavedPrompt] = []
     @FocusState private var focused: UUID?
 
     var body: some View {
@@ -26,7 +26,7 @@ struct PromptsView: View {
                     .onDelete { drafts.remove(atOffsets: $0) }
                     .onMove { drafts.move(fromOffsets: $0, toOffset: $1) }
                     Button(L10n.promptAdd, systemImage: "plus") {
-                        let new = Prompt(text: "")
+                        let new = SavedPrompt(text: "")
                         drafts.append(new)
                         // Once its row is there, the keyboard is on its title.
                         Task { focused = new.id }

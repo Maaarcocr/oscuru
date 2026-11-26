@@ -132,12 +132,12 @@ enum L10n {
     static var send: String { String(localized: "composer.send") }
     static var stop: String { String(localized: "composer.stop") }
     /// The prompts a person starts with, until they change them (`PromptStore`): a short title each, and the words sent.
-    static var promptIdeas: [Prompt] {
+    static var promptIdeas: [SavedPrompt] {
         [
-            Prompt(title: String(localized: "suggest.cinematic.label"), text: String(localized: "suggest.cinematic")),
-            Prompt(title: String(localized: "suggest.sky.label"), text: String(localized: "suggest.sky")),
-            Prompt(title: String(localized: "suggest.natural.label"), text: String(localized: "suggest.natural")),
-            Prompt(title: String(localized: "suggest.mono.label"), text: String(localized: "suggest.mono")),
+            SavedPrompt(title: String(localized: "suggest.cinematic.label"), text: String(localized: "suggest.cinematic")),
+            SavedPrompt(title: String(localized: "suggest.sky.label"), text: String(localized: "suggest.sky")),
+            SavedPrompt(title: String(localized: "suggest.natural.label"), text: String(localized: "suggest.natural")),
+            SavedPrompt(title: String(localized: "suggest.mono.label"), text: String(localized: "suggest.mono")),
         ]
     }
     static var prompts: String { String(localized: "prompts.title") }

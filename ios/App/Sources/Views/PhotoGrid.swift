@@ -122,14 +122,15 @@ struct PhotoGrid<Header: View>: View {
     private func tile(_ photo: PhotoDocument) -> some View {
         let selected = selection.map { $0.contains(photo.id) }
         let working = model.isWorking(on: photo.id)
-        let frames = photo.info.frames ?? 0
+        // How many frames the shot was merged from. (`frames` here is where each tile is on screen.)
+        let shot = photo.info.frames ?? 0
         // What VoiceOver says of it beyond its name.
         var notes: [String] = []
         if working { notes.append(L10n.working) }
-        if frames > 1 { notes.append("\(L10n.cameraFrames) ×\(frames)") }
+        if shot > 1 { notes.append("\(L10n.cameraFrames) ×\(shot)") }
         let said = notes.joined(separator: ", ")
         return Thumbnail(
-            url: model.library.thumbnailURL(photo.id), stamp: photo.thumbnailStamp, isRaw: photo.info.isRaw, frames: frames, working: working, selected: selected
+            url: model.library.thumbnailURL(photo.id), stamp: photo.thumbnailStamp, isRaw: photo.info.isRaw, frames: shot, working: working, selected: selected
         )
         .onTapGesture { tap(photo.id) }
         .onLongPressGesture(minimumDuration: 0.4) { hold(photo.id) }

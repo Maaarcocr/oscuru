@@ -3,7 +3,7 @@ import Observation
 
 /// An instruction kept to send again with a tap: its words, and a short title for its button when
 /// the words are too long or too plain to stand there themselves.
-struct Prompt: Codable, Equatable, Identifiable, Sendable {
+struct SavedPrompt: Codable, Equatable, Identifiable, Sendable {
     var id = UUID()
     /// Empty for none: the button then shows the words.
     var title = ""
@@ -19,7 +19,7 @@ struct Prompt: Codable, Equatable, Identifiable, Sendable {
 @MainActor
 @Observable
 final class PromptStore {
-    private(set) var prompts: [Prompt]
+    private(set) var prompts: [SavedPrompt]
     /// Where they are kept; nil keeps them only while the app runs (UI tests start from the ideas each time).
     @ObservationIgnored private let defaults: UserDefaults?
     static let key = "composer.prompts.titled"
@@ -28,21 +28,21 @@ final class PromptStore {
 
     init(defaults: UserDefaults?) {
         self.defaults = defaults
-        if let data = defaults?.data(forKey: Self.key), let kept = try? JSONDecoder().decode([Prompt].self, from: data) {
+        if let data = defaults?.data(forKey: Self.key), let kept = try? JSONDecoder().decode([SavedPrompt].self, from: data) {
             prompts = kept
         } else if let words = defaults?.stringArray(forKey: Self.untitledKey) {
-            prompts = words.map { Prompt(text: $0) }
+            prompts = words.map { SavedPrompt(text: $0) }
         } else {
             prompts = L10n.promptIdeas
         }
     }
 
     /// Replaces them all, in this order: each trimmed, and none without words.
-    func set(_ wanted: [Prompt]) {
-        let kept = wanted.compactMap { prompt -> Prompt? in
+    func set(_ wanted: [SavedPrompt]) {
+        let kept = wanted.compactMap { prompt -> SavedPrompt? in
             let text = prompt.text.trimmingCharacters(in: .whitespacesAndNewlines)
             guard !text.isEmpty else { return nil }
-            return Prompt(id: prompt.id, title: prompt.title.trimmingCharacters(in: .whitespacesAndNewlines), text: text)
+            return SavedPrompt(id: prompt.id, title: prompt.title.trimmingCharacters(in: .whitespacesAndNewlines), text: text)
         }
         guard kept != prompts else { return }
         prompts = kept
