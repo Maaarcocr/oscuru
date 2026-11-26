@@ -49,8 +49,10 @@ final class FrameMergingTests: XCTestCase {
         // Inside the lamp the base is blown; the picture is what the darker frame recorded there.
         let inside = (104, 72, 48, 48)
         XCTAssertGreaterThanOrEqual(Self.mean(base.samples.map(Double.init), width: 256, in: inside), Scene.white - 1)
+        let truthAbove: [Double] = clean.samples.map { Double($0) - Scene.black }
         for colour in 0..<4 {
-            let expected = Scene.gains[colour] * (Self.mean(clean.samples.map { Double($0) - Scene.black }, width: 256, in: inside, colour: colour) / Scene.gains[colour] + 9000)
+            let scene: Double = Self.mean(truthAbove, width: 256, in: inside, colour: colour) / Scene.gains[colour]
+            let expected: Double = Scene.gains[colour] * (scene + 9000)
             XCTAssertEqual(Self.mean(values, width: 256, in: inside, colour: colour) / expected, 1, accuracy: 0.03, "colour \(colour)")
         }
 
@@ -123,7 +125,8 @@ final class FrameMergingTests: XCTestCase {
         let third = try merged(.freeze, base: 3)
         let place = (42 + 60 + 2, 82 - 2, 16, 16)
         let still = Scene.frame(dx: -2, dy: 2, clean: true).samples.map { Double($0) - Scene.black }
-        XCTAssertEqual(Self.mean(third.values, width: 256, in: place) - Self.mean(still, width: 256, in: place), 1000, accuracy: 90)
+        let thirdAbove: Double = Self.mean(third.values, width: 256, in: place) - Self.mean(still, width: 256, in: place)
+        XCTAssertEqual(thirdAbove, 1000, accuracy: 90)
         // More caution averages less.
         XCTAssertGreaterThan(FrameMerge.Way(base: 1, use: [1, 2], caution: 0).tolerance, FrameMerge.Way(base: 1, use: [1, 2], caution: 1).tolerance * 8)
     }
@@ -132,15 +135,15 @@ final class FrameMergingTests: XCTestCase {
         let frames = [
             Scene.frame(seed: 1), Scene.frame(dx: 2, dy: 0, seed: 2, light: 0.25), Scene.frame(dx: 0, dy: 2, seed: 3, light: 4), Scene.frame(dx: -2, dy: 0, seed: 4),
         ]
-        let shots = [(1.0 / 30, 100.0), (1.0 / 120, 100.0), (1.0 / 8, 100.0), (1.0 / 30, 100.0)].enumerated().map {
-            FrameSet.Shot(time: $0.element.0, iso: $0.element.1, after: Double($0.offset) * 0.1)
-        }
+        let times: [Double] = [1.0 / 30, 1.0 / 120, 1.0 / 8, 1.0 / 30]
+        var shots: [FrameSet.Shot] = []
+        for (index, time) in times.enumerated() { shots.append(FrameSet.Shot(time: time, iso: 100, after: Double(index) * 0.1)) }
         let made = try FrameSet.make(frames: frames, shots: shots)
         XCTAssertEqual(made.set.frames.count, 4)
         XCTAssertEqual(made.set.frames[1].light, 0.25, accuracy: 0.02)
         XCTAssertEqual(made.set.frames[2].light, 4, accuracy: 0.4)
         // Built on a frame at the shot's own exposure, with every frame in it.
-        XCTAssertTrue([1, 4].contains(made.set.merge.base) || made.set.merge.base == 1)
+        XCTAssertTrue([1, 4].contains(made.set.merge.base))
         XCTAssertNotEqual(made.set.merge.base, 2)
         XCTAssertNotEqual(made.set.merge.base, 3)
         XCTAssertEqual(made.set.merge.use, [1, 2, 3, 4])
@@ -150,12 +153,15 @@ final class FrameMergingTests: XCTestCase {
         // The brighter frame is blown in places; the others are not.
         XCTAssertGreaterThan(made.set.frames[2].blown, 0.05)
         XCTAssertLessThan(made.set.frames[0].blown, 0.001)
-        XCTAssertEqual(made.set.frames.map(\.sharpness).max() ?? 0, 1, accuracy: 1e-9)
+        let sharpest: Double = made.set.frames.map { $0.sharpness }.max() ?? 0
+        XCTAssertEqual(sharpest, 1, accuracy: 1e-9)
         let listed = made.set.json(with: FrameMerge.Way(base: 4, use: [1, 4]))
         XCTAssertEqual(listed.arrayValue?.count, 4)
-        XCTAssertEqual(listed.arrayValue?[1]["stops"]?.doubleValue ?? 0, -2, accuracy: 0.15)
-        XCTAssertEqual(listed.arrayValue?[1]["used"], .bool(false))
-        XCTAssertEqual(listed.arrayValue?[3]["base"], .bool(true))
+        let stops: Double = listed.arrayValue?[1]["stops"]?.doubleValue ?? 0
+        XCTAssertEqual(stops, -2, accuracy: 0.15)
+        let entries: [JSONValue] = listed.arrayValue ?? []
+        XCTAssertEqual(entries[1]["used"], JSONValue.bool(false))
+        XCTAssertEqual(entries[3]["base"], JSONValue.bool(true))
         // It survives being written and read.
         XCTAssertEqual(try JSONDecoder().decode(FrameSet.self, from: JSONEncoder().encode(made.set)), made.set)
     }
