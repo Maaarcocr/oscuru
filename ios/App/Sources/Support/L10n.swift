@@ -145,6 +145,9 @@ enum L10n {
     static var promptAdd: String { String(localized: "prompts.add") }
     static var promptPlaceholder: String { String(localized: "prompts.placeholder") }
     static var promptTitlePlaceholder: String { String(localized: "prompts.titlePlaceholder") }
+    static var promptTitleHeader: String { String(localized: "prompts.titleHeader") }
+    static var promptWordsHeader: String { String(localized: "prompts.wordsHeader") }
+    static var promptNew: String { String(localized: "prompts.new") }
     static var promptsFooter: String { String(localized: "prompts.footer") }
 
     // MARK: Thread

@@ -1974,13 +1974,29 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "These sit above the message field of a photo until its first instruction: a tap sends one. With a title, the button shows the title and sends the words under it. Change them here, delete the ones you do not use, and drag them into the order you want."
+            "value": "These sit above the message field of a photo until its first instruction: a tap sends one. Tap one to change it, swipe it to delete it, or tap Edit to put them in another order."
           }
         },
         "it": {
           "stringUnit": {
             "state": "translated",
-            "value": "Stanno sopra il campo del messaggio di una foto fino alla sua prima istruzione: un tocco ne invia uno. Con un titolo, il pulsante mostra il titolo e invia le parole che ha sotto. Qui puoi cambiarli, eliminare quelli che non usi e trascinarli nell’ordine che vuoi."
+            "value": "Stanno sopra il campo del messaggio di una foto fino alla sua prima istruzione: un tocco ne invia uno. Toccane uno per cambiarlo, fallo scorrere per eliminarlo oppure tocca Modifica per cambiarne l’ordine."
+          }
+        }
+      }
+    },
+    "prompts.new": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "New Prompt"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nuovo prompt"
           }
         }
       }
@@ -2017,18 +2033,50 @@
         }
       }
     },
-    "prompts.titlePlaceholder": {
+    "prompts.titleHeader": {
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Title (optional)"
+            "value": "Title"
           }
         },
         "it": {
           "stringUnit": {
             "state": "translated",
-            "value": "Titolo (facoltativo)"
+            "value": "Titolo"
+          }
+        }
+      }
+    },
+    "prompts.titlePlaceholder": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Optional: shown on the button"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Facoltativo: compare sul pulsante"
+          }
+        }
+      }
+    },
+    "prompts.wordsHeader": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "What it sends"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Che cosa invia"
           }
         }
       }
