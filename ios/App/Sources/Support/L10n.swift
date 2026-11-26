@@ -131,14 +131,20 @@ enum L10n {
     static var composerConnect: String { String(localized: "composer.connect") }
     static var send: String { String(localized: "composer.send") }
     static var stop: String { String(localized: "composer.stop") }
-    /// The prompts a person starts with, until they change them (`PromptStore`).
-    static var promptIdeas: [String] {
-        [String(localized: "suggest.cinematic"), String(localized: "suggest.sky"), String(localized: "suggest.natural"), String(localized: "suggest.mono")]
+    /// The prompts a person starts with, until they change them (`PromptStore`): a short title each, and the words sent.
+    static var promptIdeas: [Prompt] {
+        [
+            Prompt(title: String(localized: "suggest.cinematic.label"), text: String(localized: "suggest.cinematic")),
+            Prompt(title: String(localized: "suggest.sky.label"), text: String(localized: "suggest.sky")),
+            Prompt(title: String(localized: "suggest.natural.label"), text: String(localized: "suggest.natural")),
+            Prompt(title: String(localized: "suggest.mono.label"), text: String(localized: "suggest.mono")),
+        ]
     }
     static var prompts: String { String(localized: "prompts.title") }
     static var promptsEdit: String { String(localized: "prompts.edit") }
     static var promptAdd: String { String(localized: "prompts.add") }
     static var promptPlaceholder: String { String(localized: "prompts.placeholder") }
+    static var promptTitlePlaceholder: String { String(localized: "prompts.titlePlaceholder") }
     static var promptsFooter: String { String(localized: "prompts.footer") }
 
     // MARK: Thread

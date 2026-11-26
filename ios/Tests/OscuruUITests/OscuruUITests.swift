@@ -25,18 +25,22 @@ final class OscuruUITests: XCTestCase {
         XCTAssertTrue(element(app, "thread.original").waitForExistence(timeout: 30))
         capture("02-photo")
 
-        // The prompts above the composer are the person's own: here one is added to them.
+        // The prompts above the composer are the person's own: here one is added to them, with a
+        // title for its button.
         element(app, "prompts.edit").tap()
         let add = element(app, "prompts.add")
         XCTAssertTrue(add.waitForExistence(timeout: 10), "the prompts can be changed")
         add.tap()
-        let written = app.descendants(matching: .any).matching(identifier: "prompts.text")
-        XCTAssertTrue(waitUntil(timeout: 10) { written.count == 5 }, "a new prompt joins the four the app starts with")
-        written.element(boundBy: 4).tap()
+        let titles = app.descendants(matching: .any).matching(identifier: "prompts.title")
+        let words = app.descendants(matching: .any).matching(identifier: "prompts.text")
+        XCTAssertTrue(waitUntil(timeout: 10) { words.count == 5 }, "a new prompt joins the four the app starts with")
+        titles.element(boundBy: 4).tap()
+        app.typeText("Film")
+        words.element(boundBy: 4).tap()
         app.typeText("Warm film look")
         capture("02b-prompts")
         element(app, "prompts.done").tap()
-        XCTAssertTrue(app.buttons["Warm film look"].waitForExistence(timeout: 10), "and is above the composer with the others")
+        XCTAssertTrue(app.buttons["Film"].waitForExistence(timeout: 10), "and is above the composer with the others, under its title")
 
         // An instruction. The assistant works, the photo changes, then it replies in the thread.
         field.tap()

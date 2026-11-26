@@ -58,8 +58,8 @@ struct Composer: View {
         .sheet(isPresented: $showingPrompts) { PromptsView() }
     }
 
-    /// The person's prompts, for a first instruction: a tap sends one. The first button is where
-    /// they are changed, added to and deleted.
+    /// The person's prompts, for a first instruction: a tap sends one's words. The first button is
+    /// where they are changed, added to and deleted.
     private var prompts: some View {
         ScrollView(.horizontal, showsIndicators: false) {
             HStack(spacing: 8) {
@@ -71,13 +71,14 @@ struct Composer: View {
                 }
                 .accessibilityLabel(L10n.promptsEdit)
                 .accessibilityIdentifier("prompts.edit")
-                ForEach(model.prompts.prompts, id: \.self) { prompt in
+                ForEach(model.prompts.prompts) { prompt in
                     Button {
-                        send(prompt)
+                        send(prompt.text)
                     } label: {
-                        // A long one shows how it starts.
-                        Text(verbatim: prompt).lineLimit(1).truncationMode(.tail).frame(maxWidth: 240)
+                        // Its title, or without one its words (a long one shows how it starts).
+                        Text(verbatim: prompt.name).lineLimit(1).truncationMode(.tail).frame(maxWidth: 240)
                     }
+                    .accessibilityHint(Text(verbatim: prompt.title.isEmpty ? "" : prompt.text))
                     .accessibilityIdentifier("prompts.item")
                 }
             }

@@ -115,7 +115,7 @@ A fit and a match replace only tone and colour, and keep the photo's own exposur
 
 ## Prompts
 
-Above the composer of a photo that has no instruction yet are the person's prompts: instructions kept to send with a tap (`PromptStore`, a list of strings in the app's defaults). They start as four ideas in the app's language; the first button of the row opens `PromptsView`, the one place they are changed: the words of each typed over, new ones added, any deleted, and dragged into another order. A prompt is only its words: what the button shows is what is sent.
+Above the composer of a photo that has no instruction yet are the person's prompts: instructions kept to send with a tap (`PromptStore`, kept in the app's defaults). A `Prompt` is its words and, if the person gives it one, a short title: the button shows the title (or else the words) and a tap sends the words. They start as four ideas in the app's language; the first button of the row opens `PromptsView`, the one place they are changed: the title and words of each typed over, new ones added, any deleted, and dragged into another order.
 
 ## Pictures and sharing
 
