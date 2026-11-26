@@ -7,7 +7,7 @@
     asc.py crashes OUT_DIR                the crash reports testers sent from TestFlight, with their logs
 
 Reads ASC_KEY_ID, ASC_ISSUER_ID and ASC_KEY_PATH (the .p8 file). Prints no secrets.
-`share` also reads OSCURU_PRIVACY_URL (the privacy policy's address, once there is one),
+`share` also reads OSCURU_PRIVACY_URL (the privacy policy's address, if not the GitHub Pages one),
 OSCURU_TESTER_LIMIT (how many people the invitation link lets in, 20 unless set) and
 OSCURU_PROCESSING_MINUTES (how long to wait for Apple to process the build, 60 unless set).
 """
@@ -307,6 +307,8 @@ def testers(app):
 
 # The invited testers: people outside the team, who join with the group's link.
 GROUP_NAME = "Friends"
+# docs/privacy.md, published by GitHub Pages from the docs folder (docs/_config.yml).
+PRIVACY_URL = "https://maaarcocr.github.io/oscuru/privacy.html"
 BETA_DESCRIPTION = """Oscuru is a RAW camera and photo editor you talk to. Take RAW photos (one frame, or several the camera merges), or open RAW photos you already have, and tell the assistant what you want: it edits the photo with a photographer's tools and shows you each step. Nothing is generated: every pixel comes from the light the camera recorded.
 
 You need your own OpenRouter account (openrouter.ai): connect it in Oscuru's Settings, and what the assistant does is paid from your OpenRouter credit. Oscuru has no server and no account of its own; your photos stay on your phone, and only the pictures the assistant looks at go to OpenRouter and the model you chose.
@@ -333,7 +335,7 @@ def share(build_number, what_to_test=None):
     missing = []
 
     # What testers read about the beta, and where its privacy policy is. The feedback email is the owner's to give.
-    privacy = (os.environ.get("OSCURU_PRIVACY_URL") or "").strip()
+    privacy = (os.environ.get("OSCURU_PRIVACY_URL") or PRIVACY_URL).strip()
     reply = ok(*call("GET", f"/v1/apps/{app}/betaAppLocalizations"), "read the beta's description")
     localizations = reply.get("data", [])
     english = next((l for l in localizations if l["attributes"].get("locale", "").startswith("en")), localizations[0] if localizations else None)

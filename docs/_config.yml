@@ -1,0 +1,8 @@
+# GitHub Pages publishes this folder for Oscuru's privacy policy (privacy.md, at
+# https://maaarcocr.github.io/oscuru/privacy.html). The rest of the folder is for people reading
+# the repository, and is left out of the site.
+title: Oscuru
+exclude:
+  - architecture.md
+  - expo.md
+  - photo-api.d.ts
