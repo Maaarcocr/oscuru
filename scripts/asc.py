@@ -229,10 +229,14 @@ def prepare(work, serial):
         with open(os.path.join(work, filename), "wb") as handle:
             handle.write(base64.b64decode(profile["attributes"]["profileContent"]))
 
-    # 5. The next build number: one more than any build uploaded so far.
+    # 5. The next build number: one more than any build uploaded so far, and no lower than
+    # BUILD_NUMBER_FLOOR (the workflow's run number). A build Apple is still processing is not
+    # listed yet, so two uploads a few minutes apart would otherwise both take the same number;
+    # run numbers only go up.
     reply = ok(*call("GET", "/v1/builds", query={"filter[app]": app, "sort": "-uploadedDate", "limit": 20, "fields[builds]": "version"}), "list builds")
     numbers = [int(b["attributes"]["version"]) for b in reply["data"] if b["attributes"]["version"].isdigit()]
-    build = max(numbers + [0]) + 1
+    floor = os.environ.get("BUILD_NUMBER_FLOOR", "0")
+    build = max(max(numbers + [0]) + 1, int(floor) if floor.isdigit() else 0)
 
     with open(os.path.join(work, "asc.env"), "w") as handle:
         handle.write(f"APP_ID={app}\nBUILD_NUMBER={build}\n")
