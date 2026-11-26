@@ -123,6 +123,11 @@ struct PhotoGrid<Header: View>: View {
         let selected = selection.map { $0.contains(photo.id) }
         let working = model.isWorking(on: photo.id)
         let frames = photo.info.frames ?? 0
+        // What VoiceOver says of it beyond its name.
+        var notes: [String] = []
+        if working { notes.append(L10n.working) }
+        if frames > 1 { notes.append("\(L10n.cameraFrames) ×\(frames)") }
+        let said = notes.joined(separator: ", ")
         return Thumbnail(
             url: model.library.thumbnailURL(photo.id), stamp: photo.thumbnailStamp, isRaw: photo.info.isRaw, frames: frames, working: working, selected: selected
         )
@@ -130,7 +135,7 @@ struct PhotoGrid<Header: View>: View {
         .onLongPressGesture(minimumDuration: 0.4) { hold(photo.id) }
         .accessibilityElement(children: .ignore)
         .accessibilityLabel(photo.name)
-        .accessibilityValue([working ? L10n.working : nil, frames > 1 ? "\(L10n.cameraFrames) ×\(frames)" : nil].compactMap { $0 }.joined(separator: ", "))
+        .accessibilityValue(said)
         .accessibilityAddTraits(selected == true ? [.isButton, .isSelected] : .isButton)
         .accessibilityAction { tap(photo.id) }
         .accessibilityAction(named: L10n.select) { hold(photo.id) }
