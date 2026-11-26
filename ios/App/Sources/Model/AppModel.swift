@@ -15,6 +15,8 @@ final class AppModel {
     let library: Library
     let account: Account
     let styleStore: StyleStore
+    /// The prompts the person keeps to send with a tap.
+    let prompts: PromptStore
     /// The styles, mirrored here so views update when a script saves or deletes one.
     private(set) var styles: [Style]
     /// Set in UI tests to play back a prepared conversation instead of calling OpenRouter.
@@ -33,6 +35,7 @@ final class AppModel {
         library = Library(root: root.appending(path: "photos", directoryHint: .isDirectory), engine: engine)
         account = Account(secrets: secrets, folder: root, transport: transport)
         styleStore = StyleStore(file: root.appending(path: "filters.json"))
+        prompts = PromptStore(defaults: UITesting.isActive ? nil : .standard)
         styles = styleStore.styles
         self.scriptedModel = scriptedModel
         styleStore.onChange = { [weak self] in

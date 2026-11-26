@@ -131,19 +131,15 @@ enum L10n {
     static var composerConnect: String { String(localized: "composer.connect") }
     static var send: String { String(localized: "composer.send") }
     static var stop: String { String(localized: "composer.stop") }
-    /// Ideas for a first instruction: a short label, and what is sent.
-    struct Suggestion: Hashable {
-        let label: String
-        let instruction: String
+    /// The prompts a person starts with, until they change them (`PromptStore`).
+    static var promptIdeas: [String] {
+        [String(localized: "suggest.cinematic"), String(localized: "suggest.sky"), String(localized: "suggest.natural"), String(localized: "suggest.mono")]
     }
-    static var suggestions: [Suggestion] {
-        [
-            Suggestion(label: String(localized: "suggest.cinematic.label"), instruction: String(localized: "suggest.cinematic")),
-            Suggestion(label: String(localized: "suggest.sky.label"), instruction: String(localized: "suggest.sky")),
-            Suggestion(label: String(localized: "suggest.natural.label"), instruction: String(localized: "suggest.natural")),
-            Suggestion(label: String(localized: "suggest.mono.label"), instruction: String(localized: "suggest.mono")),
-        ]
-    }
+    static var prompts: String { String(localized: "prompts.title") }
+    static var promptsEdit: String { String(localized: "prompts.edit") }
+    static var promptAdd: String { String(localized: "prompts.add") }
+    static var promptPlaceholder: String { String(localized: "prompts.placeholder") }
+    static var promptsFooter: String { String(localized: "prompts.footer") }
 
     // MARK: Thread
     /// "Original · Apple iPhone 17 Pro · RAW"

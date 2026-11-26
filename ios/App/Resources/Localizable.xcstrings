@@ -1937,6 +1937,86 @@
         }
       }
     },
+    "prompts.add": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Add a Prompt"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Aggiungi un prompt"
+          }
+        }
+      }
+    },
+    "prompts.edit": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Edit prompts"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Modifica i prompt"
+          }
+        }
+      }
+    },
+    "prompts.footer": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "These sit above the message field of a photo until its first instruction: a tap sends one. Change their words here, delete the ones you do not use, and drag them into the order you want."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Stanno sopra il campo del messaggio di una foto fino alla sua prima istruzione: un tocco ne invia uno. Qui puoi cambiarne le parole, eliminare quelli che non usi e trascinarli nell’ordine che vuoi."
+          }
+        }
+      }
+    },
+    "prompts.placeholder": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "What should the assistant do?"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Che cosa deve fare l’assistente?"
+          }
+        }
+      }
+    },
+    "prompts.title": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Prompts"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Prompt"
+          }
+        }
+      }
+    },
     "property.amount": {
       "localizations": {
         "en": {
@@ -3185,22 +3265,6 @@
         }
       }
     },
-    "suggest.cinematic.label": {
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Cinematic"
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Cinematografica"
-          }
-        }
-      }
-    },
     "suggest.mono": {
       "localizations": {
         "en": {
@@ -3213,22 +3277,6 @@
           "stringUnit": {
             "state": "translated",
             "value": "Bianco e nero deciso"
-          }
-        }
-      }
-    },
-    "suggest.mono.label": {
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Black & white"
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Bianco e nero"
           }
         }
       }
@@ -3249,22 +3297,6 @@
         }
       }
     },
-    "suggest.natural.label": {
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Natural colour"
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Colori naturali"
-          }
-        }
-      }
-    },
     "suggest.sky": {
       "localizations": {
         "en": {
@@ -3277,22 +3309,6 @@
           "stringUnit": {
             "state": "translated",
             "value": "Recupera il cielo, schiarisci il primo piano"
-          }
-        }
-      }
-    },
-    "suggest.sky.label": {
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Recover the sky"
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Recupera il cielo"
           }
         }
       }

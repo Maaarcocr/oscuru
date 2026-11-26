@@ -10,6 +10,7 @@ struct Composer: View {
     @State private var draft = ""
     @State private var showingStyles = false
     @State private var showingSettings = false
+    @State private var showingPrompts = false
 
     private var isConnected: Bool { model.account.isConnected }
 
@@ -19,7 +20,7 @@ struct Composer: View {
                 StyleStrip(editor: editor)
                     .transition(.move(edge: .bottom).combined(with: .opacity))
             } else if isConnected, !editor.hasInstructions, !editor.isWorking {
-                suggestions
+                prompts
             }
             HStack(alignment: .bottom, spacing: 8) {
                 stylesButton
@@ -54,20 +55,36 @@ struct Composer: View {
             if typing { showingStyles = false }
         }
         .sheet(isPresented: $showingSettings) { SettingsView() }
+        .sheet(isPresented: $showingPrompts) { PromptsView() }
     }
 
-    /// Ideas for a first instruction.
-    private var suggestions: some View {
+    /// The person's prompts, for a first instruction: a tap sends one. The first button is where
+    /// they are changed, added to and deleted.
+    private var prompts: some View {
         ScrollView(.horizontal, showsIndicators: false) {
             HStack(spacing: 8) {
-                ForEach(L10n.suggestions, id: \.self) { suggestion in
-                    Button(suggestion.label) { send(suggestion.instruction) }
-                        .font(.subheadline)
-                        .buttonStyle(.bordered)
-                        .buttonBorderShape(.capsule)
-                        .tint(.white)
+                Button {
+                    focused = false
+                    showingPrompts = true
+                } label: {
+                    Image(systemName: "square.and.pencil")
+                }
+                .accessibilityLabel(L10n.promptsEdit)
+                .accessibilityIdentifier("prompts.edit")
+                ForEach(model.prompts.prompts, id: \.self) { prompt in
+                    Button {
+                        send(prompt)
+                    } label: {
+                        // A long one shows how it starts.
+                        Text(verbatim: prompt).lineLimit(1).truncationMode(.tail).frame(maxWidth: 240)
+                    }
+                    .accessibilityIdentifier("prompts.item")
                 }
             }
+            .font(.subheadline)
+            .buttonStyle(.bordered)
+            .buttonBorderShape(.capsule)
+            .tint(.white)
             .padding(.horizontal, 16)
         }
     }

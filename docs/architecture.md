@@ -113,6 +113,10 @@ A style is a look with a name, to put on any photo: one type, `Style`, whose rec
 
 A fit and a match replace only tone and colour, and keep the photo's own exposure and white balance. `Style.applied` is the one place a style becomes settings; `PhotoRenderer.apply` gives it the photo to measure. A style goes on the open photo from the strip above the composer (each tile shows it tried on the photo), on many photos from the home screen (tap the style, then the photos; each is changed through its own editor, as a step in its own conversation), and by the assistant through `photo.styles`. `StyleStore` keeps the styles on disk with the small picture that stands for each.
 
+## Prompts
+
+Above the composer of a photo that has no instruction yet are the person's prompts: instructions kept to send with a tap (`PromptStore`, a list of strings in the app's defaults). They start as four ideas in the app's language; the first button of the row opens `PromptsView`, the one place they are changed: the words of each typed over, new ones added, any deleted, and dragged into another order. A prompt is only its words: what the button shows is what is sent.
+
 ## Pictures and sharing
 
 `PhotoRenderer` is one photo open in the engine: every picture of it the app shows, saves or sends comes from there, and it is what scripts see of the app. An open photo's editor has one; `PhotoRenderer.with` opens one for as long as a piece of work needs it, for photos no editor has open. `AppModel.export` is the one way photos leave the app, from the photo screen and from a selection in the library alike (`ShareButton`): developed at full size as JPEGs, or the original files untouched, so a RAW stays RAW. `SaveButton` puts the developed JPEGs straight into the person's photo library (`AppModel.saveToPhotos`, add-only access), with their capture details, so Photos files them under when they were taken.
