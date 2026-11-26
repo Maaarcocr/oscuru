@@ -136,27 +136,40 @@ public struct Conversation: Sendable {
             start = 0
         }
 
-        // Pictures: everything from the start of the latest run, so the model can compare every
-        // step; before it, only the latest ones (an opening, or one round of scripts).
+        // Pictures: what the person sent since the latest instruction (the photo as it was, and
+        // anything they attached), and the latest few rounds of scripts' pictures, which show the
+        // photo as it is now and the steps just before. Older ones are let go: the model is told
+        // a picture was there, and can look again.
         let sent = placed[min(start, placed.count)...]
         let runIndex = runStart.flatMap { id in sent.firstIndex { $0.id == id } } ?? sent.endIndex
         var kept = Set<String>()
-        for entry in sent[runIndex...] { kept.formUnion(Conversation.pictures(of: entry).map(\.file)) }
-        var index = runIndex
-        while index > sent.startIndex {
+        for entry in sent[runIndex...] {
+            if case .user(let user) = entry.body { kept.formUnion(user.pictures.map(\.file)) }
+        }
+        var rounds = 0
+        var index = sent.endIndex
+        while index > sent.startIndex, rounds < Conversation.recentRounds {
             index -= 1
-            let pictures = Conversation.pictures(of: sent[index])
-            guard !pictures.isEmpty else { continue }
-            kept.formUnion(pictures.map(\.file))
+            guard case .toolResult = sent[index].body, !Conversation.pictures(of: sent[index]).isEmpty else { continue }
             // A round's pictures come with each of its reports.
-            if case .toolResult = sent[index].body {
-                var earlier = index
-                while earlier > sent.startIndex, case .toolResult = sent[earlier - 1].body {
-                    earlier -= 1
-                    kept.formUnion(Conversation.pictures(of: sent[earlier]).map(\.file))
-                }
+            var earlier = index
+            while earlier > sent.startIndex, case .toolResult = sent[earlier - 1].body { earlier -= 1 }
+            var later = index
+            while later + 1 < sent.endIndex, case .toolResult = sent[later + 1].body { later += 1 }
+            for report in sent[earlier...later] { kept.formUnion(Conversation.pictures(of: report).map(\.file)) }
+            rounds += 1
+            index = earlier
+        }
+        // Before any script has shown anything, the latest pictures from before the instruction.
+        if rounds == 0 {
+            var index = runIndex
+            while index > sent.startIndex {
+                index -= 1
+                let pictures = Conversation.pictures(of: sent[index])
+                guard !pictures.isEmpty else { continue }
+                kept.formUnion(pictures.map(\.file))
+                break
             }
-            break
         }
         keptPictures = kept
     }
@@ -189,7 +202,10 @@ public struct Conversation: Sendable {
 
     static let summaryPreface = "[A summary of the conversation before this point, written when it grew too long to send in full.]"
     static let picturesNote = "[Pictures from the phone for the script above.]"
-    static let removedPictureNote = "[A picture from an earlier request was here. It was removed to save space; later pictures show the photo as it is now.]"
+    static let removedPictureNote =
+        "[An earlier picture was here. Only the pictures of the latest few steps are kept; later pictures show the photo as it is now. To see something again, show it again.]"
+    /// How many rounds of scripts' pictures are sent: the latest, and the few before it to compare with.
+    static let recentRounds = 3
     static let resumedNote =
         "[The app closed while you were working and has been opened again. Carry on from where you were. The script REPL started afresh, so variables from earlier scripts are gone; the photo's settings are as the latest report says.]"
     static let notRunPayload: JSONValue = [

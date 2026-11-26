@@ -530,7 +530,7 @@ struct CameraView: View {
         }
     }
 
-    /// One of the two choices that go with frames, beside their dial: a name over its value. A tap
+    /// One of the choices that go with frames, beside their dial: a name over its value. A tap
     /// goes to the next value, round and round.
     private func framesChoice(_ name: String, _ value: String, identifier: String, next: @escaping () -> Void) -> some View {
         Button {
@@ -648,10 +648,15 @@ struct CameraView: View {
                 .accessibilityHint(L10n.cameraAutoHint)
                 .accessibilityIdentifier("camera.auto")
             }
-            // With more than one frame: how far apart their exposures are, or that their focus is.
+            // With more than one frame: how far apart their exposures are, and whether their focus is.
             if value == .frames, camera.frames > 1 {
-                let bracket = camera.focusBracket ? L10n.cameraBracketFocus : "±\(Int(camera.bracket))"
-                framesChoice(L10n.cameraBracket, bracket, identifier: "camera.bracket") { camera.nextBracket() }
+                HStack(spacing: 0) {
+                    framesChoice(L10n.cameraBracket, "±\(Int(camera.bracket))", identifier: "camera.bracket") { camera.nextBracket() }
+                    framesChoice(L10n.cameraBracketFocus, camera.focusBracket ? L10n.cameraOn : L10n.cameraOff, identifier: "camera.focusBracket") {
+                        camera.toggleFocusBracket()
+                    }
+                    .padding(.leading, -16)
+                }
             }
         }
         .overlay(alignment: .topTrailing) {

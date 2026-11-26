@@ -93,7 +93,7 @@ final class Camera {
     private(set) var bracket = 0.0
     /// With more than one frame: whether each is focused further than the one before, from where
     /// the camera is focused to the far distance, to be merged sharp throughout (a focus stack).
-    /// The bracket's last step, after the exposures.
+    /// Its own button beside the bracket; the frames of a focus bracket are at one exposure.
     private(set) var focusBracket = false
     /// With more than one frame: the seconds left between one and the next, 0 for back to back.
     /// Frames spread over a few seconds hold what moved in the scene, to blur, remove or draw later.
@@ -134,15 +134,14 @@ final class Camera {
 
     /// The next bracket, or the next interval, round and round: each is one button beside the frames dial.
     func nextBracket() {
-        if focusBracket {
-            focusBracket = false
-            bracket = 0
-        } else if bracket == Self.brackets.last {
-            bracket = 0
-            focusBracket = true
-        } else {
-            bracket = Self.brackets[((Self.brackets.firstIndex(of: bracket) ?? 0) + 1) % Self.brackets.count]
-        }
+        focusBracket = false
+        bracket = Self.brackets[((Self.brackets.firstIndex(of: bracket) ?? 0) + 1) % Self.brackets.count]
+    }
+
+    /// Focus bracketing on or off. On, the exposure bracket goes back to none: one or the other.
+    func toggleFocusBracket() {
+        focusBracket.toggle()
+        if focusBracket { bracket = 0 }
     }
 
     func nextInterval() {

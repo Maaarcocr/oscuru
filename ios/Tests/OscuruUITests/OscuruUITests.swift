@@ -214,13 +214,15 @@ final class OscuruUITests: XCTestCase {
         XCTAssertTrue(bracket.waitForExistence(timeout: 10), "more than one frame can be bracketed")
         bracket.tap()
         XCTAssertTrue(waitUntil(timeout: 10) { (bracket.value as? String) == "±1" }, "a tap goes to the next bracket")
-        // After the exposures, the focus: each frame focused further than the one before.
+        // Focus bracketing is a button of its own, and takes the place of an exposure bracket.
+        let focus = element(app, "camera.focusBracket")
+        XCTAssertTrue(focus.exists, "the frames can be focused near to far")
+        let off = focus.value as? String
+        focus.tap()
+        XCTAssertTrue(waitUntil(timeout: 10) { (focus.value as? String) != off }, "a tap turns it on")
+        XCTAssertTrue(waitUntil(timeout: 10) { (bracket.value as? String) == "±0" }, "at one exposure")
         bracket.tap()
-        bracket.tap()
-        bracket.tap()
-        XCTAssertTrue(waitUntil(timeout: 10) { !((bracket.value as? String) ?? "±").hasPrefix("±") }, "the last bracket is of focus")
-        bracket.tap()
-        XCTAssertTrue(waitUntil(timeout: 10) { (bracket.value as? String) == "±0" }, "and round again")
+        XCTAssertTrue(waitUntil(timeout: 10) { (focus.value as? String) == off }, "an exposure bracket turns it off")
         XCTAssertTrue(element(app, "camera.interval").exists, "and spaced apart")
         capture("16-camera-frames")
         element(app, "camera.close").tap()

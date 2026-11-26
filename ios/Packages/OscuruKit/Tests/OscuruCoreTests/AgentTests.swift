@@ -149,8 +149,9 @@ final class AgentTests: XCTestCase {
         let last = model.requests.last!
         XCTAssertNil(last.json["max_tokens"])
         XCTAssertEqual(last.json["tool_choice"], "auto")
-        // Every picture of the run is still there for the model to compare.
-        XCTAssertEqual(images(last.messages), 1 + 40 * 2)
+        // The opening picture, and the latest rounds' pictures; the older ones are notes.
+        XCTAssertEqual(images(last.messages), 1 + Conversation.recentRounds * 2)
+        XCTAssertEqual(last.messages.flatMap(parts).filter { $0["text"]?.stringValue == Conversation.removedPictureNote }.count, (40 - Conversation.recentRounds) * 2)
         XCTAssertEqual(last.messages.first { $0["role"] == "assistant" }?["reasoning_details"], [["type": "reasoning.encrypted", "data": "opaque"]])
     }
 
@@ -334,7 +335,7 @@ final class AgentTests: XCTestCase {
             messages.flatMap(parts).compactMap { $0["image_url"]?["url"]?.stringValue }
         }
         let all = urls(conversation.messages(system: "s", picture: transcript.picture))
-        XCTAssertGreaterThan(all.count, 2, "a run's pictures all go, while they fit")
+        XCTAssertGreaterThan(all.count, 2, "the opening and both rounds' pictures go, while they fit")
         // Room for the newest alone.
         let newest = all.last!.count - "data:image/jpeg;base64,".count
         let one = conversation.messages(system: "s", pictureBytes: newest, picture: transcript.picture)
