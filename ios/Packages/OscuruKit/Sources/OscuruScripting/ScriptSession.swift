@@ -113,13 +113,9 @@ final class ScriptSession {
         case "revert": draft = request.state
         case "show": try show(which: argument(0), options: argument(1))
         case "styles.list": return .array(host.styleNames().map { .string($0) })
+        case "styles.get": return try savedStyle(argument(0)).json
         case "styles.apply":
-            let wanted = try styleName(argument(0))
-            guard let style = host.style(named: wanted) else {
-                let names = host.styleNames()
-                throw Failure(message: "There is no saved style named \"\(wanted)\". " + (names.isEmpty ? "No styles are saved yet." : "Saved styles: \(names.joined(separator: ", "))."))
-            }
-            draft = try style.applied(to: draft, defaults: defaults, render: host.pixels(of:))
+            draft = try savedStyle(argument(0)).applied(to: draft, defaults: defaults, render: host.pixels(of:))
         case "styles.save":
             let wanted = try styleName(argument(0))
             guard host.saveStyle(name: wanted, state: draft) else { throw Failure(message: "The style could not be saved under the name \"\(wanted)\".") }
@@ -143,6 +139,16 @@ final class ScriptSession {
             throw StateError("\(what) must be one of \(allowed.map { "\"\($0)\"" }.joined(separator: ", ")), got \(value.described)")
         }
         return text
+    }
+
+    /// The saved style a script names, or why there is none.
+    private func savedStyle(_ value: JSONValue) throws -> Style {
+        let wanted = try styleName(value)
+        guard let style = host.style(named: wanted) else {
+            let names = host.styleNames()
+            throw Failure(message: "There is no saved style named \"\(wanted)\". " + (names.isEmpty ? "No styles are saved yet." : "Saved styles: \(names.joined(separator: ", ")).")) 
+        }
+        return style
     }
 
     /// The shot's frames, for merging: only while their files are kept.

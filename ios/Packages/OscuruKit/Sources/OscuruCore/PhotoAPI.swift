@@ -68,6 +68,12 @@ public enum PhotoAPI {
           readonly styles: {
             /** Names of the saved styles. */
             list(): string[];
+            /**
+             * What a saved style is made of, without putting it on the photo: to tell the person what it
+             * does, to judge whether it suits this photo, or to make a variation (change the settings
+             * on the photo, then `save` under a new name).
+             */
+            get(name: string): SavedStyle;
             /** Applies a saved style to this photo: its look replaces the current tone and colour settings. Crop and detail stay. */
             apply(name: string): void;
             /** Saves the photo's current look as a style. Saving under an existing name replaces it. */
@@ -394,6 +400,38 @@ public enum PhotoAPI {
           layout?: CollageLayout;
           /** Only on a photo whose frames were kept. */
           frames?: FrameMerge;
+        }
+
+        /**
+         * A saved style, as it was made:
+         *   "edit"    saved from a photo edited in Oscuru. `look` is the whole look: the global
+         *             settings (exposure and contrast included; white balance as a shift from each
+         *             photo's own as-shot value), curves, hsl, grading, grain and halation. Applying
+         *             it sets exactly these.
+         *   "pair"    learned in the app from an original and the person's edit of it. `fit` is three
+         *             channel curves and a saturation; `error` is how far the original with them was
+         *             from the edit, in 8-bit levels (under 3 is very close). Applying it sets these
+         *             and keeps the photo's own exposure and white balance.
+         *   "picture" learned from one picture of any scene. `fingerprint` is where that picture's
+         *             red, green and blue fall at each of the `quantiles` (0 to 1, encoded), and how
+         *             colourful it is. Applying it fits fresh curves to make each photo's spread of
+         *             tones and colours match these, so what it does depends on the photo.
+         */
+        interface SavedStyle {
+          name: string;
+          kind: "edit" | "pair" | "picture";
+          look?: {
+            global: Partial<GlobalAdjustments>;
+            temperatureShift: number;
+            tintShift: number;
+            curves: Record<CurveChannel, CurvePoint[]>;
+            hsl: Record<ColorRange, HSLAdjustments>;
+            grading: Record<GradingRange, ColorGrading> & GradingMix;
+            grain: GrainSettings;
+            halation: HalationSettings;
+          };
+          fit?: { curves: { red: CurvePoint[]; green: CurvePoint[]; blue: CurvePoint[] }; saturation: number; error?: number };
+          fingerprint?: { quantiles: number[]; red: number[]; green: number[]; blue: number[]; colourfulness: number };
         }
 
         /** One way of merging a shot's frames. */

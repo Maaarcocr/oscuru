@@ -57,7 +57,7 @@ public enum Prompt {
 
         # Styles
 
-        The person keeps looks as named styles and puts them on other photos. When they ask you to save, apply, update or remove a style, use photo.styles. Applying a style made from an edit in Oscuru replaces the photo's tone and colour settings with the style's. Some styles were learned in the app from pictures (an edited photo, or an original and its edit); applying one of those adapts it to this photo and keeps its exposure and white balance. Either way, look at the result and adjust if the photo needs it: a style rarely fits every photo exactly.
+        The person keeps looks as named styles and puts them on other photos. When they ask you to save, apply, update or remove a style, use photo.styles. Applying a style made from an edit in Oscuru replaces the photo's tone and colour settings with the style's. Some styles were learned in the app from pictures (an edited photo, or an original and its edit); applying one of those adapts it to this photo and keeps its exposure and white balance. Either way, look at the result and adjust if the photo needs it: a style rarely fits every photo exactly. photo.styles.get(name) tells you what a style is made of without applying it: use it when the person asks what a style does, to choose between styles, or to make a variation or a blend of two (set the settings on the photo, then save under a new name).
 
         # Collages and splitting
 

@@ -232,7 +232,7 @@ public final class ScriptRuntime: @unchecked Sendable {
             reset: bind("reset"),
             revert: bind("revert"),
           });
-          const photo = Object.freeze({ current, show: bind("show"), split: bind("split"), styles: group("styles", ["list", "apply", "save", "delete"]) });
+          const photo = Object.freeze({ current, show: bind("show"), split: bind("split"), styles: group("styles", ["list", "get", "apply", "save", "delete"]) });
           const describe = (value) => {
             if (typeof value === "string") return value;
             if (value instanceof Error) return value.name + ": " + value.message;

@@ -460,6 +460,14 @@ final class ScriptRuntimeTests: XCTestCase {
         XCTAssertEqual(applied.state.grading.shadows["hue"], 220)
         XCTAssertEqual(applied.state.crop.rotation, 180)
 
+        // What it is made of, without putting it on the photo.
+        let read = await run("const style = photo.styles.get('warm film'); [style.kind, style.look.global.contrast, style.look.temperatureShift, photo.current.getState().global.contrast]", state: other)
+        XCTAssertNil(read.error)
+        XCTAssertEqual(read.returnValue, "[\"edit\",25,\(Int(5700 - info.defaults.temperature)),0]")
+        XCTAssertEqual(read.state, other, "reading a style changes nothing")
+        let unknown = await run("photo.styles.get('Nope')")
+        XCTAssertTrue(unknown.error?.message.contains("Saved styles: Warm film") ?? false)
+
         let missing = await run("photo.styles.apply('Nope')")
         XCTAssertTrue(missing.error?.message.contains("Saved styles: Warm film") ?? false)
         let deleted = await run("photo.styles.delete('Warm film'); photo.styles.list().length")

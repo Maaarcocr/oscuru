@@ -106,6 +106,46 @@ public struct Style: Codable, Equatable, Sendable, Identifiable {
         }
     }
 
+    /// What the style is made of, as scripts read it (`photo.styles.get`): how it was made, and its
+    /// settings in the photo API's own terms.
+    public var json: JSONValue {
+        func numbers(_ values: [String: Double]) -> JSONValue { .object(values.mapValues { .number($0) }) }
+        func curves(_ curves: [String: [[Double]]]) -> JSONValue {
+            .object(curves.mapValues { points in .array(points.map { .array($0.map { .number($0) }) }) })
+        }
+        var members: [String: JSONValue] = ["name": .string(name)]
+        switch recipe {
+        case .look(let look):
+            members["kind"] = "edit"
+            members["look"] = [
+                "global": numbers(look.global),
+                "temperatureShift": .number(look.temperatureShift),
+                "tintShift": .number(look.tintShift),
+                "curves": curves(look.curves),
+                "hsl": .object(look.hsl.mapValues(numbers)),
+                "grading": [
+                    "shadows": numbers(look.grading.shadows), "midtones": numbers(look.grading.midtones), "highlights": numbers(look.grading.highlights),
+                    "blending": .number(look.grading.blending), "balance": .number(look.grading.balance),
+                ],
+                "grain": numbers(look.grain),
+                "halation": numbers(look.halation),
+            ]
+        case .fit(let fit):
+            members["kind"] = "pair"
+            members["fit"] = fit.json
+        case .match(let fingerprint):
+            members["kind"] = "picture"
+            members["fingerprint"] = [
+                "quantiles": .array(LookFitting.matchQuantiles.map { .number($0) }),
+                "red": .array((fingerprint.quantiles["red"] ?? []).map { .number($0) }),
+                "green": .array((fingerprint.quantiles["green"] ?? []).map { .number($0) }),
+                "blue": .array((fingerprint.quantiles["blue"] ?? []).map { .number($0) }),
+                "colourfulness": .number((fingerprint.colourfulness * 1000).rounded() / 1000),
+            ]
+        }
+        return .object(members)
+    }
+
     // On disk a style is {id, name, createdAt} and one of look, fit or match. Files written by
     // earlier versions also carry a placeholder look beside a fit or match.
     private enum CodingKeys: String, CodingKey { case id, name, createdAt, look, fit, match }

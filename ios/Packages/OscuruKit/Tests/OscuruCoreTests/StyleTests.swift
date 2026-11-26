@@ -263,4 +263,28 @@ final class FilterTests: XCTestCase {
         XCTAssertEqual(result.value("contrast"), 15)
         XCTAssertEqual(result.changes(from: target).map(\.path).filter { $0.hasPrefix("crop") || $0.hasPrefix("detail") }, [])
     }
+
+    func testAStyleSaysWhatItIsMadeOf() throws {
+        var state = EditingState()
+        try state.adjust(["contrast": 25, "temperature": 7000])
+        try state.setGrain(["amount": 20])
+        let edit = Style(id: "a", name: "Warm film", createdAt: Date(), recipe: .look(Look(state: state, defaults: PhotoDefaults())))
+        XCTAssertEqual(edit.json["kind"], "edit")
+        XCTAssertEqual(edit.json["look"]?["global"]?["contrast"], 25)
+        XCTAssertEqual(edit.json["look"]?["temperatureShift"], 500)
+        XCTAssertNil(edit.json["look"]?["global"]?["temperature"], "white balance is a shift, not a value")
+        XCTAssertEqual(edit.json["look"]?["grain"]?["amount"], 20)
+
+        let fit = Style(id: "b", name: "Pair", createdAt: Date(), recipe: .fit(LookFit(curves: ["red": [[0, 0.05], [1, 1]]], saturation: -10, error: 1.5)))
+        XCTAssertEqual(fit.json["kind"], "pair")
+        XCTAssertEqual(fit.json["fit"]?["saturation"], -10)
+        XCTAssertEqual(fit.json["fit"]?["error"], 1.5)
+
+        let quantiles = Dictionary(uniqueKeysWithValues: ["red", "green", "blue"].map { ($0, LookFitting.matchQuantiles.map { $0 * 0.9 }) })
+        let picture = Style(id: "c", name: "Reference", createdAt: Date(), recipe: .match(StyleFingerprint(quantiles: quantiles, colourfulness: 0.21234)))
+        XCTAssertEqual(picture.json["kind"], "picture")
+        XCTAssertEqual(picture.json["fingerprint"]?["quantiles"]?.arrayValue?.count, LookFitting.matchQuantiles.count)
+        XCTAssertEqual(picture.json["fingerprint"]?["red"]?.arrayValue?.count, LookFitting.matchQuantiles.count)
+        XCTAssertEqual(picture.json["fingerprint"]?["colourfulness"], 0.212)
+    }
 }
