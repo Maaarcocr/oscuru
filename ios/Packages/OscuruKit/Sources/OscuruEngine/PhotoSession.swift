@@ -329,7 +329,15 @@ public final class PhotoSession {
       return frame(way.base)
     }
     let merges = folder.appendingPathComponent(FrameSet.mergesFolder)
-    let file = merges.appendingPathComponent("\(way.key).dng")
+    // A merge onto a finer grid is named apart: before build 48 one was written as a single strip
+    // of hundreds of megabytes, which the RAW decoder crashed on each time the photo was drawn.
+    // Such a file is let go and the merge made again.
+    let file = merges.appendingPathComponent(way.scale > 1 ? "\(way.key)-strips.dng" : "\(way.key).dng")
+    if way.scale > 1 {
+      let old = merges.appendingPathComponent("\(way.key).dng")
+      try? FileManager.default.removeItem(at: old)
+      try? FileManager.default.removeItem(at: old.deletingPathExtension().appendingPathExtension("json"))
+    }
     if FileManager.default.fileExists(atPath: file.path) {
       // Used now: the last to be made room for.
       try? FileManager.default.setAttributes([.modificationDate: Date()], ofItemAtPath: file.path)
