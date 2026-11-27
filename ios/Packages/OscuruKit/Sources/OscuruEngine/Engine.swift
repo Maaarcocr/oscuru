@@ -310,7 +310,7 @@ public final class Engine: @unchecked Sendable {
   /// number, making the merge now if it is not kept already. Nil when the photo has no frames, or
   /// they cannot be merged that way.
   public func frameReports(id: String, recipe: RenderRecipe) throws -> [Int: FrameReport]? {
-    try using(id) { session in session.frameReports(for: recipe.frames?.way) }
+    try using(id) { session in try session.frameReports(for: recipe.frames?.way) }
   }
 
   /// The mean of a grey mask's first channel (0 when it could not be measured).
