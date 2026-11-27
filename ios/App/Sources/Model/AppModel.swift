@@ -29,6 +29,17 @@ final class AppModel {
     /// Each photo's conversation, opened once: a transcript has one writer.
     private var transcripts: [String: Task<Transcript, Error>] = [:]
 
+    /// Whether the app ended last time while on screen: it crashed (or iOS stopped it for memory)
+    /// rather than being left. Work it was doing then is not taken up again by itself, since it
+    /// may be what made it crash; Continue takes it up.
+    let endedOnScreen = UserDefaults.standard.bool(forKey: AppModel.onScreenKey)
+    private static let onScreenKey = "app.onScreen"
+
+    /// The app is on screen, or has left it (backgrounded, or about to be closed from the switcher).
+    func onScreen(_ shown: Bool) {
+        UserDefaults.standard.set(shown, forKey: AppModel.onScreenKey)
+    }
+
     init(root: URL, secrets: SecretStore, transport: @escaping HTTPTransport, scriptedModel: ModelClient? = nil) {
         try? FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
         engine = Engine(models: Bundle.main.url(forResource: "Models", withExtension: nil))
@@ -93,7 +104,7 @@ final class AppModel {
             }
             editor.onIdle = { [weak self] in self?.releaseIfUnused(document.id) }
             editors[document.id] = editor
-            if resuming { editor.resumeIfInterrupted() }
+            if resuming, !endedOnScreen { editor.resumeIfInterrupted() }
             return editor
         } catch {
             viewers[document.id, default: 1] -= 1

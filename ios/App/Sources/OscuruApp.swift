@@ -4,6 +4,7 @@ import SwiftUI
 @main
 struct OscuruApp: App {
     @State private var model: AppModel
+    @Environment(\.scenePhase) private var phase
 
     init() {
         // Composition root: the only place that decides where things are kept and who answers.
@@ -26,6 +27,8 @@ struct OscuruApp: App {
                     if CameraLaunch.take() { model.cameraRequested = true }
                 }
                 .onContinueUserActivity(NSUserActivityTypeLockedCameraCapture) { _ in model.cameraRequested = true }
+                // Whether the app is on screen, so that next time it knows whether it crashed (AppModel.endedOnScreen).
+                .onChange(of: phase, initial: true) { _, phase in model.onScreen(phase == .active) }
                 .task {
                     if CameraLaunch.take() { model.cameraRequested = true }
                     await model.account.refresh()

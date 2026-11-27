@@ -194,19 +194,21 @@ final class FrameToolsTests: XCTestCase {
         let width = 120
         let height = 80
         let file = TestDNG.make(samples: DNGTests.mosaic(width: width, height: height), width: width, height: height, tile: (40, 24), compressed: true, bigEndian: true)
+        // Large enough to need several strips.
         let picture = RGBFrame(
-            width: width * 2, height: height * 2, samples: (0..<(width * height * 12)).map { UInt16($0 % 60000) }, blackLevel: 8448, whiteLevel: 65520)
+            width: width * 8, height: height * 8, samples: (0..<(width * height * 192)).map { UInt16($0 % 60000) }, blackLevel: 8448, whiteLevel: 65520)
         let written = try DNG.replacingFrame(of: file, with: picture)
         let tags = try XCTUnwrap(LinearTags(written))
         XCTAssertEqual(tags.values[262], [34892], "linear raw")
         XCTAssertEqual(tags.values[277], [3])
         XCTAssertEqual(tags.values[258], [16, 16, 16])
-        XCTAssertEqual(tags.values[256], [width * 2])
-        XCTAssertEqual(tags.values[257], [height * 2])
+        XCTAssertEqual(tags.values[256], [picture.width])
+        XCTAssertEqual(tags.values[257], [picture.height])
         XCTAssertNil(tags.values[33421], "nothing of the filter pattern is left")
         XCTAssertNil(tags.values[33422])
         XCTAssertEqual(tags.values[50717], [65520, 65520, 65520])
         XCTAssertEqual(tags.strip, picture.samples, "the samples are what was given")
+        XCTAssertGreaterThan(tags.values[273]?.count ?? 0, 1, "in strips of about a megabyte, not one of hundreds")
         XCTAssertEqual(TestDNG.cameraModel(of: written), "Test camera", "the rest of the file is as it was")
         // A Bayer reader no longer finds a Bayer picture in it.
         XCTAssertThrowsError(try DNG.frame(of: written))
@@ -243,9 +245,9 @@ private struct LinearTags {
         guard let children = first[330] else { return nil }
         for child in children {
             let tags = directory(child)
-            guard tags[262] == [34892], let offset = tags[273]?.first, let count = tags[279]?.first else { continue }
+            guard tags[262] == [34892], let offsets = tags[273], let counts = tags[279], offsets.count == counts.count else { continue }
             values = tags
-            strip = (0..<(count / 2)).map { UInt16(u16(offset + $0 * 2)) }
+            strip = zip(offsets, counts).flatMap { offset, count in (0..<(count / 2)).map { UInt16(u16(offset + $0 * 2)) } }
             return
         }
         return nil

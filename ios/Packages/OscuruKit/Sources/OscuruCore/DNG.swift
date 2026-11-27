@@ -401,7 +401,7 @@ private struct TIFF {
     }
 
     /// The file with `picture` as its raw picture. The raw picture's directory is written again at
-    /// the end of the file, describing one uncompressed strip that is written before it; where the
+    /// the end of the file, describing uncompressed strips written before it; where the
     /// old samples were the end of the file (as an iPhone writes it) they are dropped, otherwise
     /// they stay where they are, unused.
     func replacing(_ raw: Directory, picture frame: DNG.Replacement) throws -> [UInt8] {
@@ -442,9 +442,13 @@ private struct TIFF {
             output.replaceSubrange(position..<(position + 4), with: bigEndian ? b : b.reversed())
         }
 
-        // The samples, as one strip.
+        // The samples, in strips of about a megabyte, as cameras write them: a decoder may refuse
+        // (or fail on) one strip of hundreds of megabytes, which a picture onto a finer grid is.
         pad()
         let strip = output.count
+        let rowBytes = frame.width * frame.channels * 2
+        let rows = min(frame.height, max(2, (1 << 20) / max(1, rowBytes) / 2 * 2))
+        let strips = (frame.height + rows - 1) / rows
         output.append(contentsOf: [UInt8](repeating: 0, count: frame.samples.count * 2))
         output.withUnsafeMutableBufferPointer { out in
             frame.samples.withUnsafeBufferPointer { samples in
@@ -468,6 +472,11 @@ private struct TIFF {
         if linear { for _ in 0..<3 { put32(white) } }
         let bits = output.count
         if linear { for _ in 0..<3 { put16(16) } }
+        pad()
+        let stripOffsets = output.count
+        if strips > 1 { for index in 0..<strips { put32(strip + index * rows * rowBytes) } }
+        let stripCounts = output.count
+        if strips > 1 { for index in 0..<strips { put32(min(rows, frame.height - index * rows) * rowBytes) } }
 
         // The noise model is changed where it stands: it keeps its place and its length.
         if let noise = try noiseEntry(raw), noise.type == 12, noise.count == frame.noiseProfile.count, noise.offset + noise.count * 8 <= keep {
@@ -504,9 +513,9 @@ private struct TIFF {
         }
         records.append(linear ? (Tag.bitsPerSample, 3, 3, long(bits)) : (Tag.bitsPerSample, 3, 1, short(16)))
         records.append((Tag.compression, 3, 1, short(1)))
-        records.append((Tag.stripOffsets, 4, 1, long(strip)))
-        records.append((Tag.rowsPerStrip, 4, 1, long(frame.height)))
-        records.append((Tag.stripByteCounts, 4, 1, long(frame.samples.count * 2)))
+        records.append((Tag.stripOffsets, 4, strips, long(strips > 1 ? stripOffsets : strip)))
+        records.append((Tag.rowsPerStrip, 4, 1, long(rows)))
+        records.append((Tag.stripByteCounts, 4, strips, long(strips > 1 ? stripCounts : frame.samples.count * 2)))
         records.append((Tag.blackLevel, 5, frame.blackLevels.count, long(blacks)))
         records.append(linear ? (Tag.whiteLevel, 4, 3, long(whites)) : (Tag.whiteLevel, 4, 1, long(white)))
         if linear {
