@@ -14,16 +14,44 @@ import UniformTypeIdentifiers
 /// files, Apple's decoder with its looks off, then Oscuru's base curve) → local highlight and shadow recovery → local contrast → tone tables → colour cube →
 /// halation → flips, rotation, straightening, crop → local adjustments → vignette → grain → output.
 public final class Engine: @unchecked Sendable {
+  /// What the engine is doing for a photo, or waiting to do: for seeing where time goes.
+  public struct Activity: Sendable, Identifiable {
+    public enum State: String, Sendable {
+      /// Waiting for the photo, which is drawing something else.
+      case waitingForPhoto
+      /// Waiting for other full-size work, which goes one at a time across all photos.
+      case waitingForLarge
+      case working
+    }
+
+    public let id: UUID
+    /// The engine's id of the photo (the app's photo id, then a dash and a suffix).
+    public let photo: String
+    /// What was asked for: the engine call, such as "image(id:recipe:options:)".
+    public let what: String
+    public let large: Bool
+    public internal(set) var state: State
+    /// When it was asked for, and when its current state began.
+    public let asked: Date
+    public internal(set) var since: Date
+    /// How long it took, once done; and whether it failed.
+    public internal(set) var seconds: Double?
+    public internal(set) var failed = false
+  }
+
   /// Draws on the graphics processor.
   private let gpu: CIContext
   /// Draws on the processor: for while the app is in the background, where iOS does not let it use
   /// the graphics processor (Core Image's drawing there fails).
   private let cpu: CIContext
 
-  /// Guards `sessions` and `background`; never held while anything renders.
+  /// Guards `sessions`, `background` and the activity records; never held while anything renders.
   private let lock = NSLock()
   private var sessions: [String: PhotoSession] = [:]
   private var background = false
+  private var current: [UUID: Activity] = [:]
+  private var done: [Activity] = []
+  private static let doneKept = 60
   /// Held by full-size work, one at a time (see `using`).
   private let large = NSLock()
 
@@ -69,24 +97,57 @@ public final class Engine: @unchecked Sendable {
     set { lock.withLock { background = newValue } }
   }
 
+  /// What the engine is doing and waiting to do now, oldest first.
+  public var activity: [Activity] { lock.withLock { current.values.sorted { $0.asked < $1.asked } } }
+  /// What it did last, newest first, with how long each took.
+  public var recentActivity: [Activity] { lock.withLock { done.reversed() } }
+
   /// Runs `work` on an open photo, holding it: a photo renders one thing at a time, while other
   /// photos render. `large` work (`isLarge`) also waits for other large work, and lets go of what
-  /// it left in Core Image's cache when done.
-  private func using<T>(_ id: String, large isLarge: Bool = false, _ work: (PhotoSession) throws -> T) throws -> T {
+  /// it left in Core Image's cache when done. Each call is recorded while it waits and works (`activity`).
+  private func using<T>(_ id: String, large isLarge: Bool = false, what: String = #function, _ work: (PhotoSession) throws -> T) throws -> T {
     let session = try lock.withLock { () throws -> PhotoSession in
       guard let session = sessions[id] else { throw EngineError.unknownPhoto(id) }
       return session
     }
+    let now = Date()
+    let token = UUID()
+    lock.withLock { current[token] = Activity(id: token, photo: id, what: what, large: isLarge, state: .waitingForPhoto, asked: now, since: now) }
+    var failed = true
+    defer {
+      lock.withLock {
+        guard var finished = current.removeValue(forKey: token) else { return }
+        finished.seconds = Date().timeIntervalSince(finished.asked)
+        finished.failed = failed
+        done.append(finished)
+        if done.count > Engine.doneKept { done.removeFirst(done.count - Engine.doneKept) }
+      }
+    }
+    func enter(_ state: Activity.State) {
+      lock.withLock {
+        current[token]?.state = state
+        current[token]?.since = Date()
+      }
+    }
     session.lock.lock()
     defer { session.lock.unlock() }
-    guard isLarge else { return try work(session) }
+    guard isLarge else {
+      enter(.working)
+      let result = try work(session)
+      failed = false
+      return result
+    }
+    enter(.waitingForLarge)
     large.lock()
     defer {
       gpu.clearCaches()
       cpu.clearCaches()
       large.unlock()
     }
-    return try work(session)
+    enter(.working)
+    let result = try work(session)
+    failed = false
+    return result
   }
 
   /// A render that develops more than a preview's worth: at full size, larger than a preview, or a

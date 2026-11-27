@@ -24,6 +24,8 @@ final class AppModel {
 
     /// Photos open in an editor: on screen, or closed while the assistant still works on them.
     private var editors: [String: PhotoEditor] = [:]
+    /// The photos open now, for diagnostics.
+    var openEditors: [PhotoEditor] { Array(editors.values) }
     /// How many screens show each photo.
     private var viewers: [String: Int] = [:]
     /// Each photo's conversation, opened once: a transcript has one writer.
@@ -60,6 +62,8 @@ final class AppModel {
         let engine = engine
         let center = NotificationCenter.default
         center.addObserver(forName: UIApplication.didEnterBackgroundNotification, object: nil, queue: nil) { _ in engine.isInBackground = true }
+        // Diagnostics watch the connection and log from launch, not from the first time they are looked at.
+        _ = Diagnostics.shared
         center.addObserver(forName: UIApplication.willEnterForegroundNotification, object: nil, queue: nil) { _ in engine.isInBackground = false }
     }
 

@@ -363,6 +363,16 @@ enum L10n {
     static var settingsFramesFooter: String { String(localized: "settings.frames.footer") }
     static var settingsExportConversations: String { String(localized: "settings.exportConversations") }
     static var settingsExportConversationsFooter: String { String(localized: "settings.exportConversations.footer") }
+    static var diagnostics: String { String(localized: "diagnostics.title") }
+    static var diagnosticsNow: String { String(localized: "diagnostics.now") }
+    static var diagnosticsAssistants: String { String(localized: "diagnostics.assistants") }
+    static var diagnosticsNoPhotos: String { String(localized: "diagnostics.noPhotos") }
+    static var diagnosticsEngine: String { String(localized: "diagnostics.engine") }
+    static var diagnosticsEngineIdle: String { String(localized: "diagnostics.engineIdle") }
+    static var diagnosticsSlow: String { String(localized: "diagnostics.slow") }
+    static var diagnosticsNothingSlow: String { String(localized: "diagnostics.nothingSlow") }
+    static var diagnosticsLog: String { String(localized: "diagnostics.log") }
+    static var diagnosticsShare: String { String(localized: "diagnostics.share") }
     static func settingsDiscardFrames(_ size: String) -> String { String(localized: "settings.discardFrames \(size)") }
     static var settingsDiscardFramesTitle: String { String(localized: "settings.discardFrames.title") }
     static var settingsDiscardFramesMessage: String { String(localized: "settings.discardFrames.message") }

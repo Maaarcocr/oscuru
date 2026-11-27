@@ -47,6 +47,22 @@ final class BackgroundWork {
 
     private static let log = Logger(subsystem: "com.rudilosso.oscuru", category: "background")
 
+    /// For diagnostics: whether a continued task is running, and the last thing that happened to one.
+    private var lastNews = "none asked for yet"
+    var status: String {
+        let grace = grace == .invalid ? "" : "; short background time held"
+        if let continued {
+            return "running, \(runs.count) assistant\(runs.count == 1 ? "" : "s"), progress \(continued.progress.completedUnitCount)/\(continued.progress.totalUnitCount)" + grace
+        }
+        if asking { return "asked for, not started yet" + grace }
+        return (runs.isEmpty ? "none (nothing working)" : "none — \(lastNews)") + grace
+    }
+
+    private func news(_ text: String) {
+        lastNews = text
+        Diagnostics.shared.log("Background task: \(text)")
+    }
+
     /// The prefix of each task's identifier, as listed (with a wildcard) under
     /// BGTaskSchedulerPermittedIdentifiers in Info.plist.
     private static var prefix: String { (Bundle.main.bundleIdentifier ?? "com.rudilosso.oscuru") + ".assistant." }
@@ -85,6 +101,7 @@ final class BackgroundWork {
             continued.progress.completedUnitCount = continued.progress.totalUnitCount
             continued.setTaskCompleted(success: true)
             self.continued = nil
+            news("finished: all assistants done")
         }
         endGrace()
     }
@@ -105,6 +122,7 @@ final class BackgroundWork {
         }
         guard registered else {
             BackgroundWork.log.error("The assistant's background task could not be registered.")
+            news("could not be registered")
             return
         }
         let request = BGContinuedProcessingTaskRequest(identifier: identifier, title: L10n.assistantBackgroundTitle(run.photo), subtitle: run.about)
@@ -113,9 +131,11 @@ final class BackgroundWork {
         asking = true
         do {
             try BGTaskScheduler.shared.submit(request)
+            news("asked for")
         } catch {
             asking = false
             BackgroundWork.log.error("The assistant's background task was refused: \(error.localizedDescription, privacy: .public)")
+            news("refused by iOS (\(error.localizedDescription))")
         }
     }
 
@@ -127,6 +147,7 @@ final class BackgroundWork {
         }
         continued = task
         units = 0
+        news("started")
         task.expirationHandler = { [weak self] in
             DispatchQueue.main.async { self?.expired() }
         }
@@ -160,6 +181,7 @@ final class BackgroundWork {
         continued.updateTitle(continued.title, subtitle: L10n.assistantBackgroundPaused)
         continued.setTaskCompleted(success: false)
         BackgroundWork.log.notice("The assistant's background task was ended by the system; the work carries on when the app is open.")
+        news("ended by iOS or stopped from its progress after \(units) units; work waits for the app")
     }
 
     /// The app left the screen with work under way: the usual short time to finish, if nothing longer is running.

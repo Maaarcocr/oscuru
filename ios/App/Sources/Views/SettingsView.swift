@@ -86,6 +86,12 @@ struct SettingsView: View {
                     } message: {
                         Text(exportProblem ?? "")
                     }
+                    NavigationLink {
+                        DiagnosticsView()
+                    } label: {
+                        Text(L10n.diagnostics)
+                    }
+                    .accessibilityIdentifier("settings.diagnostics")
                 } footer: {
                     Text(L10n.settingsExportConversationsFooter)
                 }

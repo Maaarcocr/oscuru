@@ -29,6 +29,10 @@ final class PhotoEditor {
     private(set) var retrying: String?
     /// While older messages are being summarized to make room.
     private(set) var summarizing = false
+    /// For diagnostics: what the assistant is doing now and since when, when its run started, and how many steps it has taken.
+    @ObservationIgnored private var doing: (what: String, since: Date)?
+    @ObservationIgnored private var runStarted: Date?
+    @ObservationIgnored private var runSteps = 0
     /// Whether a run ended without its answer and Continue can pick it up.
     private(set) var canContinue = false
     /// Why the thread could not be written, if it could not.
@@ -279,6 +283,10 @@ final class PhotoEditor {
         let transcript = transcript
         let photo = document.id
         background.begin(photo, photo: document.fileName, asked: asked, about: about)
+        runStarted = Date()
+        runSteps = 0
+        doing = ("starting", Date())
+        Diagnostics.shared.log("\(document.fileName): assistant started (\(asked ? "asked by you" : "taken up again by itself"), model \(model))")
         task = Task {
             do {
                 try await prepare()
@@ -301,6 +309,12 @@ final class PhotoEditor {
     }
 
     private func finish() {
+        if let runStarted {
+            let outcome = conversation.halt.map(PhotoEditor.describe) ?? "done"
+            Diagnostics.shared.log("\(document.fileName): assistant ended after \(Diagnostics.elapsed(since: runStarted)) and \(runSteps) steps (\(outcome))")
+        }
+        doing = nil
+        runStarted = nil
         task = nil
         retrying = nil
         summarizing = false
@@ -319,7 +333,40 @@ final class PhotoEditor {
         onIdle?()
     }
 
+    private static func describe(_ halt: Conversation.Halt) -> String {
+        switch halt {
+        case .stopped: return "stopped"
+        case .failed(let failure): return "failed: \(failure.message)"
+        }
+    }
+
+    /// One line for diagnostics: what the assistant is doing and for how long.
+    var diagnosis: String {
+        guard isWorking else {
+            if let halt = conversation.halt { return "idle (last run \(PhotoEditor.describe(halt)))" }
+            return "idle"
+        }
+        let what = doing.map { "\($0.what) for \(Diagnostics.elapsed(since: $0.since))" } ?? "working"
+        let run = runStarted.map { ", run \(Diagnostics.elapsed(since: $0)) and \(runSteps) steps so far" } ?? ""
+        return what + run + (retrying.map { " — last error: \($0)" } ?? "")
+    }
+
     private func handle(_ event: AgentEvent) {
+        // For diagnostics: how long the step before this one took, and what starts now.
+        let now = Date()
+        let name = document.fileName
+        if let doing, doing.what != "starting" {
+            Diagnostics.shared.log("\(name): \(doing.what) took \(Diagnostics.elapsed(since: doing.since, now: now))")
+        }
+        switch event {
+        case .requesting: doing = ("waiting for the model", now)
+        case .running: doing = ("running a script", now)
+        case .retrying(let attempt, let delay, let message):
+            doing = ("waiting to retry", now)
+            Diagnostics.shared.log("\(name): request failed (\(message)), retry \(attempt) in \(Int(delay))s")
+        case .summarizing: doing = ("summarizing the conversation", now)
+        }
+        runSteps += 1
         switch event {
         case .requesting, .running:
             retrying = nil

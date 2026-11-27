@@ -38,11 +38,16 @@ enum Rendering {
         lanes.add(photo, work)
     }
 
+    /// How much work each photo has queued or under way, by the name it was queued under.
+    static var queued: [String: Int] { lanes.queued }
+
     /// A serial queue for each photo with work waiting, kept while it has some.
     private final class Lanes: @unchecked Sendable {
         private let lock = NSLock()
         private var lanes: [String: (queue: DispatchQueue, waiting: Int)] = [:]
         private let threads = DispatchQueue(label: "oscuru.rendering", qos: .userInitiated, attributes: .concurrent)
+
+        var queued: [String: Int] { lock.withLock { lanes.mapValues(\.waiting) } }
 
         func add(_ photo: String, _ work: @escaping @Sendable () -> Void) {
             let queue = lock.withLock {
