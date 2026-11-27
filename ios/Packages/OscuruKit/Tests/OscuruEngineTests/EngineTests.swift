@@ -1108,9 +1108,9 @@ final class EngineTests: XCTestCase {
     let finer = FrameMerge(way: FrameMerge.Way(base: 1, use: [1, 2, 3], align: .camera, combine: .median, scale: 2))
     var asked = RenderRecipe()
     asked.frames = finer
-    let kept = try render("shot", asked, maxEdge: 0).0
-    XCTAssertEqual(kept.width, wall.width)
-    XCTAssertEqual(kept.height, wall.height)
+    let atScaleOne = try render("shot", asked, maxEdge: 0).0
+    XCTAssertEqual(atScaleOne.width, wall.width)
+    XCTAssertEqual(atScaleOne.height, wall.height)
     engine.finerGrid = true
     engine.close(id: "shot")
     _ = try engine.open(id: "shot", url: original)
