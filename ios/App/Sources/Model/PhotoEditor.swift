@@ -278,7 +278,7 @@ final class PhotoEditor {
         let port = EditorPort(editor: self)
         let transcript = transcript
         let photo = document.id
-        background.begin(photo, photo: document.fileName, asked: asked, about: about) { [weak self] in self?.stop() }
+        background.begin(photo, photo: document.fileName, asked: asked, about: about)
         task = Task {
             do {
                 try await prepare()

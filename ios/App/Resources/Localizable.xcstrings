@@ -17,6 +17,22 @@
         }
       }
     },
+    "assistant.background.paused": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Paused. Open Oscuru to carry on."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "In pausa. Apri Oscuru per proseguire."
+          }
+        }
+      }
+    },
     "assistant.background.title %@": {
       "localizations": {
         "en": {
