@@ -495,8 +495,7 @@ interface SavedStyle {
  * place is made from them (`combine`), and onto what grid (`scale`). Together these make
  * every kind of merge: less noise ("robust"), a long exposure ("mean"), passers-by removed
  * ("median"), light trails ("brightest"), each place from the frame where it is sharpest
- * ("sharpest"), a panning shot ("camera" on the subject with "mean"), more detail than the
- * sensor holds (scale 2).
+ * ("sharpest"), a panning shot ("camera" on the subject with "mean").
  */
 interface FrameWay {
   /**
@@ -544,15 +543,10 @@ interface FrameWay {
    */
   alignOn: { x: number; y: number; width: number; height: number } | null;
   /**
-   * 1: the sensor's own size. 2: twice as wide and high, with real detail no single frame has.
-   * A hand never holds still, so each frame samples the scene at slightly different places;
-   * every pixel of the finer grid is made from the samples of every frame that fell near it,
-   * all three colours measured. It needs four or more frames taken back to back in a hand
-   * (frames from a tripod sample the same places), takes tens of seconds to merge, and gives
-   * a four-times larger photo. Fine textures (leaves, gravel, roof tiles, fabric, text) gain
-   * the most. Use it when the person wants detail or a large print, not by default.
+   * 1, the sensor's own size. Merging onto a finer grid (2) is turned off for now: the
+   * phone's RAW decoder gives up on pictures that large.
    */
-  scale: 1 | 2;
+  scale: 1;
   /**
    * For "robust", "median" and "brightest": how readily a difference counts as something
    * that moved, 0 to 1 (default 0.5). Lower averages more: less noise, at the risk of faint
