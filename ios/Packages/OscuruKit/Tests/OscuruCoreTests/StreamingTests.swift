@@ -31,7 +31,7 @@ private final class FakeClock: @unchecked Sendable {
             lastDisruption: lastDisruption, now: { self.now },
             sleep: { seconds in
                 self.advance(seconds)
-                await Task.yield()
+                try await Task.sleep(for: .milliseconds(1))
             })
     }
 }
@@ -47,10 +47,10 @@ private func streaming(status: Int = 200, _ lines: [String], after looks: Int = 
         let stream = AsyncThrowingStream<String, Error> { continuation in
             let task = Task {
                 if never {
-                    while !Task.isCancelled { await Task.yield() }
+                    while !Task.isCancelled { try? await Task.sleep(for: .milliseconds(5)) }
                     return
                 }
-                while let clock, clock.count < looks, !Task.isCancelled { await Task.yield() }
+                while let clock, clock.count < looks, !Task.isCancelled { try? await Task.sleep(for: .milliseconds(1)) }
                 for line in lines { continuation.yield(line) }
                 continuation.finish()
             }
@@ -69,8 +69,44 @@ private final class Requests: @unchecked Sendable {
 
 private func data(_ chunk: JSONValue) -> String { "data: \(chunk.text())" }
 
+private struct TimedOut: Error {}
+
+/// Resumes once, from whichever comes first.
+private final class Once<T: Sendable>: @unchecked Sendable {
+    private let lock = NSLock()
+    private var continuation: CheckedContinuation<T, Error>?
+
+    init(_ continuation: CheckedContinuation<T, Error>) {
+        self.continuation = continuation
+    }
+
+    func resume(with result: Result<T, Error>) {
+        let pending = lock.withLock { () -> CheckedContinuation<T, Error>? in
+            defer { continuation = nil }
+            return continuation
+        }
+        pending?.resume(with: result)
+    }
+}
+
+/// Runs `body`, throwing instead of hanging when it takes longer than `seconds`: a stream that
+/// never ends must fail its test, not stall the whole run.
+private func within<T: Sendable>(_ seconds: Double = 20, _ body: @escaping @Sendable () async throws -> T) async throws -> T {
+    try await withCheckedThrowingContinuation { continuation in
+        let once = Once(continuation)
+        Task {
+            do { once.resume(with: .success(try await body())) } catch { once.resume(with: .failure(error)) }
+        }
+        Task {
+            try? await Task.sleep(for: .seconds(seconds))
+            once.resume(with: .failure(TimedOut()))
+        }
+    }
+}
+
+private let request = ChatRequest(model: "anthropic/claude-opus-5.5", messages: [["role": "user", "content": "hi"]], tools: [Prompt.tool], sessionID: "photo-1")
+
 final class StreamingTests: XCTestCase {
-    private let request = ChatRequest(model: "anthropic/claude-opus-5.5", messages: [["role": "user", "content": "hi"]], tools: [Prompt.tool], sessionID: "photo-1")
 
     /// An answer as Claude streams it through OpenRouter: thinking with its signature, words, a
     /// script in pieces, and the usage last.
@@ -96,7 +132,7 @@ final class StreamingTests: XCTestCase {
     func testAStreamedAnswerIsPutBackTogetherAsItWouldHaveCome() async throws {
         let requests = Requests()
         let client = OpenRouter(apiKey: "k", transport: { _ in XCTFail("not streamed"); return HTTPResponse(status: 500, body: Data()) }, stream: streaming(answer, requests: requests))
-        let response = try await client.chat(request)
+        let response = try await within { try await client.chat(request) }
         XCTAssertEqual(response.id, "gen-1")
         XCTAssertEqual(response.model, "anthropic/claude-opus-5.5")
         XCTAssertEqual(response.usage, Usage(promptTokens: 12000, completionTokens: 80, cost: 0.0123))
@@ -121,7 +157,7 @@ final class StreamingTests: XCTestCase {
             data(["choices": [["delta": ["content": "Done."], "finish_reason": "stop"]]]),
             "data: [DONE]",
         ]
-        let response = try await OpenRouter(apiKey: "k", transport: { _ in HTTPResponse(status: 500, body: Data()) }, stream: streaming(lines)).chat(request)
+        let response = try await within { try await OpenRouter(apiKey: "k", transport: { _ in HTTPResponse(status: 500, body: Data()) }, stream: streaming(lines)).chat(request) }
         XCTAssertEqual(response.message["reasoning_details"], [["type": "reasoning.encrypted", "data": "opaque==", "id": "r1", "index": 0]])
         XCTAssertEqual(response.message["content"], "Done.")
         XCTAssertNil(response.message["tool_calls"])
@@ -131,7 +167,7 @@ final class StreamingTests: XCTestCase {
     func testErrorsBeforeAndDuringTheStreamAreClassed() async throws {
         func failure(_ transport: @escaping HTTPStreamTransport) async -> ModelError? {
             do {
-                _ = try await OpenRouter(apiKey: "k", transport: { _ in HTTPResponse(status: 500, body: Data()) }, stream: transport).chat(request)
+                _ = try await within { try await OpenRouter(apiKey: "k", transport: { _ in HTTPResponse(status: 500, body: Data()) }, stream: transport).chat(request) }
                 return nil
             } catch {
                 return error as? ModelError
@@ -163,7 +199,7 @@ final class StreamingTests: XCTestCase {
         let clock = FakeClock(jumps: [5: 300])
         let client = OpenRouter(apiKey: "k", transport: { _ in HTTPResponse(status: 500, body: Data()) }, stream: streaming([], clock: clock, never: true), watch: clock.watch())
         do {
-            _ = try await client.chat(request)
+            _ = try await within { try await client.chat(request) }
             XCTFail("expected the dead connection to be noticed")
         } catch let error as ModelError {
             XCTAssertEqual(error, ModelError(.network, StreamWatch.quietMessage))
@@ -178,7 +214,7 @@ final class StreamingTests: XCTestCase {
         // Ten minutes of nothing, but nothing happened to the app or the network: the answer is waited for.
         let clock = FakeClock()
         let client = OpenRouter(apiKey: "k", transport: { _ in HTTPResponse(status: 500, body: Data()) }, stream: streaming(answer, after: 600, clock: clock), watch: clock.watch())
-        let response = try await client.chat(request)
+        let response = try await within { try await client.chat(request) }
         XCTAssertEqual(response.message["content"], "Working on it.")
         XCTAssertGreaterThanOrEqual(clock.count, 600)
     }
@@ -190,13 +226,13 @@ final class StreamingTests: XCTestCase {
         let alive = FakeClock()
         let lines = (0..<40).map { _ in ": OPENROUTER PROCESSING" } + answer
         let talking = OpenRouter(apiKey: "k", transport: { _ in HTTPResponse(status: 500, body: Data()) }, stream: streaming(lines, after: 10, clock: alive), watch: alive.watch(lastDisruption: changed))
-        let response = try await talking.chat(request)
+        let response = try await within { try await talking.chat(request) }
         XCTAssertEqual(response.message["content"], "Working on it.")
 
         let dead = FakeClock()
         let silent = OpenRouter(apiKey: "k", transport: { _ in HTTPResponse(status: 500, body: Data()) }, stream: streaming([], clock: dead, never: true), watch: dead.watch(lastDisruption: changed))
         do {
-            _ = try await silent.chat(request)
+            _ = try await within { try await silent.chat(request) }
             XCTFail("expected the dead connection to be noticed")
         } catch let error as ModelError {
             XCTAssertEqual(error.message, StreamWatch.quietMessage)
@@ -207,12 +243,11 @@ final class StreamingTests: XCTestCase {
     func testStoppingWhileStreamingIsACancellationNotAFailure() async throws {
         let clock = FakeClock()
         let client = OpenRouter(apiKey: "k", transport: { _ in HTTPResponse(status: 500, body: Data()) }, stream: streaming([], clock: clock, never: true), watch: clock.watch())
-        let request = self.request
         let task = Task { [client, request] in try await client.chat(request) }
-        while clock.count < 3 { await Task.yield() }
+        while clock.count < 3 { try await Task.sleep(for: .milliseconds(1)) }
         task.cancel()
         do {
-            _ = try await task.value
+            _ = try await within { try await task.value }
             XCTFail("expected a cancellation")
         } catch {
             XCTAssertTrue(error is CancellationError, "\(error)")
