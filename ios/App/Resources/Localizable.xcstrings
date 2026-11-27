@@ -1,6 +1,38 @@
 {
   "sourceLanguage": "en",
   "strings": {
+    "assistant.background.continuing": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Carrying on with the edit"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Prosegue con la modifica"
+          }
+        }
+      }
+    },
+    "assistant.background.title %@": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Editing %@"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Modifica di %@"
+          }
+        }
+      }
+    },
     "camera.aperture": {
       "localizations": {
         "en": {

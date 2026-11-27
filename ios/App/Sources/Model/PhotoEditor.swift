@@ -236,7 +236,7 @@ final class PhotoEditor {
         sending = text
         let port = EditorPort(editor: self)
         let transcript = transcript
-        start {
+        start(asked: true, about: text) {
             // The photo as the person sees it goes with the words, and is kept with them.
             let context = await port.context()
             var pictures: [PictureRef] = []
@@ -253,7 +253,7 @@ final class PhotoEditor {
     func continueRun() {
         guard !isWorking, account.isConnected, conversation.canContinue || conversation.wasInterrupted else { return }
         let transcript = transcript
-        start { _ = try await transcript.append(.resume(automatic: false)) }
+        start(asked: true, about: L10n.assistantContinuing) { _ = try await transcript.append(.resume(automatic: false)) }
     }
 
     /// Carries on with work the app was closed during, as soon as the photo is open again. Work
@@ -265,18 +265,21 @@ final class PhotoEditor {
             return
         }
         let transcript = transcript
-        start { _ = try await transcript.append(.resume(automatic: true)) }
+        start(asked: false, about: L10n.assistantContinuing) { _ = try await transcript.append(.resume(automatic: true)) }
     }
 
     /// Runs the assistant's loop on the transcript, once `prepare` has written what starts it.
-    private func start(_ prepare: @escaping @Sendable () async throws -> Void) {
+    /// `asked` is whether the person asked for it just now (it may then go on in the background);
+    /// `about` is what the system shows of it there, under the photo's name.
+    private func start(asked: Bool, about: String, _ prepare: @escaping @Sendable () async throws -> Void) {
         let client = modelClient()
         let model = account.activeModel
         let window = account.contextLength(of: model)
         let port = EditorPort(editor: self)
         let transcript = transcript
         let photo = document.id
-        background.begin()
+        background.onCancel = { [weak self] in self?.stop() }
+        background.begin(asked: asked, title: L10n.assistantBackgroundTitle(document.fileName), subtitle: about)
         task = Task {
             do {
                 try await prepare()
@@ -295,7 +298,7 @@ final class PhotoEditor {
     /// called when a run ends and when such a message is written with nobody working.
     private func followUp() {
         guard !isWorking, account.isConnected, conversation.halt == nil, !conversation.queued.isEmpty else { return }
-        start {}
+        start(asked: true, about: L10n.assistantContinuing) {}
     }
 
     private func finish() {
@@ -322,6 +325,7 @@ final class PhotoEditor {
         case .requesting, .running:
             retrying = nil
             summarizing = false
+            background.step()
         case .retrying(_, _, let message):
             retrying = message
         case .summarizing:

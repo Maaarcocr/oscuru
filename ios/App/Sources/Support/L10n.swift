@@ -114,6 +114,9 @@ enum L10n {
     static var cameraHoldStill: String { String(localized: "camera.holdStill") }
     static var cameraFramesFailed: String { String(localized: "camera.framesFailed") }
     static var cameraBracket: String { String(localized: "camera.bracket") }
+    /// What the system shows of the assistant working in the background: the photo's name, and below it what was asked.
+    static func assistantBackgroundTitle(_ photo: String) -> String { String(localized: "assistant.background.title \(photo)") }
+    static var assistantContinuing: String { String(localized: "assistant.background.continuing") }
     static var cameraBracketFocus: String { String(localized: "camera.bracket.focus") }
     static var cameraOn: String { String(localized: "camera.on") }
     static var cameraOff: String { String(localized: "camera.off") }
