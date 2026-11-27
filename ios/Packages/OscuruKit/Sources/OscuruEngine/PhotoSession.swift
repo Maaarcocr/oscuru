@@ -35,6 +35,11 @@ public final class PhotoSession {
   /// merged another way than the camera's, by `FrameMerge.Way.key`, the last used last.
   private var sources: [(key: String, source: RawSource)] = []
   private static let maxSources = 3
+  /// Merges are made one at a time across all photos: one onto a finer grid takes the best part
+  /// of a gigabyte while it is made.
+  private static let merging = NSLock()
+  /// Asks the engine for room before heavy work (bytes, what it is for); set by the engine.
+  var makeRoom: ((Int, String) throws -> Void)?
   /// How many merges other than the camera's are kept as files: older ones are made again when asked for.
   private static let maxMerges = 5
   /// What the kept merges may take together, in bytes.
@@ -206,6 +211,11 @@ public final class PhotoSession {
       if keep, let cached = source.developed, cached.key == key {
         image = cached.image
       } else {
+        // Frames merged onto a finer grid make a picture four times the sensor's, which the RAW
+        // decoder holds whole while it draws.
+        if let sensor = original?.size, source.size.width * source.size.height > 2 * sensor.width * sensor.height {
+          try makeRoom?(Int(source.size.width * source.size.height) * 24, "draw the frames merged onto a finer grid")
+        }
         filter.scaleFactor = Float(min(1, developScale * relative))
         // A merge that holds highlights above its base frame's white sits that much lower in its file.
         filter.exposure = Float(recipe.exposureEV) + source.brightening
@@ -319,6 +329,14 @@ public final class PhotoSession {
     return source
   }
 
+  /// Lets go of what is kept only to draw faster, all made again when needed (see `Engine.letGo`).
+  func letGo() {
+    original?.developed = nil
+    sources = []
+    analysisPicture = nil
+    selectionEncoding = nil
+  }
+
   /// The DNG a way of merging gives, made if it is not there.
   private func rawFile(for way: FrameMerge.Way, set: FrameSet) throws -> URL {
     let folder = url.deletingLastPathComponent()
@@ -344,6 +362,14 @@ public final class PhotoSession {
       return file
     }
     guard set.kept else { throw EngineError.cannotOpen("the frames are not kept") }
+    PhotoSession.merging.lock()
+    defer { PhotoSession.merging.unlock() }
+    // What it takes while it is made: the frames, the merged picture and its file as it is written.
+    let sensor = original?.size ?? size
+    let pixels = Int(sensor.width * sensor.height)
+    let picture = way.scale > 1 ? pixels * way.scale * way.scale * 3 * 2 : pixels * 2
+    letGo()
+    try makeRoom?(way.use.count * pixels * 2 + 2 * picture + 150_000_000, way.scale > 1 ? "merge these frames onto a finer grid" : "merge these frames")
     let result = try FrameMerging.merge(way, light: set.light) { try DNG.frame(of: Data(contentsOf: frame($0))) }
     // The base frame's own file, with the merged picture in place of its own.
     let base = try Data(contentsOf: frame(way.base))
@@ -376,12 +402,21 @@ public final class PhotoSession {
 
   /// What lining up and merging found of each frame a way uses, by frame number, making the merge
   /// if it is not there. Nil when the photo has no frames or they cannot be merged that way.
-  func frameReports(for way: FrameMerge.Way?) -> [Int: FrameReport]? {
+  func frameReports(for way: FrameMerge.Way?) throws -> [Int: FrameReport]? {
     guard let way, let set = frameSet else { return nil }
     if way.key == set.merge.key {
       return Dictionary(uniqueKeysWithValues: set.frames.enumerated().map { ($0.offset + 1, $0.element.report) }.filter { $0.0 != way.base })
     }
-    guard let file = try? rawFile(for: way, set: set) else { return nil }
+    let file: URL
+    do {
+      file = try rawFile(for: way, set: set)
+    } catch let error as EngineError {
+      // No room is said; frames gone or unreadable are no merge.
+      if case .notEnoughMemory = error { throw error }
+      return nil
+    } catch {
+      return nil
+    }
     guard !way.isSingle, let data = try? Data(contentsOf: file.deletingPathExtension().appendingPathExtension("json")),
       let reports = try? JSONDecoder().decode([String: FrameReport].self, from: data)
     else { return [:] }

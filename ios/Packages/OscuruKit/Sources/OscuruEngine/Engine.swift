@@ -4,6 +4,7 @@ import Foundation
 import ImageIO
 import OscuruCore
 import UniformTypeIdentifiers
+import os
 
 /// Opens photos and renders recipes with Core Image. Safe to call from any thread: each photo
 /// renders one thing at a time, and different photos render at the same time, so one photo's long
@@ -198,8 +199,43 @@ public final class Engine: @unchecked Sendable {
   /// Opens a photo under an id of the caller's choosing and reports what it is.
   public func open(id: String, url: URL) throws -> PhotoInfo {
     let session = try PhotoSession(url: url)
+    session.makeRoom = { [weak self] bytes, what in try self?.makeRoom(bytes, for: what) }
     lock.withLock { sessions[id] = session }
     return session.info
+  }
+
+  /// Lets go of what is kept only to draw faster, all of which is made again when needed: every
+  /// photo's developed previews and merged pictures (a photo drawing now keeps its own), and Core
+  /// Image's caches. For when memory runs short: iOS warning, or work that needs the room.
+  public func letGo() {
+    let open = lock.withLock { Array(sessions.values) }
+    for session in open where session.lock.try() {
+      session.letGo()
+      session.lock.unlock()
+    }
+    gpu.clearCaches()
+  }
+
+  /// How much more memory iOS lets the app take, in bytes; nil where the system does not say.
+  static var availableMemory: Int? {
+    #if os(iOS)
+      return Int(os_proc_available_memory())
+    #else
+      return nil
+    #endif
+  }
+
+  /// Kept free beside heavy work, for drawing and everything else the app does meanwhile.
+  static let headroom = 400_000_000
+
+  /// Makes room for `bytes` more before heavy work (`what`) starts: when memory is short, lets go of
+  /// what other photos keep; throws when even that leaves too little, so the work fails with a
+  /// reason instead of the app being ended mid-way.
+  func makeRoom(_ bytes: Int, for what: String) throws {
+    guard let available = Engine.availableMemory, available > 0, available < bytes + Engine.headroom else { return }
+    letGo()
+    guard let after = Engine.availableMemory, after < bytes + Engine.headroom else { return }
+    throw EngineError.notEnoughMemory(what, needed: bytes, available: after)
   }
 
   /// Closes a photo. A render of it already under way finishes first.

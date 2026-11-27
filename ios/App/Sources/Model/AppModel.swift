@@ -65,6 +65,8 @@ final class AppModel {
         // Diagnostics watch the connection and log from launch, not from the first time they are looked at.
         _ = Diagnostics.shared
         center.addObserver(forName: UIApplication.willEnterForegroundNotification, object: nil, queue: nil) { _ in engine.isInBackground = false }
+        // Short of memory: every photo lets go of what it keeps only to draw faster.
+        center.addObserver(forName: UIApplication.didReceiveMemoryWarningNotification, object: nil, queue: nil) { _ in engine.letGo() }
     }
 
     /// Set when something outside the app asks for its camera (see `CameraLaunch`); the library opens

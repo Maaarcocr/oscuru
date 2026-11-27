@@ -20,8 +20,9 @@ public protocol ScriptHost: AnyObject {
     func pixels(of state: EditingState) -> PixelBuffer?
     /// Merges a shot's frames the way these settings say (making the merge now if it is not kept
     /// already), and returns what lining each frame up found, by frame number. Nil when the photo's
-    /// frames cannot be merged that way (they are gone, or cannot be read).
-    func frameReports(of state: EditingState) -> [Int: FrameReport]?
+    /// frames cannot be merged that way (they are gone, or cannot be read); throws when they could
+    /// be but not now (no room in memory), saying why.
+    func frameReports(of state: EditingState) throws -> [Int: FrameReport]?
     func styleNames() -> [String]
     func style(named name: String) -> Style?
     /// Saves the look of the photo with these settings as a style, replacing one of the same name.

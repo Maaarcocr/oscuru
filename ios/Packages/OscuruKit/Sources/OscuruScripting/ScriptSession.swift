@@ -89,7 +89,13 @@ final class ScriptSession {
             var next = draft
             try next.setFrames(argument(0), count: set.frames.count)
             // Merged now, so that the script learns at once what it gave (and whether it could be done).
-            guard let reports = host.frameReports(of: next), let way = next.frames?.way else {
+            let found: [Int: FrameReport]?
+            do {
+                found = try host.frameReports(of: next)
+            } catch {
+                throw Failure(message: "The frames could not be merged that way: \(error)")
+            }
+            guard let reports = found, let way = next.frames?.way else {
                 throw Failure(message: "The frames could not be merged that way: one of them could not be read.")
             }
             draft = next

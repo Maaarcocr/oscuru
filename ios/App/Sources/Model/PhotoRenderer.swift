@@ -89,8 +89,8 @@ final class PhotoRenderer: ScriptHost, @unchecked Sendable {
         try? engine.displayPixels(id: id, recipe: recipe(state))
     }
 
-    func frameReports(of state: EditingState) -> [Int: FrameReport]? {
-        (try? engine.frameReports(id: id, recipe: recipe(state))) ?? nil
+    func frameReports(of state: EditingState) throws -> [Int: FrameReport]? {
+        try engine.frameReports(id: id, recipe: recipe(state))
     }
 
     func styleNames() -> [String] { styles.styles.map(\.name) }
