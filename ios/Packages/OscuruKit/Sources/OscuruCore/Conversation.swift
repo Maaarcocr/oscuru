@@ -46,7 +46,7 @@ public struct Conversation: Sendable {
     /// The pictures still sent to the model; the others get a note in their place.
     public let keptPictures: Set<String>
 
-    public init(_ entries: [TranscriptEntry]) {
+    public init(_ entries: [TranscriptEntry], pictureLimits: PictureLimits = .standard) {
         self.entries = entries
         var placed: [TranscriptEntry] = []
         var waiting: [String: TranscriptEntry] = [:]
@@ -136,42 +136,79 @@ public struct Conversation: Sendable {
             start = 0
         }
 
-        // Pictures: what the person sent since the latest instruction (the photo as it was, and
-        // anything they attached), and the latest few rounds of scripts' pictures, which show the
-        // photo as it is now and the steps just before. Older ones are let go: the model is told
-        // a picture was there, and can look again.
-        let sent = placed[min(start, placed.count)...]
-        let runIndex = runStart.flatMap { id in sent.firstIndex { $0.id == id } } ?? sent.endIndex
-        var kept = Set<String>()
-        for entry in sent[runIndex...] {
-            if case .user(let user) = entry.body { kept.formUnion(user.pictures.map(\.file)) }
+        keptPictures = Conversation.keptPictures(placed, from: start, limits: pictureLimits)
+    }
+
+    /// How many pictures a request may carry before the oldest are let go, and how far down they
+    /// are then cut. A request repeats everything before it word for word, so the provider's
+    /// prompt cache serves all of it at a fraction of the price; taking a picture out of the
+    /// middle changes everything after it, which is then paid for in full again. So pictures are
+    /// let go rarely and many at once: only when a request would pass `maxBytes` or `maxCount`,
+    /// and then down to `keptBytes` and `keptCount`, which leaves room for many steps before the
+    /// next cut.
+    public struct PictureLimits: Equatable, Sendable {
+        /// Written out (base64). Providers refuse requests past a size of their own (Anthropic's
+        /// is 32 MB), and every request is uploaded whole.
+        public var maxBytes: Int
+        public var keptBytes: Int
+        /// Anthropic takes at most 100 pictures in a request.
+        public var maxCount: Int
+        public var keptCount: Int
+
+        public init(maxBytes: Int, keptBytes: Int, maxCount: Int, keptCount: Int) {
+            self.maxBytes = maxBytes
+            self.keptBytes = keptBytes
+            self.maxCount = maxCount
+            self.keptCount = keptCount
         }
-        var rounds = 0
-        var index = sent.endIndex
-        while index > sent.startIndex, rounds < Conversation.recentRounds {
-            index -= 1
-            guard case .toolResult = sent[index].body, !Conversation.pictures(of: sent[index]).isEmpty else { continue }
-            // A round's pictures come with each of its reports.
-            var earlier = index
-            while earlier > sent.startIndex, case .toolResult = sent[earlier - 1].body { earlier -= 1 }
-            var later = index
-            while later + 1 < sent.endIndex, case .toolResult = sent[later + 1].body { later += 1 }
-            for report in sent[earlier...later] { kept.formUnion(Conversation.pictures(of: report).map(\.file)) }
-            rounds += 1
-            index = earlier
-        }
-        // Before any script has shown anything, the latest pictures from before the instruction.
-        if rounds == 0 {
-            var index = runIndex
-            while index > sent.startIndex {
-                index -= 1
-                let pictures = Conversation.pictures(of: sent[index])
-                guard !pictures.isEmpty else { continue }
-                kept.formUnion(pictures.map(\.file))
-                break
+
+        public static let standard = PictureLimits(maxBytes: 16_000_000, keptBytes: 8_000_000, maxCount: 80, keptCount: 40)
+    }
+
+    /// A picture's size for the limits, written out: from its record, or a typical size for
+    /// records too old to say.
+    static func sentSize(_ ref: PictureRef) -> Int { ((ref.bytes ?? 250_000) + 2) / 3 * 4 }
+
+    /// The pictures the next request carries: every one from the first kept record on. Where
+    /// that record is gets worked out by going through the requests already made in order, so it
+    /// moves only where it moved for them, and the requests before and after a step differ only
+    /// by what the step added.
+    static func keptPictures(_ placed: [TranscriptEntry], from start: Int, limits: PictureLimits) -> Set<String> {
+        let start = min(start, placed.count)
+        var floor = start
+        var bytes = 0
+        var count = 0
+        var next = start
+        func cut(before end: Int) {
+            // Everything from where the latest message or answer stands stays: that is what the model is asked about.
+            var latest = end - 1
+            while latest > floor {
+                if case .user = placed[latest].body { break }
+                if case .assistant = placed[latest].body { break }
+                latest -= 1
+            }
+            while floor < latest, bytes > limits.keptBytes || count > limits.keptCount {
+                let pictures = pictures(of: placed[floor])
+                bytes -= pictures.reduce(0) { $0 + sentSize($1) }
+                count -= pictures.count
+                floor += 1
             }
         }
-        keptPictures = kept
+        // A request went out before each answer, holding what came before it; the next one holds everything.
+        let ends = placed.indices.filter { index in
+            guard index >= start, case .assistant = placed[index].body else { return false }
+            return true
+        } + [placed.count]
+        for end in ends {
+            while next < end {
+                let pictures = pictures(of: placed[next])
+                bytes += pictures.reduce(0) { $0 + sentSize($1) }
+                count += pictures.count
+                next += 1
+            }
+            if bytes > limits.maxBytes || count > limits.maxCount { cut(before: end) }
+        }
+        return Set(placed[floor...].flatMap { pictures(of: $0).map(\.file) })
     }
 
     static func pictures(of entry: TranscriptEntry) -> [PictureRef] {
@@ -203,9 +240,7 @@ public struct Conversation: Sendable {
     static let summaryPreface = "[A summary of the conversation before this point, written when it grew too long to send in full.]"
     static let picturesNote = "[Pictures from the phone for the script above.]"
     static let removedPictureNote =
-        "[An earlier picture was here. Only the pictures of the latest few steps are kept; later pictures show the photo as it is now. To see something again, show it again.]"
-    /// How many rounds of scripts' pictures are sent: the latest, and the few before it to compare with.
-    static let recentRounds = 3
+        "[An earlier picture was here. Older pictures are let go now and then, many at once, to keep requests small; later pictures show the photo as it is now. To see something again, show it again.]"
     static let resumedNote =
         "[The app closed while you were working and has been opened again. Carry on from where you were. The script REPL started afresh, so variables from earlier scripts are gone; the photo's settings are as the latest report says.]"
     static let notRunPayload: JSONValue = [
@@ -213,25 +248,15 @@ public struct Conversation: Sendable {
         "error": ["message": "This script did not run: you were stopped, or the app closed, before it started. Nothing was applied."],
     ]
 
-    /// How much of a request the pictures may take, written out (base64). Providers refuse a
-    /// request past a size of their own (Google's is 20 MB), and a long run that looked at the
-    /// photo at every step reaches it: past this, the oldest are let go.
-    public static let pictureBytes = 12_000_000
-
     /// The messages for the next request, in the Chat Completions shape. A failed attempt is left
-    /// out; a script that never reported gets a report saying so; pictures that were let go get
-    /// a note. Of the pictures kept, the newest are sent, as many as fit in `pictureBytes`.
-    public func messages(system: String, pictureBytes: Int = Conversation.pictureBytes, picture: (PictureRef) -> Data?) -> [JSONValue] {
-        // The newest pictures first, until the room is used up.
+    /// out; a script that never reported gets a report saying so; pictures that were let go (or
+    /// whose file is gone) get a note. Everything a request holds is in the next one unchanged,
+    /// as long as no pictures are let go, so the provider's prompt cache keeps serving it.
+    public func messages(system: String, picture: (PictureRef) -> Data?) -> [JSONValue] {
         var sent: [String: Data] = [:]
-        var room = pictureBytes
-        newest: for entry in placed[min(start, placed.count)...].reversed() {
-            for ref in Conversation.pictures(of: entry).reversed() where keptPictures.contains(ref.file) && sent[ref.file] == nil {
-                guard let jpeg = picture(ref) else { continue }
-                let size = (jpeg.count + 2) / 3 * 4
-                guard size <= room else { break newest }
-                room -= size
-                sent[ref.file] = jpeg
+        for entry in placed[min(start, placed.count)...] {
+            for ref in Conversation.pictures(of: entry) where keptPictures.contains(ref.file) {
+                if let jpeg = picture(ref) { sent[ref.file] = jpeg }
             }
         }
         var out: [JSONValue] = [["role": "system", "content": .string(system)]]

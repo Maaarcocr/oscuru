@@ -149,9 +149,16 @@ final class AgentTests: XCTestCase {
         let last = model.requests.last!
         XCTAssertNil(last.json["max_tokens"])
         XCTAssertEqual(last.json["tool_choice"], "auto")
-        // The opening picture, and the latest rounds' pictures; the older ones are notes.
-        XCTAssertEqual(images(last.messages), 1 + Conversation.recentRounds * 2)
-        XCTAssertEqual(last.messages.flatMap(parts).filter { $0["text"]?.stringValue == Conversation.removedPictureNote }.count, (40 - Conversation.recentRounds) * 2)
+        // 81 pictures in all: past the most a request may carry, the older ones became notes, all at once.
+        let limits = Conversation.PictureLimits.standard
+        XCTAssertLessThanOrEqual(images(last.messages), limits.maxCount)
+        XCTAssertGreaterThanOrEqual(images(last.messages), limits.keptCount)
+        XCTAssertEqual(images(last.messages) + last.messages.flatMap(parts).filter { $0["text"]?.stringValue == Conversation.removedPictureNote }.count, 81)
+        // Every request repeats the one before it word for word, so the prompt cache serves it, but for that one cut.
+        let changed = zip(model.requests, model.requests.dropFirst()).filter { earlier, later in
+            later.messages.count < earlier.messages.count || Array(later.messages.prefix(earlier.messages.count)) != earlier.messages
+        }
+        XCTAssertEqual(changed.count, 1)
         XCTAssertEqual(last.messages.first { $0["role"] == "assistant" }?["reasoning_details"], [["type": "reasoning.encrypted", "data": "opaque"]])
     }
 
@@ -186,6 +193,21 @@ final class AgentTests: XCTestCase {
         let thread = await turns(transcript)
         XCTAssertEqual(thread[0].status, .done)
         XCTAssertEqual(thread[0].messages, ["Done."])
+    }
+
+    func testAConnectionThatKeepsFailingIsNeverGivenUpOn() async throws {
+        let transcript = try Transcript(folder: folder)
+        try await instruct(transcript)
+        var replies: [FakeModel.Reply] = (0..<8).map { index in
+            { _ in throw ModelError(.network, index.isMultiple(of: 2) ? "The network connection was lost." : StreamWatch.quietMessage) }
+        }
+        replies.append { _ in note("Done at last.") }
+        let sleeps = Sleeps()
+        try await run(transcript, FakeModel(replies), sleeps: sleeps)
+        XCTAssertEqual(sleeps.delays, [2, 4, 8, 16, 30, 30, 30, 30])
+        let thread = await turns(transcript)
+        XCTAssertEqual(thread[0].status, .done)
+        XCTAssertEqual(thread[0].messages, ["Done at last."])
     }
 
     func testAFailureThatDoesNotPassEndsTheRunAndContinuePicksItUp() async throws {
@@ -308,40 +330,54 @@ final class AgentTests: XCTestCase {
         XCTAssertEqual(thread[1].messages, ["Kept the sky blue."])
     }
 
-    func testAnotherInstructionSendsOnlyTheLatestEarlierPicturesAndPrunesTheRest() async throws {
+    func testAnotherInstructionRepeatsEverythingBeforeItSoTheCacheHolds() async throws {
         let transcript = try Transcript(folder: folder)
         try await instruct(transcript, "First")
-        try await run(transcript, FakeModel([{ _ in toolCall("c1", code: "1") }, { _ in note("First done.") }]))
+        let first = FakeModel([{ _ in toolCall("c1", code: "1") }, { _ in note("First done.") }])
+        try await run(transcript, first)
         try await instruct(transcript, "Second")
         let model = FakeModel([{ _ in note("Second done.") }])
         try await run(transcript, model)
         let messages = model.requests[0].messages
-        // The first opening picture is a note now; the last before/after pair and the new opening stay.
-        XCTAssertEqual(images(messages), 3)
-        XCTAssertTrue(messages.flatMap(parts).contains { $0["text"]?.stringValue == Conversation.removedPictureNote })
-        await transcript.prune()
-        XCTAssertEqual(try FileManager.default.contentsOfDirectory(atPath: folder.appending(path: "pictures").path).count, 4, "recent pictures stay")
+        // Both openings and the script's before and after: nothing let go, nothing changed.
+        XCTAssertEqual(images(messages), 4)
+        let earlier = first.requests[1].messages
+        XCTAssertEqual(Array(messages.prefix(earlier.count)), earlier)
         await transcript.prune(keepingNewerThan: -1)
-        let files = try FileManager.default.contentsOfDirectory(atPath: folder.appending(path: "pictures").path)
-        XCTAssertEqual(files.count, 3)
+        XCTAssertEqual(try FileManager.default.contentsOfDirectory(atPath: folder.appending(path: "pictures").path).count, 4, "every picture is still sent")
     }
 
-    func testPicturesOfALongRunAreSentNewestFirstWithinTheirRoom() async throws {
+    func testPicturesAreLetGoRarelyAndManyAtOnce() async throws {
         let transcript = try Transcript(folder: folder)
         try await instruct(transcript, "Many steps")
-        try await run(transcript, FakeModel([{ _ in toolCall("c1", code: "1") }, { _ in toolCall("c2", code: "2") }, { _ in note("Done.") }]))
-        let conversation = Conversation(await transcript.entries)
-        func urls(_ messages: [JSONValue]) -> [String] {
-            messages.flatMap(parts).compactMap { $0["image_url"]?["url"]?.stringValue }
+        let rounds = 30
+        var replies: [FakeModel.Reply] = (0..<rounds).map { index in { _ in toolCall("c\(index)", code: "1") } }
+        replies.append { _ in note("Done.") }
+        try await run(transcript, FakeModel(replies))
+        let entries = await transcript.entries
+        XCTAssertEqual(entries.compactMap { entry -> Int? in
+            if case .toolResult(let result) = entry.body { return result.pictures.first?.bytes }
+            return nil
+        }.first, 1, "a picture's size is written with it")
+        // Each picture here is 1 byte, 4 written out: at most 40 bytes, cut down to 20 when passed.
+        let limits = Conversation.PictureLimits(maxBytes: 40, keptBytes: 20, maxCount: 1000, keptCount: 1000)
+        var requests: [[JSONValue]] = []
+        for (index, entry) in entries.enumerated() {
+            guard case .assistant = entry.body else { continue }
+            requests.append(Conversation(Array(entries[..<index]), pictureLimits: limits).messages(system: "s", picture: transcript.picture))
         }
-        let all = urls(conversation.messages(system: "s", picture: transcript.picture))
-        XCTAssertGreaterThan(all.count, 2, "the opening and both rounds' pictures go, while they fit")
-        // Room for the newest alone.
-        let newest = all.last!.count - "data:image/jpeg;base64,".count
-        let one = conversation.messages(system: "s", pictureBytes: newest, picture: transcript.picture)
-        XCTAssertEqual(urls(one), [all.last!], "past the room, the newest")
-        XCTAssertEqual(one.flatMap(parts).filter { $0["text"]?.stringValue == Conversation.removedPictureNote }.count, all.count - 1)
-        XCTAssertTrue(urls(conversation.messages(system: "s", pictureBytes: newest - 1, picture: transcript.picture)).isEmpty)
+        func sent(_ messages: [JSONValue]) -> Int { messages.flatMap(parts).filter { $0["type"] == "image_url" }.count }
+        var cuts = 0
+        for (earlier, later) in zip(requests, requests.dropFirst()) {
+            if Array(later.prefix(earlier.count)) != earlier { cuts += 1 }
+        }
+        // 61 pictures, 10 at most and 5 after a cut, 2 more each step: a cut every third step or so, not every step.
+        XCTAssertGreaterThan(cuts, 5)
+        XCTAssertLessThan(cuts, rounds / 2)
+        for messages in requests { XCTAssertLessThanOrEqual(sent(messages), 10) }
+        // The pictures of the latest step always go.
+        let last = try XCTUnwrap(requests.last)
+        XCTAssertEqual(last.last.map(parts)?.filter { $0["type"] == "image_url" }.count, 2)
     }
 
     func testALongConversationIsSummarizedAndTheModelSeesTheSummaryInstead() async throws {
@@ -496,9 +532,29 @@ final class OpenRouterTests: XCTestCase {
         XCTAssertNil(body["max_tokens"])
         XCTAssertEqual(body["parallel_tool_calls"], false)
         XCTAssertEqual(body["session_id"], "photo-1")
-        XCTAssertEqual(body["cache_control"], ["type": "ephemeral"])
-        let other = ChatRequest(model: "google/gemini-4-carbon", messages: [], tools: []).json
-        XCTAssertNil(other["cache_control"])
+        XCTAssertNil(body["cache_control"])
+        XCTAssertNil(body["stream"], "without a stream transport the answer comes whole")
+    }
+
+    func testClaudeRequestsMarkWhereTheCacheEndsAndOthersAreLeftAlone() {
+        let messages: [JSONValue] = [
+            ["role": "system", "content": "Instructions"],
+            ["role": "user", "content": [["type": "text", "text": "Make it cinematic"], ["type": "image_url", "image_url": ["url": "data:x"]]]],
+            ["role": "assistant", "content": .null, "tool_calls": []],
+            ["role": "tool", "tool_call_id": "c1", "content": "{}"],
+            ["role": "user", "content": [["type": "text", "text": "[Pictures]"], ["type": "text", "text": "After:"], ["type": "image_url", "image_url": ["url": "data:y"]]]],
+        ]
+        let marked = ChatRequest(model: "anthropic/claude-opus-5.5", messages: messages, tools: []).json["messages"]?.arrayValue ?? []
+        XCTAssertEqual(marked[0]["content"], [["type": "text", "text": "Instructions", "cache_control": ["type": "ephemeral", "ttl": "1h"]]])
+        // Where the request before this one ended, and where this one ends.
+        XCTAssertEqual(marked[1]["content"]?.arrayValue?[0]["cache_control"], ["type": "ephemeral"])
+        XCTAssertNil(marked[1]["content"]?.arrayValue?[1]["cache_control"])
+        XCTAssertNil(marked[4]["content"]?.arrayValue?[0]["cache_control"])
+        XCTAssertEqual(marked[4]["content"]?.arrayValue?[1]["cache_control"], ["type": "ephemeral"])
+        XCTAssertEqual(marked[2], messages[2])
+        XCTAssertEqual(marked[3], messages[3])
+        XCTAssertEqual(marked.flatMap { $0["content"]?.arrayValue ?? [] }.filter { $0["cache_control"] != nil }.count, 3, "within Anthropic's four")
+        XCTAssertEqual(ChatRequest(model: "openai/gpt-6.2-sol", messages: messages, tools: []).json["messages"], .array(messages))
     }
 
     func testStatusCodesBecomeErrorKindsWithTheProvidersMessage() async {

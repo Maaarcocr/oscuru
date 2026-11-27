@@ -12,7 +12,7 @@ struct OscuruApp: App {
             let secrets = MemorySecrets(["openrouter-key": "sk-or-v1-test", "openrouter-user": "ui-test"])
             _model = State(initialValue: AppModel(root: UITesting.root, secrets: secrets, transport: UITesting.transport, scriptedModel: ScriptedModel()))
         } else {
-            _model = State(initialValue: AppModel(root: URL.documentsDirectory.appending(path: "Oscuru", directoryHint: .isDirectory), secrets: KeychainSecrets(), transport: Network.transport))
+            _model = State(initialValue: AppModel(root: URL.documentsDirectory.appending(path: "Oscuru", directoryHint: .isDirectory), secrets: KeychainSecrets(), transport: Network.transport, stream: Network.stream))
         }
     }
 

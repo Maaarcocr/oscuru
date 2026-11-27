@@ -290,7 +290,9 @@ final class PhotoEditor {
         task = Task {
             do {
                 try await prepare()
-                try await Agent.run(transcript: transcript, client: client, model: model, contextWindow: window, port: port, sessionID: photo) { event in
+                try await Agent.run(
+                    transcript: transcript, client: client, model: model, contextWindow: window, port: port, sessionID: photo, sleep: Network.pause
+                ) { event in
                     await self.handle(event)
                 }
             } catch {

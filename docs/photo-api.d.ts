@@ -38,7 +38,7 @@ interface PhotoEditor {
    *              (see `photo.current.frames`)
    * `region` zooms in on part of the frame, given as fractions from its top-left corner, to
    * judge detail, noise, skin or edges. `maxEdge` is the long edge in pixels (default 1024,
-   * up to 2048).
+   * up to 2000).
    *
    * You do not need this for the usual case: whenever a script changes the photo, the reply
    * already includes it before your edits and as it is now.

@@ -5,10 +5,14 @@ import Foundation
 public struct PictureRef: Codable, Equatable, Sendable {
     public var label: String
     public var file: String
+    /// The JPEG's size, written when it was kept: which pictures a request carries is worked out
+    /// from these, so it never changes when files are deleted. Older records have none.
+    public var bytes: Int?
 
-    public init(label: String, file: String) {
+    public init(label: String, file: String, bytes: Int? = nil) {
         self.label = label
         self.file = file
+        self.bytes = bytes
     }
 }
 
@@ -316,7 +320,7 @@ public actor Transcript {
         try FileManager.default.createDirectory(at: picturesFolder, withIntermediateDirectories: true)
         let name = "\(UUID().uuidString.lowercased()).jpg"
         try picture.jpeg.write(to: picturesFolder.appending(path: name), options: .atomic)
-        return PictureRef(label: picture.label, file: name)
+        return PictureRef(label: picture.label, file: name, bytes: picture.jpeg.count)
     }
 
     /// A kept picture, or nil once it has been let go.

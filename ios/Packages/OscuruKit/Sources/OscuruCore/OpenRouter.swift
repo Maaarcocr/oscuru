@@ -27,6 +27,99 @@ public struct HTTPResponse: Sendable {
 
 public typealias HTTPTransport = @Sendable (HTTPRequest) async throws -> HTTPResponse
 
+/// A response whose body is read as it arrives: its status, and its lines one by one.
+public struct HTTPStreamResponse: Sendable {
+    public var status: Int
+    public var lines: AsyncThrowingStream<String, Error>
+
+    public init(status: Int, lines: AsyncThrowingStream<String, Error>) {
+        self.status = status
+        self.lines = lines
+    }
+}
+
+/// Sends a request and hands back its body line by line. `progress` is called while the request
+/// itself is being uploaded (a request with pictures takes a while), so the upload counts as the
+/// connection being alive.
+public typealias HTTPStreamTransport = @Sendable (HTTPRequest, _ progress: @escaping @Sendable () -> Void) async throws -> HTTPStreamResponse
+
+/// How a streamed request notices that its connection died without saying so. iOS suspends the
+/// app when it leaves the screen without a background task, and the network can change under
+/// it (Wi-Fi to cellular); a connection cut that way often never reports an error, and the
+/// request would wait for ever. So after either (the app suspended, which shows as a long gap
+/// between two looks of the watch, or the network changing, which the app reports), the
+/// connection has `grace` seconds to show it is alive (any byte: the answer, or OpenRouter's
+/// keep-alive comments); if it does not, the request fails as a network failure and is sent again.
+///
+/// Nothing else ends a request: there is no limit on how long the model may think or write.
+public struct StreamWatch: Sendable {
+    /// How often the watch looks, in seconds.
+    public var tick: Double
+    /// A gap between two looks longer than this means the app was suspended in between.
+    public var suspendedAfter: Double
+    /// How long a connection has to show it is alive after the app was suspended or the network changed.
+    public var grace: Double
+    /// When the network last changed, as the app saw it.
+    public var lastDisruption: @Sendable () -> Date?
+    public var now: @Sendable () -> Date
+    public var sleep: @Sendable (Double) async throws -> Void
+
+    public init(
+        tick: Double = 1, suspendedAfter: Double = 15, grace: Double = 20, lastDisruption: @escaping @Sendable () -> Date? = { nil },
+        now: @escaping @Sendable () -> Date = { Date() }, sleep: @escaping @Sendable (Double) async throws -> Void = { try await Task.sleep(for: .seconds($0)) }
+    ) {
+        self.tick = tick
+        self.suspendedAfter = suspendedAfter
+        self.grace = grace
+        self.lastDisruption = lastDisruption
+        self.now = now
+        self.sleep = sleep
+    }
+
+    static let quietMessage = "The connection went quiet after the app was away or the network changed; sending again"
+
+    /// When the connection last showed it was alive.
+    final class Activity: @unchecked Sendable {
+        private let lock = NSLock()
+        private var latest: Date
+
+        init(_ date: Date) { latest = date }
+
+        func touch(_ date: Date) {
+            lock.lock()
+            latest = max(latest, date)
+            lock.unlock()
+        }
+
+        var last: Date {
+            lock.lock()
+            defer { lock.unlock() }
+            return latest
+        }
+    }
+
+    /// Returns only by throwing: a network failure once the connection is found dead, or the
+    /// cancellation that ends it when the request is over.
+    func watch(_ activity: Activity) async throws {
+        var previous = now()
+        var disruption: Date?
+        while true {
+            try await sleep(tick)
+            try Task.checkCancellation()
+            let current = now()
+            if current.timeIntervalSince(previous) > suspendedAfter { disruption = current }
+            previous = current
+            if let reported = lastDisruption(), reported > (disruption ?? .distantPast), reported > activity.last { disruption = reported }
+            guard let since = disruption else { continue }
+            if activity.last >= since {
+                disruption = nil
+            } else if current.timeIntervalSince(since) > grace {
+                throw ModelError(.network, StreamWatch.quietMessage)
+            }
+        }
+    }
+}
+
 public struct ModelError: Error, Equatable, Sendable {
     public enum Kind: String, Codable, Equatable, Sendable {
         case unauthorized, payment, rateLimit, badRequest, server, network, invalidResponse
@@ -118,7 +211,7 @@ public struct ChatRequest: Sendable {
     public var json: JSONValue {
         var body: [String: JSONValue] = [
             "model": .string(model),
-            "messages": .array(messages),
+            "messages": .array(model.hasPrefix("anthropic/") ? ChatRequest.markedForCaching(messages) : messages),
         ]
         if !tools.isEmpty {
             body["tools"] = .array(tools)
@@ -126,9 +219,36 @@ public struct ChatRequest: Sendable {
             body["parallel_tool_calls"] = false
         }
         if let sessionID { body["session_id"] = .string(sessionID) }
-        // Anthropic models cache the prompt only when asked to.
-        if model.hasPrefix("anthropic/") { body["cache_control"] = ["type": "ephemeral"] }
         return .object(body)
+    }
+
+    /// Anthropic's models cache a prompt only up to the places a request marks, and look for an
+    /// earlier cache only a short way back from each mark. So three are marked: the end of the
+    /// instructions, the same for every photo and kept for an hour; the end of the request before
+    /// this one (where the latest answer starts), which that request cached; and the end of this
+    /// one, for the next. Marks go on the last text of a message from the person or the phone.
+    static func markedForCaching(_ messages: [JSONValue]) -> [JSONValue] {
+        var out = messages
+        if let first = out.first, first["role"] == "system", let text = first["content"]?.stringValue {
+            out[0] = ["role": "system", "content": [["type": "text", "text": .string(text), "cache_control": ["type": "ephemeral", "ttl": "1h"]]]]
+        }
+        var marks: [Int] = []
+        if let last = out.lastIndex(where: { $0["role"] == "user" }) { marks.append(last) }
+        if let answer = out.lastIndex(where: { $0["role"] == "assistant" }), let before = out[..<answer].lastIndex(where: { $0["role"] == "user" }),
+            !marks.contains(before)
+        {
+            marks.append(before)
+        }
+        for index in marks {
+            guard var message = out[index].objectValue else { continue }
+            var parts = message["content"]?.stringValue.map { [JSONValue.object(["type": "text", "text": .string($0)])] } ?? message["content"]?.arrayValue ?? []
+            guard let last = parts.lastIndex(where: { $0["type"] == "text" }), var part = parts[last].objectValue else { continue }
+            part["cache_control"] = ["type": "ephemeral"]
+            parts[last] = .object(part)
+            message["content"] = .array(parts)
+            out[index] = .object(message)
+        }
+        return out
     }
 }
 
@@ -189,16 +309,26 @@ public struct OpenRouter: ModelClient {
 
     let apiKey: String?
     let transport: HTTPTransport
+    /// When given, answers are streamed: read as they are written, so a dead connection can be
+    /// told from a model that is still thinking.
+    let stream: HTTPStreamTransport?
+    let watch: StreamWatch
 
-    public init(apiKey: String?, transport: @escaping HTTPTransport) {
+    public init(apiKey: String?, transport: @escaping HTTPTransport, stream: HTTPStreamTransport? = nil, watch: StreamWatch = StreamWatch()) {
         self.apiKey = apiKey
         self.transport = transport
+        self.stream = stream
+        self.watch = watch
     }
 
-    func send(_ method: String, _ path: String, body: JSONValue? = nil) async throws -> JSONValue {
+    var headers: [String: String] {
         var headers = OpenRouter.appHeaders
         headers["Content-Type"] = "application/json"
         if let apiKey { headers["Authorization"] = "Bearer \(apiKey)" }
+        return headers
+    }
+
+    func send(_ method: String, _ path: String, body: JSONValue? = nil) async throws -> JSONValue {
         let request = HTTPRequest(method: method, url: OpenRouter.base + path, headers: headers, body: body.map { Data($0.text().utf8) })
         let response: HTTPResponse
         do {
@@ -226,6 +356,7 @@ public struct OpenRouter: ModelClient {
 
     public func chat(_ request: ChatRequest) async throws -> ChatResponse {
         // Failures are not retried here: the agent's loop tries again, and says so on screen.
+        if let stream { return try await streamed(request, stream) }
         let json = try await send("POST", "/chat/completions", body: request.json)
         guard let message = json["choices"]?.arrayValue?.first?["message"], message.objectValue != nil else {
             throw ModelError(.invalidResponse, "OpenRouter returned no message")

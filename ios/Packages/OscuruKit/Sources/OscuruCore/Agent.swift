@@ -62,19 +62,28 @@ public enum AgentEvent: Sendable {
     case summarizing
 }
 
-/// How often and how patiently a failed request is tried again: after 2, 4 and 8 seconds.
+/// How often and how patiently a failed request is tried again: after 2, 4 and 8 seconds, then
+/// given up on. A request that failed because the connection did (the phone offline, the app
+/// suspended, the network changing) is never given up on: it is tried again for as long as it
+/// takes, every `maxDelay` seconds at most, and the app's `sleep` wakes early when the app is back
+/// on screen or the network is back.
 public struct RetryPolicy: Sendable {
     public var attempts: Int
     public var baseDelay: Double
     public var maxDelay: Double
 
-    public init(attempts: Int = 3, baseDelay: Double = 2, maxDelay: Double = 60) {
+    public init(attempts: Int = 3, baseDelay: Double = 2, maxDelay: Double = 30) {
         self.attempts = attempts
         self.baseDelay = baseDelay
         self.maxDelay = maxDelay
     }
 
-    public func delay(attempt: Int) -> Double { min(baseDelay * pow(2, Double(max(0, attempt - 1))), maxDelay) }
+    public func delay(attempt: Int) -> Double { min(baseDelay * pow(2, Double(min(30, max(0, attempt - 1)))), maxDelay) }
+
+    /// Whether a failure is tried again after `attempt` tries so far.
+    public func retries(_ failure: ModelError, after attempt: Int) -> Bool {
+        failure.isTransient && (attempt < attempts || failure.kind == .network)
+    }
 }
 
 /// The assistant's loop. It reads the transcript, does the one thing the conversation asks for
@@ -163,7 +172,7 @@ public enum Agent {
                         if (try? await summarize(conversation, transcript: transcript, client: client, model: model, sessionID: sessionID)) == true { continue }
                         if Task.isCancelled { continue }
                     }
-                    if failure.isTransient, attempt < retry.attempts {
+                    if retry.retries(failure, after: attempt) {
                         attempt += 1
                         let delay = retry.delay(attempt: attempt)
                         try await transcript.append(.failure(.init(kind: failure.kind, message: failure.message, status: failure.status, retrying: true, delay: delay)))

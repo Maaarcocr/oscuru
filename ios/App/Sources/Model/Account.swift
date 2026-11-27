@@ -14,7 +14,7 @@ import SwiftUI
 @Observable
 final class Account {
     /// Tried in order; the first one OpenRouter currently offers is used until the person picks another.
-    static let preferredModels = ["anthropic/claude-sonnet-5.5", "anthropic/claude-sonnet-5", "google/gemini-4-carbon", "openai/gpt-6.1-terra"]
+    static let preferredModels = ["anthropic/claude-sonnet-5.5", "anthropic/claude-sonnet-5", "openai/gpt-6.2-sol", "openai/gpt-6.1-terra"]
 
     private(set) var apiKey: String?
     /// A stable name for whoever pays: usage is recorded per user.
@@ -29,6 +29,8 @@ final class Account {
     private let secrets: SecretStore
     private let folder: URL?
     private let transport: HTTPTransport
+    /// Streams the model's answers; nil where answers come whole (the UI tests' scripted model).
+    private let stream: HTTPStreamTransport?
     /// Kept between opening OpenRouter's page and getting a code back, including a code typed in by hand.
     private var pendingVerifier: String?
 
@@ -36,10 +38,11 @@ final class Account {
         var model: String?
     }
 
-    init(secrets: SecretStore, folder: URL?, transport: @escaping HTTPTransport) {
+    init(secrets: SecretStore, folder: URL?, transport: @escaping HTTPTransport, stream: HTTPStreamTransport? = nil) {
         self.secrets = secrets
         self.folder = folder
         self.transport = transport
+        self.stream = stream
         apiKey = secrets.read("openrouter-key")
         user = secrets.read("openrouter-user")
         if let folder {
@@ -61,7 +64,7 @@ final class Account {
         return Account.preferredModels.first { offered.contains($0) } ?? Account.preferredModels[0]
     }
 
-    func client() -> OpenRouter { OpenRouter(apiKey: apiKey, transport: transport) }
+    func client() -> OpenRouter { OpenRouter(apiKey: apiKey, transport: transport, stream: stream, watch: Connection.watch) }
 
     private func saveSettings() {
         guard let folder, let data = try? JSONEncoder().encode(Settings(model: chosenModel)) else { return }

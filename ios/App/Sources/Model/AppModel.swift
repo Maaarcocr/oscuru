@@ -42,11 +42,11 @@ final class AppModel {
         UserDefaults.standard.set(shown, forKey: AppModel.onScreenKey)
     }
 
-    init(root: URL, secrets: SecretStore, transport: @escaping HTTPTransport, scriptedModel: ModelClient? = nil) {
+    init(root: URL, secrets: SecretStore, transport: @escaping HTTPTransport, stream: HTTPStreamTransport? = nil, scriptedModel: ModelClient? = nil) {
         try? FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
         engine = Engine(models: Bundle.main.url(forResource: "Models", withExtension: nil))
         library = Library(root: root.appending(path: "photos", directoryHint: .isDirectory), engine: engine)
-        account = Account(secrets: secrets, folder: root, transport: transport)
+        account = Account(secrets: secrets, folder: root, transport: transport, stream: stream)
         styleStore = StyleStore(file: root.appending(path: "filters.json"))
         prompts = PromptStore(defaults: UITesting.isActive ? nil : .standard)
         styles = styleStore.styles

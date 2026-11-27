@@ -28,13 +28,25 @@ final class Diagnostics {
 
     private static let kept = 400
     @ObservationIgnored private let monitor = NWPathMonitor()
+    /// The interfaces the phone reaches the internet through, to notice them changing.
+    @ObservationIgnored private var route: String?
     @ObservationIgnored private let launched = Date()
 
     private init() {
         monitor.pathUpdateHandler = { path in
             let described = Diagnostics.describe(path)
+            let route = Diagnostics.route(path)
+            let reachable = path.status == .satisfied
             Task { @MainActor in
                 let shared = Diagnostics.shared
+                // A different way out (or none, or back) can leave requests on a dead connection.
+                if shared.route != route {
+                    if shared.route != nil {
+                        Connection.networkChanged(reachable: reachable)
+                        shared.log("Network changed: requests under way must show they are alive within a few seconds, or are sent again")
+                    }
+                    shared.route = route
+                }
                 guard shared.network != described else { return }
                 shared.network = described
                 shared.log("Network: \(described)")
@@ -56,6 +68,10 @@ final class Diagnostics {
                 }
             }
         }
+        // Back on screen: requests waiting to be sent again go now.
+        center.addObserver(forName: UIApplication.didBecomeActiveNotification, object: nil, queue: .main) { _ in
+            MainActor.assumeIsolated { Wakeups.wake() }
+        }
         log("App started")
     }
 
@@ -63,6 +79,11 @@ final class Diagnostics {
     func log(_ text: String) {
         events.append(Event(date: Date(), text: text))
         if events.count > Diagnostics.kept { events.removeFirst(events.count - Diagnostics.kept) }
+    }
+
+    nonisolated private static func route(_ path: NWPath) -> String {
+        guard path.status == .satisfied else { return "none" }
+        return path.availableInterfaces.filter { path.usesInterfaceType($0.type) }.map(\.name).joined(separator: ",")
     }
 
     nonisolated private static func describe(_ path: NWPath) -> String {
