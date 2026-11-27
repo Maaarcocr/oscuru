@@ -196,9 +196,15 @@ public final class Engine: @unchecked Sendable {
     return Date().timeIntervalSince(failed) > 30
   }
 
+  /// Whether frames merged onto a finer grid (scale 2) are drawn as such. Off in the app for now:
+  /// the phone's RAW decoder gives up on pictures that large, and a photo with one crashed the app
+  /// each time it was drawn. Such a photo is drawn from its frames merged at scale 1 instead.
+  public var finerGrid = false
+
   /// Opens a photo under an id of the caller's choosing and reports what it is.
   public func open(id: String, url: URL) throws -> PhotoInfo {
     let session = try PhotoSession(url: url)
+    session.finerGrid = finerGrid
     session.makeRoom = { [weak self] bytes, what in try self?.makeRoom(bytes, for: what) }
     lock.withLock { sessions[id] = session }
     return session.info

@@ -88,6 +88,10 @@ final class ScriptSession {
             let set = try keptFrames()
             var next = draft
             try next.setFrames(argument(0), count: set.frames.count)
+            if (next.frames?.way.scale ?? 1) > 1 || (next.frames?.areas ?? []).contains(where: { $0.way.scale > 1 }) {
+                throw Failure(
+                    message: "Merging onto a finer grid (scale 2) is turned off for now: the phone's RAW decoder gives up on pictures that large. Merge at scale 1.")
+            }
             // Merged now, so that the script learns at once what it gave (and whether it could be done).
             let found: [Int: FrameReport]?
             do {

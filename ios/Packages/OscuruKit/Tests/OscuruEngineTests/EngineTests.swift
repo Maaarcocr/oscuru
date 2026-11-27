@@ -1104,9 +1104,19 @@ final class EngineTests: XCTestCase {
     let mixed = FrameMerge(way: removed.way, areas: [FrameMerge.Area(mask: right, way: drawn.way)])
     XCTAssertEqual(try lamps("shot", mixed), [false, true, true])
 
-    // Onto a finer grid: the photo is twice as wide and high, with all three colours at every
-    // pixel; another way laid in through a mask is developed to that size.
+    // Onto a finer grid (off in the app for now): drawn at scale 1, the photo keeps its size.
     let finer = FrameMerge(way: FrameMerge.Way(base: 1, use: [1, 2, 3], align: .camera, combine: .median, scale: 2))
+    var asked = RenderRecipe()
+    asked.frames = finer
+    let kept = try render("shot", asked, maxEdge: 0).0
+    XCTAssertEqual(kept.width, wall.width)
+    XCTAssertEqual(kept.height, wall.height)
+    engine.finerGrid = true
+    engine.close(id: "shot")
+    _ = try engine.open(id: "shot", url: original)
+
+    // Drawn as such: the photo is twice as wide and high, with all three colours at every
+    // pixel; another way laid in through a mask is developed to that size.
     func fineLamps(_ frames: FrameMerge) throws -> [Bool] {
       var recipe = RenderRecipe()
       recipe.frames = frames

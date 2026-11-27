@@ -40,6 +40,15 @@ public final class PhotoSession {
   private static let merging = NSLock()
   /// Asks the engine for room before heavy work (bytes, what it is for); set by the engine.
   var makeRoom: ((Int, String) throws -> Void)?
+  /// Whether merges onto a finer grid are drawn as such (see `Engine.finerGrid`).
+  var finerGrid = false
+
+  /// `way` as it is drawn: at scale 1 unless finer grids are.
+  private func drawn(_ way: FrameMerge.Way?) -> FrameMerge.Way? {
+    guard var way, way.scale > 1, !finerGrid else { return way }
+    way.scale = 1
+    return way
+  }
   /// How many merges other than the camera's are kept as files: older ones are made again when asked for.
   private static let maxMerges = 5
   /// What the kept merges may take together, in bytes.
@@ -313,7 +322,8 @@ public final class PhotoSession {
   /// way (or a photo without frames), one frame's file for that frame alone, otherwise a merge made
   /// now unless it is kept from before. A merge that cannot be made (the frames are gone or cannot
   /// be read) leaves the photo as its file has it.
-  private func rawSource(for way: FrameMerge.Way?) -> RawSource? {
+  private func rawSource(for asked: FrameMerge.Way?) -> RawSource? {
+    let way = drawn(asked)
     guard let original else { return nil }
     guard let way, let set = frameSet, way.key != set.merge.key else { return original }
     if let index = sources.firstIndex(where: { $0.key == way.key }) {
@@ -402,8 +412,8 @@ public final class PhotoSession {
 
   /// What lining up and merging found of each frame a way uses, by frame number, making the merge
   /// if it is not there. Nil when the photo has no frames or they cannot be merged that way.
-  func frameReports(for way: FrameMerge.Way?) throws -> [Int: FrameReport]? {
-    guard let way, let set = frameSet else { return nil }
+  func frameReports(for asked: FrameMerge.Way?) throws -> [Int: FrameReport]? {
+    guard let way = drawn(asked), let set = frameSet else { return nil }
     if way.key == set.merge.key {
       return Dictionary(uniqueKeysWithValues: set.frames.enumerated().map { ($0.offset + 1, $0.element.report) }.filter { $0.0 != way.base })
     }
