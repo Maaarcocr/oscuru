@@ -190,7 +190,10 @@ final class OscuruUITests: XCTestCase {
             alert.buttons[label].tap()
             break
         }
-        XCTAssertTrue(element(app, "settings.signIn").waitForExistence(timeout: 30))
+        // Sign in is at the top of the page, scrolled away to reach Disconnect.
+        let signIn = element(app, "settings.signIn")
+        for _ in 0..<6 where !signIn.waitForExistence(timeout: 3) { app.swipeDown() }
+        XCTAssertTrue(signIn.waitForExistence(timeout: 30))
         capture("14-signed-out")
         element(app, "settings.other").tap()
         XCTAssertTrue(element(app, "settings.key").waitForExistence(timeout: 30))
