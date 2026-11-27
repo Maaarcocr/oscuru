@@ -21,6 +21,8 @@ public final class Engine: @unchecked Sendable {
       case waitingForPhoto
       /// Waiting for other full-size work, which goes one at a time across all photos.
       case waitingForLarge
+      /// Waiting for the app to be back on screen.
+      case waitingForScreen
       case working
     }
 
@@ -41,13 +43,12 @@ public final class Engine: @unchecked Sendable {
 
   /// Draws on the graphics processor.
   private let gpu: CIContext
-  /// Draws on the processor: for while the app is in the background, where iOS does not let it use
-  /// the graphics processor (Core Image's drawing there fails).
-  private let cpu: CIContext
 
-  /// Guards `sessions`, `background` and the activity records; never held while anything renders.
+  /// Guards `sessions` and the activity records; never held while anything renders.
   private let lock = NSLock()
   private var sessions: [String: PhotoSession] = [:]
+  /// Holds work while the app is off screen (`isInBackground`).
+  private let screen = NSCondition()
   private var background = false
   private var current: [UUID: Activity] = [:]
   private var done: [Activity] = []
@@ -82,19 +83,29 @@ public final class Engine: @unchecked Sendable {
     if let working = CGColorSpace(name: CGColorSpace.extendedLinearSRGB) {
       options[.workingColorSpace] = working
     }
-    var software = options
-    software[.useSoftwareRenderer] = true
-    gpu = CIContext(options: useSoftwareRenderer ? software : options)
-    cpu = CIContext(options: software)
+    if useSoftwareRenderer { options[.useSoftwareRenderer] = true }
+    gpu = CIContext(options: options)
   }
 
-  /// The context renders draw with now.
-  public var context: CIContext { isInBackground ? cpu : gpu }
+  /// The context renders draw with.
+  public var context: CIContext { gpu }
 
-  /// Set while the app is in the background: renders then draw on the processor, slower but drawn.
+  /// Set while the app is in the background, where iOS does not let it use the graphics processor
+  /// (Core Image's drawing there fails): work asked for meanwhile waits until the app is back.
   public var isInBackground: Bool {
-    get { lock.withLock { background } }
-    set { lock.withLock { background = newValue } }
+    get { screen.withLock { background } }
+    set {
+      screen.withLock {
+        background = newValue
+        if !newValue { screen.broadcast() }
+      }
+    }
+  }
+
+  private func waitUntilOnScreen() {
+    screen.withLock {
+      while background { screen.wait() }
+    }
   }
 
   /// What the engine is doing and waiting to do now, oldest first.
@@ -129,6 +140,10 @@ public final class Engine: @unchecked Sendable {
         current[token]?.since = Date()
       }
     }
+    if isInBackground {
+      enter(.waitingForScreen)
+      waitUntilOnScreen()
+    }
     session.lock.lock()
     defer { session.lock.unlock() }
     guard isLarge else {
@@ -141,7 +156,6 @@ public final class Engine: @unchecked Sendable {
     large.lock()
     defer {
       gpu.clearCaches()
-      cpu.clearCaches()
       large.unlock()
     }
     enter(.working)

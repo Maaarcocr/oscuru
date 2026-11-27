@@ -52,7 +52,6 @@ final class PhotoEditor {
     private var conversation: Conversation
     private var task: Task<Void, Never>?
     private var following: Task<Void, Never>?
-    private var background: BackgroundWork { .shared }
     /// Pictures of versions shown in the thread, kept for a while.
     private var pictures: [(state: EditingState, image: CGImage)] = []
     /// The settings the library's thumbnail shows.
@@ -240,7 +239,7 @@ final class PhotoEditor {
         sending = text
         let port = EditorPort(editor: self)
         let transcript = transcript
-        start(asked: true, about: text) {
+        start {
             // The photo as the person sees it goes with the words, and is kept with them.
             let context = await port.context()
             var pictures: [PictureRef] = []
@@ -257,7 +256,7 @@ final class PhotoEditor {
     func continueRun() {
         guard !isWorking, account.isConnected, conversation.canContinue || conversation.wasInterrupted else { return }
         let transcript = transcript
-        start(asked: true, about: L10n.assistantContinuing) { _ = try await transcript.append(.resume(automatic: false)) }
+        start { _ = try await transcript.append(.resume(automatic: false)) }
     }
 
     /// Carries on with work the app was closed during, as soon as the photo is open again. Work
@@ -269,24 +268,23 @@ final class PhotoEditor {
             return
         }
         let transcript = transcript
-        start(asked: false, about: L10n.assistantContinuing) { _ = try await transcript.append(.resume(automatic: true)) }
+        start { _ = try await transcript.append(.resume(automatic: true)) }
     }
 
     /// Runs the assistant's loop on the transcript, once `prepare` has written what starts it.
-    /// `asked` is whether the person asked for it just now (it may then go on in the background);
-    /// `about` is what the system shows of it there, under the photo's name.
-    private func start(asked: Bool, about: String, _ prepare: @escaping @Sendable () async throws -> Void) {
+    /// It works while the app is open; when the app leaves the screen iOS suspends it, and it
+    /// carries on from where it was when the app is back.
+    private func start(_ prepare: @escaping @Sendable () async throws -> Void) {
         let client = modelClient()
         let model = account.activeModel
         let window = account.contextLength(of: model)
         let port = EditorPort(editor: self)
         let transcript = transcript
         let photo = document.id
-        background.begin(photo, photo: document.fileName, asked: asked, about: about)
         runStarted = Date()
         runSteps = 0
         doing = ("starting", Date())
-        Diagnostics.shared.log("\(document.fileName): assistant started (\(asked ? "asked by you" : "taken up again by itself"), model \(model))")
+        Diagnostics.shared.log("\(document.fileName): assistant started (model \(model))")
         task = Task {
             do {
                 try await prepare()
@@ -307,7 +305,7 @@ final class PhotoEditor {
     /// called when a run ends and when such a message is written with nobody working.
     private func followUp() {
         guard !isWorking, account.isConnected, conversation.halt == nil, !conversation.queued.isEmpty else { return }
-        start(asked: true, about: L10n.assistantContinuing) {}
+        start {}
     }
 
     private func finish() {
@@ -325,7 +323,6 @@ final class PhotoEditor {
         followUp()
         guard !isWorking else { return }
         if turns.last?.status == .done { completedRuns += 1 }
-        background.end(document.id)
         let transcript = transcript
         Task {
             await transcript.prune()
@@ -373,7 +370,6 @@ final class PhotoEditor {
         case .requesting, .running:
             retrying = nil
             summarizing = false
-            background.step(document.id)
         case .retrying(_, _, let message):
             retrying = message
         case .summarizing:

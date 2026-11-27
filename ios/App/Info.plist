@@ -40,10 +40,6 @@
 	<string>Oscuru takes RAW photos with the camera, keeping exactly what the sensor saw.</string>
 	<key>NSPhotoLibraryAddUsageDescription</key>
 	<string>Oscuru saves the photos you develop to your library, with your edits.</string>
-	<key>BGTaskSchedulerPermittedIdentifiers</key>
-	<array>
-		<string>$(PRODUCT_BUNDLE_IDENTIFIER).assistant.*</string>
-	</array>
 	<key>ITSAppUsesNonExemptEncryption</key>
 	<false/>
 	<key>LSRequiresIPhoneOS</key>

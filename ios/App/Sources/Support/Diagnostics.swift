@@ -165,12 +165,11 @@ final class Diagnostics {
         return [
             Line(id: "network", title: "Network", detail: network),
             Line(id: "app", title: "App", detail: app == .active ? "on screen" : app == .background ? "in the background" : "leaving or returning"),
-            Line(id: "drawing", title: "Drawing on", detail: model.engine.isInBackground ? "the processor (in the background, slower)" : "the graphics processor"),
+            Line(id: "drawing", title: "Drawing", detail: model.engine.isInBackground ? "waits until the app is back on screen" : "on the graphics processor"),
             Line(id: "cpu", title: "Processor", detail: String(format: "%.1f of %d cores busy", cores.busy, cores.of)),
             Line(id: "memory", title: "Memory", detail: String(format: "%.0f MB used, %.0f MB more allowed", memory.used, memory.left)),
             Line(id: "heat", title: "Heat", detail: Diagnostics.heat),
             Line(id: "power", title: "Low Power Mode", detail: ProcessInfo.processInfo.isLowPowerModeEnabled ? "on (iOS is slowing the phone)" : "off"),
-            Line(id: "background", title: "Background task", detail: BackgroundWork.shared.status),
             Line(id: "uptime", title: "Running for", detail: Diagnostics.elapsed(since: launched)),
         ]
     }
@@ -211,6 +210,7 @@ final class Diagnostics {
         switch state {
         case .waitingForPhoto: return "waiting for this photo's other drawing"
         case .waitingForLarge: return "waiting for another photo's full-size work"
+        case .waitingForScreen: return "waiting for the app to be back on screen"
         case .working: return "working"
         }
     }

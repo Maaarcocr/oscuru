@@ -57,8 +57,8 @@ final class AppModel {
                 self.styles = self.styleStore.styles
             }
         }
-        // iOS does not let an app in the background use the graphics processor: the assistant's
-        // renders there are drawn on the processor instead.
+        // iOS does not let an app in the background use the graphics processor: work asked of the
+        // engine meanwhile waits until the app is back on screen.
         let engine = engine
         let center = NotificationCenter.default
         center.addObserver(forName: UIApplication.didEnterBackgroundNotification, object: nil, queue: nil) { _ in engine.isInBackground = true }

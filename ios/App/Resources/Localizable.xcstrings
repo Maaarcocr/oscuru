@@ -1,54 +1,6 @@
 {
   "sourceLanguage": "en",
   "strings": {
-    "assistant.background.continuing": {
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Carrying on with the edit"
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Prosegue con la modifica"
-          }
-        }
-      }
-    },
-    "assistant.background.paused": {
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Paused. Open Oscuru to carry on."
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "In pausa. Apri Oscuru per proseguire."
-          }
-        }
-      }
-    },
-    "assistant.background.title %@": {
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Editing %@"
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Modifica di %@"
-          }
-        }
-      }
-    },
     "camera.aperture": {
       "localizations": {
         "en": {
