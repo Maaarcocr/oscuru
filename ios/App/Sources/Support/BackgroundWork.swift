@@ -2,27 +2,32 @@ import BackgroundTasks
 import UIKit
 import os
 
-/// Keeps the assistant working when the app leaves the screen.
+/// Keeps the assistant working when the app leaves the screen, for every photo it is working on.
 ///
-/// Work the person asked for (a message, Continue) runs as a continued processing task (iOS 26's
-/// `BGContinuedProcessingTask`): it carries on while they use other apps, the system shows its
-/// progress (each step the assistant takes) and lets them cancel it, which stops the assistant as
-/// Stop does. Where the system will not start one, or for work the app took up again by itself,
-/// iOS gives the usual short time to finish instead. Either way, if the app is suspended or
-/// closed, the transcript has every step so far, and the work carries on when the photo is opened
-/// again.
+/// Work the person asked for (a message, Continue) runs under one continued processing task for
+/// the whole app (iOS 26's `BGContinuedProcessingTask`): it carries on while they use other apps,
+/// the system shows its progress (each step any assistant takes) and lets them cancel it, which
+/// stops every assistant as Stop does. It lasts until the last run ends, so one photo finishing
+/// never leaves another to be suspended. Where the system will not start one, or for work the app
+/// took up again by itself, iOS gives the usual short time to finish instead. Either way, if the
+/// app is suspended or closed, each transcript has every step so far, and the work carries on when
+/// its photo is opened again.
 @MainActor
 final class BackgroundWork {
-    /// What stops the work when the person cancels it from the system's progress.
-    var onCancel: (() -> Void)?
+    static let shared = BackgroundWork()
 
+    private struct Run {
+        var photo: String
+        var steps: Int64 = 0
+        var onCancel: () -> Void
+    }
+
+    /// The runs under way, by photo.
+    private var runs: [String: Run] = [:]
     private var grace: UIBackgroundTaskIdentifier = .invalid
     private var continued: BGContinuedProcessingTask?
-    /// Whether a continued task was asked for in this run, and whether the run has ended (a task
-    /// the system starts after that is done at once).
-    private var asked = false
-    private var ended = false
-    private var steps: Int64 = 0
+    /// A continued task asked for and not yet started or refused.
+    private var asking = false
 
     private static let log = Logger(subsystem: "com.rudilosso.oscuru", category: "background")
 
@@ -30,18 +35,17 @@ final class BackgroundWork {
     /// BGTaskSchedulerPermittedIdentifiers in Info.plist.
     private static var prefix: String { (Bundle.main.bundleIdentifier ?? "com.rudilosso.oscuru") + ".assistant." }
 
-    /// The run starts. `asked` is whether the person asked for it just now, which a continued task
-    /// needs; `title` and `subtitle` are what the system shows of it.
-    func begin(asked byPerson: Bool, title: String, subtitle: String) {
-        ended = false
-        steps = 0
+    /// A run starts on a photo (`id`, named `photo`). `asked` is whether the person asked for it
+    /// just now, which a continued task needs; `about` is what was asked. `onCancel` stops it.
+    func begin(_ id: String, photo: String, asked: Bool, about: String, onCancel: @escaping () -> Void) {
+        runs[id] = Run(photo: photo, onCancel: onCancel)
         if grace == .invalid {
             grace = UIApplication.shared.beginBackgroundTask(withName: "Assistant") { [weak self] in
                 MainActor.assumeIsolated { self?.endGrace() }
             }
         }
-        guard byPerson, !asked, continued == nil, !UITesting.isActive else { return }
-        asked = true
+        show()
+        guard asked, continued == nil, !asking, !UITesting.isActive else { return }
         let identifier = BackgroundWork.prefix + UUID().uuidString
         // On the main queue, so the handler is on the main actor.
         let registered = BGTaskScheduler.shared.register(forTaskWithIdentifier: identifier, using: .main) { [weak self] task in
@@ -57,26 +61,29 @@ final class BackgroundWork {
             BackgroundWork.log.error("The assistant's background task could not be registered.")
             return
         }
-        let request = BGContinuedProcessingTaskRequest(identifier: identifier, title: title, subtitle: subtitle)
+        let request = BGContinuedProcessingTaskRequest(identifier: identifier, title: L10n.assistantBackgroundTitle(photo), subtitle: about)
         // Now or not at all: queued, it could start after the work is done.
         request.strategy = .fail
+        asking = true
         do {
             try BGTaskScheduler.shared.submit(request)
         } catch {
+            asking = false
             BackgroundWork.log.error("The assistant's background task was refused: \(error.localizedDescription, privacy: .public)")
         }
     }
 
-    /// The assistant took a step: a request to the model, or a script.
-    func step() {
-        steps += 1
+    /// The run on `id` took a step: a request to the model, or a script.
+    func step(_ id: String) {
+        runs[id]?.steps += 1
         show()
     }
 
-    /// The run is over: the system's progress finishes, and the app may be suspended.
-    func end() {
-        ended = true
-        asked = false
+    /// The run on `id` is over. With none left, the system's progress finishes and the app may be suspended.
+    func end(_ id: String) {
+        runs[id] = nil
+        show()
+        guard runs.isEmpty else { return }
         if let continued {
             continued.progress.completedUnitCount = continued.progress.totalUnitCount
             continued.setTaskCompleted(success: true)
@@ -86,7 +93,8 @@ final class BackgroundWork {
     }
 
     private func started(_ task: BGContinuedProcessingTask) {
-        guard !ended else {
+        asking = false
+        guard !runs.isEmpty else {
             task.setTaskCompleted(success: true)
             return
         }
@@ -97,19 +105,20 @@ final class BackgroundWork {
         show()
     }
 
-    /// The progress so far: each step done, and always one more to come until the work ends.
+    /// The progress so far: every step of every run, and one more to come for each run under way.
     private func show() {
         guard let continued else { return }
-        continued.progress.totalUnitCount = steps + 1
-        continued.progress.completedUnitCount = steps
+        let done = runs.values.reduce(0) { $0 + $1.steps }
+        continued.progress.totalUnitCount = done + Int64(max(1, runs.count))
+        continued.progress.completedUnitCount = done
     }
 
-    /// The person cancelled the work from the system's progress, or the system stopped it.
+    /// The person cancelled the work from the system's progress, or the system stopped it: every run stops.
     private func expired() {
         guard let continued else { return }
         self.continued = nil
         continued.setTaskCompleted(success: false)
-        onCancel?()
+        for run in runs.values { run.onCancel() }
     }
 
     private func endGrace() {

@@ -48,7 +48,7 @@ final class PhotoEditor {
     private var conversation: Conversation
     private var task: Task<Void, Never>?
     private var following: Task<Void, Never>?
-    private let background = BackgroundWork()
+    private var background: BackgroundWork { .shared }
     /// Pictures of versions shown in the thread, kept for a while.
     private var pictures: [(state: EditingState, image: CGImage)] = []
     /// The settings the library's thumbnail shows.
@@ -278,8 +278,7 @@ final class PhotoEditor {
         let port = EditorPort(editor: self)
         let transcript = transcript
         let photo = document.id
-        background.onCancel = { [weak self] in self?.stop() }
-        background.begin(asked: asked, title: L10n.assistantBackgroundTitle(document.fileName), subtitle: about)
+        background.begin(photo, photo: document.fileName, asked: asked, about: about) { [weak self] in self?.stop() }
         task = Task {
             do {
                 try await prepare()
@@ -310,7 +309,7 @@ final class PhotoEditor {
         followUp()
         guard !isWorking else { return }
         if turns.last?.status == .done { completedRuns += 1 }
-        background.end()
+        background.end(document.id)
         let transcript = transcript
         Task {
             await transcript.prune()
@@ -325,7 +324,7 @@ final class PhotoEditor {
         case .requesting, .running:
             retrying = nil
             summarizing = false
-            background.step()
+            background.step(document.id)
         case .retrying(_, _, let message):
             retrying = message
         case .summarizing:
