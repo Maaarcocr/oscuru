@@ -199,6 +199,31 @@ final class AppModel {
         }
     }
 
+    /// Every photo's conversation with the assistant in one JSON file, for the share sheet: what
+    /// was said and done, and how long each step took (`TranscriptExport`). Read from the
+    /// transcripts as they are on disk; photos without a conversation are left out.
+    func exportConversations() async throws -> URL {
+        let photos = library.photos.map { (id: $0.id, name: $0.name, folder: library.conversationFolder($0.id)) }
+        let bundle = Bundle.main.infoDictionary ?? [:]
+        let app = "\(bundle["CFBundleShortVersionString"] as? String ?? "?") (\(bundle["CFBundleVersion"] as? String ?? "?"))"
+        let system = "\(UIDevice.current.systemName) \(UIDevice.current.systemVersion)"
+        var name = utsname()
+        uname(&name)
+        let device = withUnsafeBytes(of: &name.machine) { bytes in String(decoding: bytes.prefix(while: { $0 != 0 }), as: UTF8.self) }
+        return try await Task.detached(priority: .userInitiated) {
+            let read = photos.compactMap { photo -> TranscriptExport.Photo? in
+                let entries = Transcript.entries(in: photo.folder)
+                return entries.isEmpty ? nil : TranscriptExport.Photo(id: photo.id, name: photo.name, entries: entries)
+            }
+            let folder = FileManager.default.temporaryDirectory.appending(path: "Export \(UUID().uuidString)", directoryHint: .isDirectory)
+            try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+            let day = Date.now.formatted(.iso8601.year().month().day())
+            let file = folder.appending(path: "Oscuru conversations \(day).json")
+            try TranscriptExport.data(photos: read, app: app, device: device, system: system).write(to: file)
+            return file
+        }.value
+    }
+
     /// Files for the share sheet, one per photo, in the order given: each developed at full
     /// resolution as a JPEG, or, for `original`, the file as it was taken or added (a RAW stays RAW).
     func export(_ ids: [String], original: Bool) async throws -> [URL] {

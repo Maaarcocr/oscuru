@@ -2737,6 +2737,38 @@
         }
       }
     },
+    "settings.exportConversations": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Export Conversations"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Esporta conversazioni"
+          }
+        }
+      }
+    },
+    "settings.exportConversations.footer": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Every photo's conversation with the assistant in one file, with how long each step took. The pictures are not in it."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "La conversazione con l'assistente di ogni foto in un unico file, con la durata di ogni passaggio. Le immagini non sono incluse."
+          }
+        }
+      }
+    },
     "settings.frames": {
       "localizations": {
         "en": {

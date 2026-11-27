@@ -65,7 +65,7 @@ struct ShareButton: View {
 }
 
 /// Files ready for the share sheet.
-private struct SharedFiles: Identifiable {
+struct SharedFiles: Identifiable {
     let id = UUID()
     let urls: [URL]
 
@@ -75,7 +75,7 @@ private struct SharedFiles: Identifiable {
 }
 
 /// The system share sheet: save to Photos or Files, AirDrop, and so on.
-private struct ShareSheet: UIViewControllerRepresentable {
+struct ShareSheet: UIViewControllerRepresentable {
     let urls: [URL]
 
     func makeUIViewController(context: Context) -> UIActivityViewController {

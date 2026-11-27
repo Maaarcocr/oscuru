@@ -264,6 +264,21 @@ public actor Transcript {
 
     public var isEmpty: Bool { entries.isEmpty }
 
+    /// The records of the transcript in `folder`, read without opening it: nothing is created or
+    /// changed, so it is safe beside the transcript's own writer. A last line still being written
+    /// is left out.
+    public static func entries(in folder: URL) -> [TranscriptEntry] {
+        guard let data = try? Data(contentsOf: folder.appending(path: "transcript.jsonl")) else { return [] }
+        var entries: [TranscriptEntry] = []
+        let decoder = TranscriptEntry.decoder
+        var start = data.startIndex
+        while start < data.endIndex, let end = data[start...].firstIndex(of: UInt8(ascii: "\n")) {
+            if let entry = try? decoder.decode(TranscriptEntry.self, from: data[start..<end]) { entries.append(entry) }
+            start = end + 1
+        }
+        return entries
+    }
+
     /// Writes a record and returns it once it is on disk.
     @discardableResult
     public func append(_ body: TranscriptEntry.Body) throws -> TranscriptEntry {

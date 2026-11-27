@@ -361,6 +361,8 @@ enum L10n {
     static var signInExpired: String { String(localized: "settings.signInExpired") }
     static var settingsFrames: String { String(localized: "settings.frames") }
     static var settingsFramesFooter: String { String(localized: "settings.frames.footer") }
+    static var settingsExportConversations: String { String(localized: "settings.exportConversations") }
+    static var settingsExportConversationsFooter: String { String(localized: "settings.exportConversations.footer") }
     static func settingsDiscardFrames(_ size: String) -> String { String(localized: "settings.discardFrames \(size)") }
     static var settingsDiscardFramesTitle: String { String(localized: "settings.discardFrames.title") }
     static var settingsDiscardFramesMessage: String { String(localized: "settings.discardFrames.message") }

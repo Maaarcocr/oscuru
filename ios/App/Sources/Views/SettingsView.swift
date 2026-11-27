@@ -14,6 +14,9 @@ struct SettingsView: View {
     /// How much room the frames kept beside the photos take, once measured.
     @State private var keptFrames: Int64?
     @State private var confirmingDiscard = false
+    @State private var exportingConversations = false
+    @State private var exportedConversations: SharedFiles?
+    @State private var exportProblem: String?
 
     private var account: Account { model.account }
 
@@ -63,6 +66,29 @@ struct SettingsView: View {
                     Text(L10n.settingsFramesFooter)
                 }
                 .task { keptFrames = await model.library.keptFramesSize() }
+                Section {
+                    Button {
+                        exportConversations()
+                    } label: {
+                        HStack {
+                            Text(L10n.settingsExportConversations)
+                            Spacer()
+                            if exportingConversations { ProgressView() }
+                        }
+                    }
+                    .disabled(exportingConversations)
+                    .accessibilityIdentifier("settings.exportConversations")
+                    .sheet(item: $exportedConversations) { files in
+                        ShareSheet(urls: files.urls).presentationDetents([.medium, .large])
+                    }
+                    .alert(L10n.exportFailed, isPresented: Binding(get: { exportProblem != nil }, set: { if !$0 { exportProblem = nil } })) {
+                        Button(L10n.ok, role: .cancel) {}
+                    } message: {
+                        Text(exportProblem ?? "")
+                    }
+                } footer: {
+                    Text(L10n.settingsExportConversationsFooter)
+                }
                 if account.isConnected {
                     usage
                     Section {
@@ -99,6 +125,20 @@ struct SettingsView: View {
                 Text(problem ?? "")
             }
             .task { await account.refresh() }
+        }
+    }
+
+    /// Every conversation in one file, handed to the share sheet.
+    private func exportConversations() {
+        guard !exportingConversations else { return }
+        exportingConversations = true
+        Task {
+            defer { exportingConversations = false }
+            do {
+                exportedConversations = SharedFiles([try await model.exportConversations()])
+            } catch {
+                exportProblem = error.localizedDescription
+            }
         }
     }
 
